@@ -66,7 +66,7 @@ frame(root, 'sp', { w: 1, h: 32 });
 const twoCol = frame(root, 'radius and spacing', { dir: 'HORIZONTAL', gap: 24, cross: 'MIN' });
 const radiusCol = frame(twoCol, 'radius col', { dir: 'VERTICAL', gap: 10, w: 396 });
 t(radiusCol, '圆角', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
-const radii = [[5, '气泡尖角'], [8, '词条 / 标签'], [12, '搜索框 / 提示行'], [14, '提示卡 / 改写卡'], [16, '生词卡'], [18, '气泡主圆角'], [26, '半屏抽屉'], [999, '胶囊 / 圆形按钮']];
+const radii = [[5, '气泡尖角'], [8, '词条 / 标签 / 下拉选项'], [12, '搜索框 / 提示行'], [14, '提示卡 / 改写卡 / 下拉菜单'], [16, '生词卡'], [18, '气泡主圆角'], [26, '半屏抽屉'], [999, '胶囊 / 圆形按钮']];
 for (const [r, use] of radii) {
   const row = frame(radiusCol, 'spec radius ' + r, { w: 380, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', gap: 12 });
   const box = frame(row, 'box', { w: 44, h: 44, fill: C.card, stroke: C.hairStrong, radius: r === 999 ? 22 : r });
@@ -92,19 +92,22 @@ const map = frame(root, 'structure', { w: 820, dir: 'HORIZONTAL', gap: 12, cross
 map.layoutWrap = 'WRAP';
 const groups = [
   ['原子层 atoms', [
-    'Avatar', 'IconButton/24-30-32-34-44', 'Button/Primary/Talk', 'Button/Primary/Label', 'Button/Ghost',
-    'Chip/Filter/On', 'Chip/Filter/Off', 'Chip/Tag/Olive', 'Chip/Tag/Neutral', 'Chip/Word', 'Score/Value'
+    'Avatar', 'IconButton/30-32-34-44', 'Button/Primary/Talk', 'Button/Primary/Label', 'Button/Ghost',
+    'Chip/Filter/On', 'Chip/Filter/Off', 'Chip/Tag/Olive', 'Chip/Tag/Neutral', 'Chip/Word', 'Score/Value',
+    'Select/Option/On', 'Select/Option/Off', 'Row/Session'
   ]],
   ['复合层 molecules', [
     'Bubble/Echo', 'Bubble/User', 'ScorePill', 'HintCard', 'SectionLabel', 'SectionLabel/Mic',
-    'Field/Search', 'Row/Provider', 'VocabCard/Collocation', 'VocabCard/Word', 'VocabCard/New',
+    'Field/Search', 'Row/Provider', 'Row/Provider/Open', 'Row/Provider/Off', 'Row/Action/Text', 'Row/Action/Summary', 'Row/Action/Records',
+    'Select/Menu', 'VocabCard/Collocation', 'VocabCard/Word', 'VocabCard/New',
     'Panel/Original', 'Panel/Rewrite', 'Tab/On', 'Tab/Off', 'Waveform', 'MicButton'
   ]],
   ['组织层 organisms', [
-    'TopBar', 'BottomBar', 'RecordSheet'
+    'TopBar', 'TopBar/Open', 'BottomBar', 'RecordSheet'
   ]],
   ['界面 screens', [
-    '01 对话', '02 收音中', '03 评测抽屉', '04 生词库', '05 配置中心'
+    '01 对话', '02 收音中', '03 评测抽屉', '04 生词库', '05 配置中心',
+    '06 场景下拉', '07 模型下拉', '08 动作面板', '09 会话小结', '10 会话记录'
   ]]
 ];
 for (const [title, lines] of groups) {
@@ -114,6 +117,6 @@ for (const [title, lines] of groups) {
 }
 frame(root, 'sp', { w: 1, h: 24 });
 t(root, '所有界面只由组件实例拼装，文字靠实例覆盖，不复制组件内部结构。改一处样式，全部界面同步。', { font: F.cn, size: 11.5, color: C.ink3, lh: 19 });
-t(root, 'Compose 结构：ui/theme/ParleyTheme.kt（颜色·字体·圆角·间距）→ ui/components/{atoms,molecules,organisms} → ui/screens。组件名与画板名一一对应。', { font: F.cn, size: 11.5, color: C.ink3, lh: 19 });
+t(root, 'Compose 结构：ui/theme/ParleyTheme.kt（颜色·字体·圆角·间距）→ ui/components/{atoms,molecules,organisms} → ui/screens。组件名与画板名一一对应。下拉菜单、顶部胶囊与状态行各带开合两态，界面只切实例不画新样式。', { font: F.cn, size: 11.5, color: C.ink3, lh: 19 });
 
 return { frame: root.id, w: Math.round(root.width), h: Math.round(root.height) };

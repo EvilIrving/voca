@@ -30,6 +30,7 @@ function put(c, label, colKey) {
   lb.x = x; lb.y = ys[colKey] - 18;
   made[label] = c;
   ys[colKey] += c.height + 56;
+  return c;
 }
 
 /* ---------------- atoms ---------------- */
@@ -47,7 +48,9 @@ put(iconBtn(44, 'callEnd', 19, {}), 'Speaker/IconButton/44/CallEnd', 'A');
 put(iconBtn(34, 'settings', 18, {}), 'Speaker/IconButton/34/Gear', 'A');
 put(iconBtn(32, 'book', 18, { fill: C.paper, stroke: C.paper }), 'Speaker/IconButton/32/Book', 'A');
 put(iconBtn(30, 'dismiss', 16, { stroke: C.paper, fill: C.paper, color: C.ink4 }), 'Speaker/IconButton/30/Dismiss', 'A');
+put(iconBtn(32, 'arrowLeft', 18, { fill: C.paper, stroke: C.paper, color: C.ink2 }), 'Speaker/IconButton/32/Back', 'A');
 put(iconBtn(30, 'speaker', 15, { fill: C.clayTint, stroke: C.clayTint, color: C.clayDeep }), 'Speaker/IconButton/30/Speaker', 'A');
+put(iconBtn(30, 'edit', 15, { fill: C.paper, stroke: C.paper, color: C.ink4 }), 'Speaker/IconButton/30/Edit', 'A');
 
 put(comp(page, 'Speaker/Button/Primary/Talk', { h: 48, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', gap: 8, pl: 20, pr: 20, fill: C.clay, radius: 999 }, c => {
   icon(c, 'mic', 19, C.card);
@@ -134,16 +137,22 @@ put(comp(page, 'Speaker/Field/Search', { w: 320, h: 40, dir: 'HORIZONTAL', cross
   t(c, '搜单词或例句', { font: F.cn, size: 12.5, color: C.ink4, lh: 18, grow: 1, name: 'placeholder' });
 }), 'Speaker/Field/Search', 'B');
 
-put(comp(page, 'Speaker/Row/Provider', { w: 320, h: 58, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 14, gap: 12 }, c => {
-  const radio = frame(c, 'radio', { w: 18, h: 18, fill: C.card, stroke: C.hairStrong, radius: 999, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER' });
-  frame(radio, 'dot', { w: 9, h: 9, fill: C.clay, radius: 999 });
-  const txts = frame(c, 'texts', { dir: 'VERTICAL', gap: 2, grow: 1 });
-  t(txts, 'Gemini Live', { font: F.cnMd, size: 13.5, color: C.ink, lh: 19, name: 'name' });
-  t(txts, 'gemini-3.8-live · 手动回合', { font: F.mono, size: 10.5, color: C.ink4, lh: 14, name: 'meta' });
-  const state = frame(c, 'state', { h: 20, dir: 'HORIZONTAL', cross: 'CENTER', gap: 5 });
-  frame(state, 'dot', { w: 5, h: 5, fill: C.olive, radius: 9 });
-  t(state, '已连通', { font: F.cn, size: 10.5, color: C.olive, lh: 14, name: 'status' });
-}), 'Speaker/Row/Provider', 'B');
+function providerRow(suffix, open) {
+  return put(comp(page, 'Speaker/Row/Provider' + suffix, { w: 320, h: 54, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 14, gap: 12 }, c => {
+    const radio = frame(c, 'radio', { w: 18, h: 18, fill: C.card, stroke: C.hairStrong, radius: 999, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER' });
+    frame(radio, 'dot', { w: 9, h: 9, fill: C.clay, radius: 999 });
+    const txts = frame(c, 'texts', { dir: 'VERTICAL', gap: 2, grow: 1 });
+    t(txts, 'Gemini Live', { font: F.cnMd, size: 13.5, color: C.ink, lh: 19, name: 'name' });
+    const metaRow = frame(txts, 'meta row', { dir: 'HORIZONTAL', cross: 'CENTER', gap: 4 });
+    t(metaRow, 'gemini-3.8-live', { font: F.mono, size: 10.5, color: open ? C.clayDeep : C.ink4, lh: 14, name: 'meta' });
+    icon(metaRow, open ? 'chevUp' : 'chevDown', 12, open ? C.clayDeep : C.ink4);
+    const state = frame(c, 'state', { h: 20, dir: 'HORIZONTAL', cross: 'CENTER', gap: 5 });
+    frame(state, 'dot', { w: 5, h: 5, fill: C.olive, radius: 9 });
+    t(state, '已连通', { font: F.cn, size: 10.5, color: C.olive, lh: 14, name: 'status' });
+  }), 'Speaker/Row/Provider' + suffix, 'B');
+}
+providerRow('', false);
+providerRow('/Open', true);
 
 function vocabVariant(suffix, tags) {
   return comp(page, 'Speaker/VocabCard/' + suffix, { w: 320, dir: 'VERTICAL', pl: 14, pr: 14, pt: 12, pb: 12, gap: 7, fill: C.card, stroke: C.hair, radius: 16 }, c => {
@@ -170,14 +179,52 @@ put(vocabVariant('Collocation', ['地道搭配', '复现 3 次']), 'Speaker/Voca
 put(vocabVariant('Word', ['生词', '复现 2 次']), 'Speaker/VocabCard/Word', 'B');
 put(vocabVariant('New', ['地道搭配', '新收录']), 'Speaker/VocabCard/New', 'B');
 
-put(comp(page, 'Speaker/Row/Provider/Off', { w: 320, h: 58, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 14, gap: 12 }, c => {
+put(comp(page, 'Speaker/Row/Provider/Off', { w: 320, h: 54, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 14, gap: 12 }, c => {
   const radio = frame(c, 'radio', { w: 18, h: 18, fill: C.card, stroke: C.hairStrong, radius: 999 });
   const txts = frame(c, 'texts', { dir: 'VERTICAL', gap: 2, grow: 1 });
   t(txts, 'OpenAI Realtime', { font: F.cnMd, size: 13.5, color: C.ink3, lh: 19, name: 'name' });
-  t(txts, 'gpt-realtime · 手动回合', { font: F.mono, size: 10.5, color: C.ink4, lh: 14, name: 'meta' });
+  t(txts, 'gpt-realtime', { font: F.mono, size: 10.5, color: C.ink4, lh: 14, name: 'meta' });
   const state = frame(c, 'state', { h: 20, dir: 'HORIZONTAL', cross: 'CENTER', gap: 5 });
   t(state, '未配置', { font: F.cn, size: 10.5, color: C.ink4, lh: 14, name: 'status' });
 }), 'Speaker/Row/Provider/Off', 'B');
+
+function selectOption(suffix, on) {
+  return comp(page, 'Speaker/Select/Option/' + suffix, { w: 292, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 10, pr: 10, gap: 8, fill: on ? C.clayTint : undefined, radius: 8 }, c => {
+    const col = frame(c, 'texts', { dir: 'VERTICAL', gap: 2, grow: 1 });
+    t(col, on ? 'gemini-3.8-live' : 'gemini-3.1-flash-live-preview', { font: F.monoMd, size: 11.5, color: on ? C.ink : C.ink2, lh: 16, name: 'name' });
+    t(col, on ? '手动回合 · 首包 450 毫秒' : '更快首包 · 预览', { font: F.cn, size: 10.5, color: C.ink4, lh: 14, name: 'note' });
+    if (on) icon(c, 'checkMark', 13, C.clayDeep);
+  });
+}
+const optOn = put(selectOption('On', true), 'Speaker/Select/Option/On', 'A');
+const optOff = put(selectOption('Off', false), 'Speaker/Select/Option/Off', 'A');
+
+put(comp(page, 'Speaker/Row/Session', { w: 320, h: 62, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 12, gap: 10, fill: C.card, stroke: C.hair, radius: 16 }, c => {
+  const texts = frame(c, 'texts', { dir: 'VERTICAL', gap: 3, grow: 1 });
+  t(texts, '没睡好的早晨', { font: F.serifMd, size: 15.5, color: C.ink, lh: 22, name: 'name' });
+  t(texts, '07:40 · 12 轮 · 发音 84', { font: F.mono, size: 10.5, color: C.ink4, lh: 14, name: 'meta' });
+  icon(c, 'chevRight', 12, C.ink4);
+}), 'Speaker/Row/Session', 'B');
+
+function actionRow(suffix, glyph, label) {
+  return put(comp(page, 'Speaker/Row/Action' + suffix, { w: 320, h: 54, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 12, gap: 12 }, c => {
+    icon(c, glyph, 18, C.ink3);
+    t(c, label, { font: F.cnMd, size: 13.5, color: C.ink, lh: 19, grow: 1, name: 'label' });
+    icon(c, 'chevRight', 12, C.ink4);
+  }), 'Speaker/Row/Action' + suffix, 'B');
+}
+actionRow('/Text', 'keyboard', '打字输入');
+actionRow('/Summary', 'gauge', '会话小结');
+actionRow('/Records', 'history', '会话记录');
+
+put(comp(page, 'Speaker/Select/Menu', { w: 320, dir: 'VERTICAL', pl: 6, pr: 6, pt: 6, pb: 6, fill: C.card, stroke: C.hair, radius: 14 }, c => {
+  c.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: 0.07 }, offset: { x: 0, y: 6 }, radius: 18, spread: 0, blendMode: 'NORMAL', visible: true }];
+  [optOn, optOff, optOff, optOff].forEach(o => {
+    const i = o.createInstance();
+    c.appendChild(i);
+    i.layoutAlign = 'STRETCH';
+  });
+}), 'Speaker/Select/Menu', 'B');
 
 put(comp(page, 'Speaker/Tab/On', { h: 30, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', pl: 14, pr: 14, fill: C.clay, radius: 999 }, c => {
   t(c, '地道表达', { font: F.cnMd, size: 12, color: C.card, lh: 16, ls: 4, name: 'label' });
@@ -189,7 +236,7 @@ put(comp(page, 'Speaker/Tab/Off', { h: 30, dir: 'HORIZONTAL', main: 'CENTER', cr
 put(comp(page, 'Speaker/Panel/Original', { w: 320, dir: 'HORIZONTAL', cross: 'CENTER', gap: 12, pl: 14, pr: 14, pt: 12, pb: 12, fill: C.paper, radius: 14 }, c => {
   t(c, 'I get up early today. Actually I… 嗯… 没睡好, so I want a cup of hot Americano.', { font: F.cn, size: 13.5, lh: 21, color: C.ink2, width: 232, grow: 1, name: 'text' });
   const b = frame(c, 'btn play', { w: 32, h: 32, fill: C.card, stroke: C.hair, radius: 999, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER' });
-  icon(b, 'speaker', 16, C.clayDeep);
+  icon(b, 'play', 14, C.clayDeep);
 }), 'Speaker/Panel/Original', 'B');
 
 put(comp(page, 'Speaker/Panel/Rewrite', { w: 320, dir: 'VERTICAL', gap: 8, pl: 15, pr: 15, pt: 13, pb: 12, fill: C.paper, radius: 14 }, c => {

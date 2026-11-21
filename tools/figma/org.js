@@ -27,16 +27,22 @@ const micBtn = comp(page, 'Speaker/MicButton', { w: 84, h: 84, dir: 'HORIZONTAL'
 });
 
 /* top bar */
-const top = comp(page, 'Speaker/TopBar', { w: 360, h: 56, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, gap: 8 }, c => {
-  const scene = frame(c, 'scene pill', { h: 34, dir: 'HORIZONTAL', cross: 'CENTER', pl: 12, pr: 10, gap: 7, fill: C.card, stroke: C.hair, radius: 999 });
-  t(scene, '随便聊', { font: F.cnMd, size: 13, color: C.ink2, lh: 18, name: 'scene' });
-  icon(scene, 'chevDown', 14, C.ink4);
-  frame(c, 'gap l', { w: 1, h: 1, grow: 1 });
-  t(c, '第 3 轮', { font: F.cn, size: 11, color: C.ink4, lh: 16, ls: 4, name: 'round' });
-  frame(c, 'gap r', { w: 1, h: 1, grow: 1 });
-  const b = A.book32.createInstance(); c.appendChild(b);
-  const g = A.gear34.createInstance(); c.appendChild(g);
-});
+function topBar(suffix, open) {
+  return comp(page, 'Speaker/TopBar' + suffix, { w: 360, h: 56, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, gap: 8 }, c => {
+    const scene = frame(c, 'scene pill', { h: 34, dir: 'HORIZONTAL', cross: 'CENTER', pl: 12, pr: 10, gap: 7, fill: open ? C.clayTint : C.card, stroke: open ? C.clay : C.hair, radius: 999 });
+    t(scene, '随便聊', { font: F.cnMd, size: 13, color: open ? C.clayDeep : C.ink2, lh: 18, name: 'scene' });
+    icon(scene, open ? 'chevUp' : 'chevDown', 14, open ? C.clayDeep : C.ink4);
+    frame(c, 'gap', { w: 1, h: 1, grow: 1 });
+    const bookWrap = frame(c, 'book wrap', { w: 32, h: 32 });
+    const b = A.book32.createInstance(); bookWrap.appendChild(b);
+    const badge = frame(bookWrap, 'badge', { w: 16, h: 16, fill: C.clay, radius: 999, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER' });
+    badge.x = 18; badge.y = -2;
+    t(badge, '3', { font: F.monoMd, size: 9, color: C.card, lh: 12, name: 'badge count' });
+    const g = A.gear34.createInstance(); c.appendChild(g);
+  });
+}
+const top = topBar('', false);
+const topOpen = topBar('/Open', true);
 
 /* bottom bar */
 const bottom = comp(page, 'Speaker/BottomBar', { w: 360, h: 80, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, pt: 12, pb: 20, gap: 12, fill: C.paper }, c => {
@@ -69,7 +75,7 @@ const sheet = comp(page, 'Speaker/RecordSheet', { w: 360, dir: 'VERTICAL', cross
 
 /* lay out organisms */
 const items = [
-  ['Speaker/TopBar', top], ['Speaker/BottomBar', bottom], ['Speaker/RecordSheet', sheet], ['Speaker/Waveform', wave], ['Speaker/MicButton', micBtn]
+  ['Speaker/TopBar', top], ['Speaker/TopBar/Open', topOpen], ['Speaker/BottomBar', bottom], ['Speaker/RecordSheet', sheet], ['Speaker/Waveform', wave], ['Speaker/MicButton', micBtn]
 ];
 let y = 120;
 for (const [label, c] of items) {
