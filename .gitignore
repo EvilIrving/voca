@@ -1,0 +1,51 @@
+# 凭证与系统垃圾
+.env
+.env.*
+!.env.example
+.DS_Store
+node_modules
+
+# gesture-guide 是从 GitHub 克隆的独立仓库，保留自己的 remote
+/gesture-guide/
+
+# 逆向取证的体积大户：APK、内存转储、反编译产物、第三方二进制
+hiecho-reverse/.venv/
+hiecho-reverse/apk/
+hiecho-reverse/dumps_mem1/
+hiecho-reverse/payload_dex/
+hiecho-reverse/payload_dex_noanno/
+hiecho-reverse/dexout1/
+hiecho-reverse/jadx-out/
+hiecho-reverse/jadx_payload/
+hiecho-reverse/jadx_noanno/
+hiecho-reverse/x/
+hiecho-reverse/h5/
+hiecho-reverse/shots/
+hiecho-reverse/tools/baksmali.jar
+hiecho-reverse/tools/frida-server-*
+hiecho-reverse/logcat.txt
+hiecho-reverse/resources.txt
+hiecho-reverse/strings_raw.txt
+
+# Kotlin 跨平台与 Android 构建产物
+.gradle/
+build/
+*/build/
+.kotlin/
+local.properties
+captures/
+*.hprof
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# 编辑器与 IDE
+.idea/
+*.iml
+.vscode/
+.fleet/
+
+# 其他
+*.log
+.DS_Store
