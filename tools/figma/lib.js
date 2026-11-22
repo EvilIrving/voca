@@ -6,7 +6,9 @@ const C = {
   clay: '#D97757', clayDeep: '#B85B3C', clayTint: '#F7ECE5',
   olive: '#75855A', oliveTint: '#EEF1E5',
   blue: '#6A9BCC', blueTint: '#ECF2F8',
-  danger: '#A8503C'
+  danger: '#A8503C',
+  // 打卡热力五档：空、1–4 分、5–14 分、15–29 分、30 分以上，只由当日练习分钟决定。
+  heat0: '#F0EEE6', heat1: '#F8E7E1', heat2: '#F0C9BC', heat3: '#E6A792', heat4: '#D97757'
 };
 const F = {
   serif: { family: 'Newsreader', style: 'Regular' },
@@ -107,7 +109,7 @@ function comp(page, name, o, build) {
   page.appendChild(c);
   c.fills = [];
   c.strokes = [];
-  c.clipsContent = false;
+  c.clipsContent = o.clip || false;
   const vert = o.dir === 'VERTICAL';
   if (o.dir) {
     c.layoutMode = o.dir;

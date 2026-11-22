@@ -17,9 +17,6 @@ function makeInst(parent, name, x, y) {
 let colY = 0;
 function place(c, label, colX) {
   c.x = colX; c.y = colY;
-  const lb = t(page, label, { font: F.mono, size: 10, color: C.ink4, lh: 14 });
-  lb.name = 'cap ' + label;
-  lb.x = colX; lb.y = colY - 20;
   made[label] = c;
   colY += c.height + 64;
   return c;
@@ -32,9 +29,6 @@ let ys = { A: yStart, B: yStart, D: yStart };
 function put(c, label, colKey) {
   const x = colKey === 'A' ? A : colKey === 'B' ? B : D;
   c.x = x; c.y = ys[colKey];
-  const lb = t(page, label, { font: F.mono, size: 10, color: C.ink4, lh: 14 });
-  lb.name = 'cap ' + label;
-  lb.x = x; lb.y = ys[colKey] - 18;
   made[label] = c;
   ys[colKey] += c.height + 56;
   return c;
@@ -202,6 +196,103 @@ put(comp(page, 'Speaker/HintCard', { w: 320, dir: 'HORIZONTAL', cross: 'CENTER',
   icon(c, 'chevRight', 12, C.olive, 0.7);
 }), 'Speaker/HintCard', 'B');
 
+/* ---------------- 打卡热力图 ----------------
+   二十六周乘七天，档位只由当日练习分钟决定：空、一至四分钟、五至十四、十五至二十九、三十分钟以上。
+   卡片三百二十宽、内缩十四；左边一列十个宽的周标只标一三五，上面一行月份只在跨月且离上一条至少四列时给字，
+   格 7.8 圆角 2 间距 3。右下那行读天数与总时长，点中某一格就换成那天的日期与分钟，格上套一圈墨色细边。
+   样张按一条确定性序列铺，锚点是 2026 年 3 月 11 日周三，最后三天是本周还没到的日子，留空。 */
+const HEAT_FILL = [C.heat0, C.heat1, C.heat2, C.heat3, C.heat4];
+const HEAT_MINUTES = [0, 3, 9, 21, 42];
+const HEAT_WEEKS = 26;
+const HEAT_TODAY_ROW = 2;
+const HEAT_CELL = 7.85;
+const HEAT_GAP = 3;
+const HEAT_AXIS_W = 10;
+const HEAT_AXIS_GAP = 3;
+const HEAT_PITCH = HEAT_CELL + HEAT_GAP;
+function heatStart() {
+  const d = new Date(2026, 2, 11);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - (HEAT_WEEKS - 1) * 7);
+  return d;
+}
+function heatDate(week, day) {
+  const d = heatStart();
+  d.setDate(d.getDate() + week * 7 + day);
+  return d;
+}
+function heatLevel(week, day) {
+  const v = (week * 7 + day * 13 + (week % 3) * 5) % 19;
+  if (day > 4) return v > 13 ? 1 : 0;
+  if (v < 4) return 0;
+  if (v < 9) return 1;
+  if (v < 13) return 2;
+  if (v < 16) return 3;
+  return 4;
+}
+function heatFuture(week, day) { return week === HEAT_WEEKS - 1 && day > HEAT_TODAY_ROW; }
+function heatMonthLabels() {
+  const out = [];
+  let lastMonth = -1;
+  let lastColumn = -99;
+  for (let week = 0; week < HEAT_WEEKS; week++) {
+    const month = heatDate(week, 0).getMonth();
+    if (month === lastMonth) continue;
+    lastMonth = month;
+    if (week - lastColumn < 4) continue;
+    out.push([week, (month + 1) + '月']);
+    lastColumn = week;
+  }
+  return out;
+}
+function heatmapCard(suffix, picked) {
+  return put(comp(page, 'Speaker/Heatmap' + suffix, { w: 320, dir: 'VERTICAL', pl: 14, pr: 14, pt: 12, pb: 12, gap: 0, fill: C.card, stroke: C.hair, strokeA: 0.5, radius: 16 }, c => {
+    const months = frame(c, 'months', { w: 292, h: 12 });
+    heatMonthLabels().forEach(([week, label]) => {
+      const n = t(months, label, { font: F.mono, size: 8.5, color: C.ink4, lh: 12, name: 'month ' + label });
+      n.x = HEAT_AXIS_W + HEAT_AXIS_GAP + week * HEAT_PITCH;
+      n.y = 0;
+    });
+    frame(c, 'sp month', { w: 1, h: 2 });
+    const row = frame(c, 'grid row', { w: 292, dir: 'HORIZONTAL', gap: HEAT_AXIS_GAP });
+    const axis = frame(row, 'weekdays', { w: HEAT_AXIS_W, h: 7 * HEAT_CELL + 6 * HEAT_GAP });
+    ['一', '三', '五'].forEach((label, i) => {
+      const n = t(axis, label, { font: F.mono, size: 8.5, color: C.ink4, lh: 12, name: 'weekday ' + label, align: 'RIGHT' });
+      n.x = 0;
+      n.y = i * 2 * HEAT_PITCH - 1;
+    });
+    const grid = frame(row, 'grid', { dir: 'VERTICAL', gap: HEAT_GAP });
+    let days = 0;
+    let minutes = 0;
+    for (let day = 0; day < 7; day++) {
+      const line = frame(grid, 'row ' + day, { dir: 'HORIZONTAL', gap: HEAT_GAP });
+      for (let week = 0; week < HEAT_WEEKS; week++) {
+        const level = heatFuture(week, day) ? 0 : heatLevel(week, day);
+        if (level > 0) { days += 1; minutes += HEAT_MINUTES[level]; }
+        frame(line, 'cell ' + week + '/' + day + ' L' + level, { w: HEAT_CELL, h: HEAT_CELL, fill: HEAT_FILL[level], radius: 2 });
+      }
+    }
+    frame(c, 'sp readout', { w: 1, h: 8 });
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    const readout = picked
+      ? (heatDate(picked[0], picked[1]).getMonth() + 1) + '月' + heatDate(picked[0], picked[1]).getDate() + '日 · ' + HEAT_MINUTES[heatLevel(picked[0], picked[1])] + ' 分'
+      : '共 ' + days + ' 天 · ' + (hours > 0 ? hours + ' 时 ' + rest + ' 分' : rest + ' 分');
+    t(c, readout, { font: F.mono, size: 10.5, color: picked ? C.ink2 : C.ink4, lh: 14, name: 'readout' });
+    if (picked) {
+      frame(c, 'picked ring', { w: HEAT_CELL + 2, h: HEAT_CELL + 2, radius: 3, stroke: C.ink, x: 27 + picked[0] * HEAT_PITCH, y: 26 + picked[1] * HEAT_PITCH, absolute: true });
+    }
+  }), 'Speaker/Heatmap' + suffix, 'B');
+}
+let heatPicked = null;
+for (let week = HEAT_WEEKS - 1; week >= 0 && !heatPicked; week--) {
+  for (let day = 6; day >= 0; day--) {
+    if (heatFuture(week, day)) continue;
+    if (heatLevel(week, day) === 3) { heatPicked = [week, day]; break; }
+  }
+}
+heatmapCard('', null);
+heatmapCard('/Selected', heatPicked);
+
 put(comp(page, 'Speaker/SectionLabel', { w: 320, h: 18, dir: 'HORIZONTAL', cross: 'CENTER', gap: 8 }, c => {
   icon(c, 'bulb', 13, C.olive);
   t(c, '母语者表达', { font: F.cn, size: 11, color: C.ink4, lh: 15, ls: 6, name: 'label' });
@@ -238,7 +329,7 @@ function providerRow(suffix, open) {
 providerRow('', false);
 providerRow('/Open', true);
 
-function vocabVariant(suffix, tags) {
+function vocabVariant(suffix) {
   return comp(page, 'Speaker/VocabCard/' + suffix, { w: 320, dir: 'VERTICAL', pl: 14, pr: 14, pt: 11, pb: 12, gap: 6, fill: C.card, stroke: C.hair, strokeA: 0.5, radius: 16 }, c => {
     const top = frame(c, 'top', { w: 292, dir: 'HORIZONTAL', cross: 'CENTER', gap: 7 });
     t(top, 'slept badly', { font: F.serifMd, size: 19, color: C.ink, lh: 25, name: 'word' });
@@ -246,23 +337,35 @@ function vocabVariant(suffix, tags) {
     frame(top, 'gap', { w: 1, h: 1, grow: 1 });
     const sp = frame(top, 'btn say', { w: 30, h: 30, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER' });
     icon(sp, 'speaker', 15, C.ink2);
-    const defRow = frame(c, 'def row', { w: 292, dir: 'HORIZONTAL', cross: 'CENTER', gap: 8 });
-    t(defRow, '睡得不好。', { font: F.cn, size: 11.5, color: C.ink3, lh: 17, grow: 1, name: 'definition' });
-    const tagRow = frame(defRow, 'tags', { h: 22, dir: 'HORIZONTAL', cross: 'CENTER', gap: 6 });
-    for (let i = 0; i < tags.length; i++) {
-      const isOlive = i === 0;
-      const chip = frame(tagRow, 'tag ' + tags[i], { h: 22, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', pl: 8, pr: 8, fill: isOlive ? C.oliveTint : C.paper, radius: 6, stroke: isOlive ? '#DEE4CF' : C.hair, strokeA: 0.5 });
-      t(chip, tags[i], { font: F.cn, size: 10, color: isOlive ? C.olive : C.ink4, lh: 14, ls: 2 });
-    }
+    t(c, '睡得不好。', { font: F.cn, size: 11.5, color: C.ink3, lh: 17, width: 292, name: 'definition' });
     const example = 'I got up early, but I slept badly — so a hot Americano is exactly what I need.';
     const ex = t(c, example, { font: F.serifIt, size: 13.5, color: C.ink2, lh: 21, width: 292, name: 'example' });
     const idx = example.indexOf('slept badly');
     ex.setRangeFills(idx, idx + 11, [p(C.clayDeep)]);
   });
 }
-put(vocabVariant('Collocation', ['地道搭配', '复现 3 次']), 'Speaker/VocabCard/Collocation', 'B');
-put(vocabVariant('Word', ['生词', '复现 2 次']), 'Speaker/VocabCard/Word', 'B');
-put(vocabVariant('New', ['地道搭配', '新收录']), 'Speaker/VocabCard/New', 'B');
+put(vocabVariant('Collocation'), 'Speaker/VocabCard/Collocation', 'B');
+put(vocabVariant('Word'), 'Speaker/VocabCard/Word', 'B');
+put(vocabVariant('New'), 'Speaker/VocabCard/New', 'B');
+
+put(comp(page, 'Speaker/VocabCard/SwipeOpen', { w: 320, h: 108, radius: 16, clip: true }, c => {
+  const delBtn = frame(c, 'delete-action', { x: 240, y: 0, w: 80, h: 108, fill: C.danger, dir: 'VERTICAL', main: 'CENTER', cross: 'CENTER', gap: 4 });
+  icon(delBtn, 'delete', 18, C.card);
+  t(delBtn, '删除', { font: F.cnMd, size: 12, color: C.card, lh: 16 });
+
+  const card = frame(c, 'card-content', { x: -80, y: 0, w: 320, h: 108, dir: 'VERTICAL', pl: 14, pr: 14, pt: 11, pb: 12, gap: 6, fill: C.card, stroke: C.hair, strokeA: 0.5, radius: 16 });
+  const top = frame(card, 'top', { w: 292, dir: 'HORIZONTAL', cross: 'CENTER', gap: 7 });
+  t(top, 'crave', { font: F.serifMd, size: 19, color: C.ink, lh: 25, name: 'word' });
+  t(top, '/kreɪv/', { font: F.mono, size: 10.5, color: C.ink4, lh: 15, name: 'phonetic' });
+  frame(top, 'gap', { w: 1, h: 1, grow: 1 });
+  const sp = frame(top, 'btn say', { w: 30, h: 30, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER' });
+  icon(sp, 'speaker', 15, C.ink2);
+  t(card, '强烈渴望。', { font: F.cn, size: 11.5, color: C.ink3, lh: 17, width: 292, name: 'definition' });
+  const example = 'Are you craving an Americano or something else?';
+  const ex = t(card, example, { font: F.serifIt, size: 13.5, color: C.ink2, lh: 21, width: 292, name: 'example' });
+  const idx = example.indexOf('craving');
+  if (idx >= 0) ex.setRangeFills(idx, idx + 7, [p(C.clayDeep)]);
+}), 'Speaker/VocabCard/SwipeOpen', 'B');
 
 put(comp(page, 'Speaker/Row/Provider/Off', { w: 320, h: 54, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 14, gap: 12 }, c => {
   const radio = frame(c, 'radio', { w: 18, h: 18, fill: C.card, stroke: C.hairStrong, radius: 999 });
@@ -306,7 +409,7 @@ put(comp(page, 'Speaker/Button/NewSession', { w: 259, h: 52, dir: 'HORIZONTAL', 
 }), 'Speaker/Button/NewSession', 'B');
 
 function drawerRow(suffix, current) {
-  return put(comp(page, 'Speaker/Row/DrawerSession' + suffix, { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 4, pr: 12, fill: current ? C.clayTint : '', radius: 10 }, c => {
+  return put(comp(page, 'Speaker/Row/DrawerSession' + suffix, { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 12, pr: 12, pt: 2, pb: 2, fill: current ? C.clayTint : '', radius: 10 }, c => {
     t(c, '没睡好的早晨', { font: F.sansMd, size: 14, color: current ? C.ink : C.ink2, lh: 20, name: 'name', grow: 1 });
   }), 'Speaker/Row/DrawerSession' + suffix, 'B');
 }
@@ -329,6 +432,12 @@ put(comp(page, 'Speaker/Select/Menu/Voice', { w: 320, dir: 'VERTICAL', pl: 6, pr
 put(comp(page, 'Speaker/Toast', { h: 34, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', pl: 14, pr: 14, fill: C.tint, stroke: C.hair, strokeA: 0.5, radius: 999 }, c => {
   t(c, '已收进生词本', { font: F.cn, size: 12.5, color: C.ink2, lh: 18, name: 'label' });
 }), 'Speaker/Toast', 'B');
+
+put(comp(page, 'Speaker/Toast/Undo', { h: 36, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', pl: 16, pr: 16, gap: 12, fill: C.card, stroke: C.hair, strokeA: 0.8, radius: 999 }, c => {
+  c.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: 0.08 }, offset: { x: 0, y: 4 }, radius: 12, spread: 0, blendMode: 'NORMAL', visible: true }];
+  t(c, '已删除生词', { font: F.cn, size: 12.5, color: C.ink2, lh: 18, name: 'label' });
+  t(c, '撤销', { font: F.cnMd, size: 12.5, color: C.clayDeep, lh: 18, name: 'action' });
+}), 'Speaker/Toast/Undo', 'B');
 
 
 function menuComponent(name, opts) {
@@ -414,29 +523,66 @@ put(comp(page, 'Speaker/Timeline/236', { w: 236, h: 32, fill: C.ink, radius: 16 
   d.x = 194; d.y = 10;
 }), 'Speaker/Timeline/236', 'A');
 
-/* ---------------- message menu ---------------- */
+/* ---------------- message actions (below bubble) ---------------- */
+function createMessageActions(compName) {
+  return put(comp(page, compName, { h: 28, dir: 'HORIZONTAL', cross: 'CENTER', gap: 4 }, c => {
+    const actions = [
+      { name: 'speak', glyph: 'speaker', color: C.ink3 },
+      { name: 'translate', glyph: 'translate', color: C.ink3 },
+      { name: 'save', glyph: 'bookmark', color: C.ink3 },
+      { name: 'copy', glyph: 'copy', color: C.ink3 },
+      { name: 'retry', glyph: 'sync', color: C.ink3 },
+      { name: 'delete', glyph: 'delete', color: C.ink4 },
+    ];
+    actions.forEach(a => {
+      const btn = frame(c, 'btn/' + a.name, { w: 28, h: 28, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', radius: 6 });
+      icon(btn, a.glyph, 15, a.color);
+    });
+  }), compName, 'B');
+}
+createMessageActions('Speaker/Actions/Message');
+createMessageActions('Speaker/Menu/Message');
+
+/* ---------------- session context menu ---------------- */
 function menuRow(name, glyph, label, danger) {
   return put(comp(page, 'Speaker/Row/Menu/' + name, { w: 268, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 12, pr: 12, gap: 12, radius: 8 }, c => {
     icon(c, glyph, 16, danger ? C.danger : C.ink3);
     t(c, label, { font: F.cnMd, size: 13, color: danger ? C.danger : C.ink, lh: 19, grow: 1, name: 'label' });
   }), 'Speaker/Row/Menu/' + name, 'A');
 }
-const mrSpeak = menuRow('Speak', 'speaker', '朗读这一轮');
-const mrTranslate = menuRow('Translate', 'translate', '翻译');
-const mrSave = menuRow('Save', 'bookmark', '收进生词本');
-const mrCopy = menuRow('Copy', 'copy', '复制原文');
-const mrRetry = menuRow('Retry', 'sync', '重新分析');
-const mrDelete = menuRow('Delete', 'delete', '删除这一轮', true);
+const mrRename = menuRow('Rename', 'edit', '重命名');
+const mrBatchSelect = menuRow('BatchSelect', 'checkMark', '批量选择');
+const mrDeleteSession = menuRow('DeleteSession', 'delete', '删除会话', true);
 
-put(comp(page, 'Speaker/Menu/Message', { w: 280, dir: 'VERTICAL', pl: 6, pr: 6, pt: 6, pb: 6, gap: 2, fill: C.card, stroke: C.hair, radius: 14 }, c => {
+put(comp(page, 'Speaker/Menu/Session', { w: 232, dir: 'VERTICAL', pl: 6, pr: 6, pt: 6, pb: 6, gap: 2, fill: C.card, stroke: C.hair, radius: 14 }, c => {
   c.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: 0.08 }, offset: { x: 0, y: 8 }, radius: 22, spread: 0, blendMode: 'NORMAL', visible: true }];
-  [mrSpeak, mrTranslate, mrSave, mrCopy, mrRetry, mrDelete].forEach((row, i) => {
-    if (i === 4) { const r = frame(c, 'rule', { w: 244, h: 1, fill: C.hair }); r.layoutAlign = 'CENTER'; }
+  [mrRename, mrBatchSelect, mrDeleteSession].forEach((row, i) => {
+    if (i === 2) { const r = frame(c, 'rule', { w: 200, h: 1, fill: C.hair }); r.layoutAlign = 'CENTER'; }
     const r = row.createInstance();
     c.appendChild(r);
     r.layoutAlign = 'STRETCH';
   });
-}), 'Speaker/Menu/Message', 'B');
+}), 'Speaker/Menu/Session', 'B');
+
+/* ---------------- drawer selectable rows & batch bar ---------------- */
+function drawerRowSelectable(suffix, checked) {
+  return put(comp(page, 'Speaker/Row/DrawerSessionSelectable' + suffix, { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 6, pr: 12, gap: 10, radius: 10 }, c => {
+    const box = frame(c, 'checkbox', { w: 18, h: 18, radius: 5, stroke: checked ? C.clay : C.hairStrong, fill: checked ? C.clay : C.card, main: 'CENTER', cross: 'CENTER' });
+    if (checked) {
+      icon(box, 'check', 12, C.card);
+    }
+    t(c, '没睡好的早晨', { font: F.sansMd, size: 14, color: C.ink, lh: 20, name: 'name', grow: 1 });
+  }), 'Speaker/Row/DrawerSessionSelectable' + suffix, 'B');
+}
+drawerRowSelectable('', false);
+drawerRowSelectable('/Checked', true);
+
+put(comp(page, 'Speaker/Bar/DrawerBatch', { w: 259, h: 44, dir: 'HORIZONTAL', main: 'SPACE_BETWEEN', cross: 'CENTER', pl: 12, pr: 8, fill: C.card, stroke: C.hair, radius: 12 }, c => {
+  t(c, '全选', { font: F.cnMd, size: 13, color: C.ink3, lh: 18, name: 'selectAll' });
+  const btn = frame(c, 'deleteBtn', { h: 32, dir: 'HORIZONTAL', cross: 'CENTER', pl: 10, pr: 12, gap: 5, fill: C.danger, radius: 999 });
+  icon(btn, 'delete', 14, C.card);
+  t(btn, '删除已选 (2)', { font: F.cnMd, size: 12, color: C.card, lh: 16, name: 'count' });
+}), 'Speaker/Bar/DrawerBatch', 'B');
 
 /* ---------------- input bar ----------------
    结构照 Telegram：胶囊始终 346×44，右端 44 是按钮槽；圆钮长到 87 时覆盖在槽上并向屏幕外溢出。
@@ -533,7 +679,7 @@ function inputBar(name, kind) {
     }
     const withText = kind === 'text';
     const pill = barShell(c, withText ? 'Speaker/Send/48' : 'Speaker/Mic/48');
-    const tx = t(pill, withText ? '今天想聊聊工作上的事' : '说点什么...', {
+    const tx = t(pill, withText ? '今天想聊聊工作上的事' : '点击输入或长按说点什么', {
       font: F.cn, size: 15, color: withText ? C.ink : C.ink3, lh: 20, name: withText ? 'draft' : 'placeholder',
     });
     tx.x = 20; tx.y = 14;

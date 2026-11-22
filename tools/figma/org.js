@@ -50,9 +50,6 @@ const items = [
 let y = 120;
 for (const [label, c] of items) {
   c.x = 800; c.y = y;
-  const lb = t(page, label, { font: F.mono, size: 10, color: C.ink4, lh: 14 });
-  lb.name = 'cap ' + label;
-  lb.x = 800; lb.y = y - 18;
   y += c.height + 60;
 }
 return { topW: Math.round(top.width), count: items.length };

@@ -11,7 +11,7 @@ await figma.setCurrentPageAsync(lib);
 const C_ = {};
 for (const n of lib.children) { if (n.type === 'COMPONENT' || n.type === 'COMPONENT_SET') C_[String(n.name)] = n; }
 await figma.setCurrentPageAsync(page);
-const need = ['Speaker/TopBar', 'Speaker/TopBar/Chat', 'Speaker/TopBar/Review', 'Speaker/Indicator/DoubleChevronDown', 'Speaker/InputBar', 'Speaker/InputBar/Text', 'Speaker/InputBar/Recording', 'Speaker/InputBar/Cancel', 'Speaker/InputBar/Locked', 'Speaker/InputBar/Preview', 'Speaker/LockChip', 'Speaker/Menu/Message', 'Speaker/Bubble/Echo', 'Speaker/Bubble/Echo/Translated', 'Speaker/Bubble/User', 'Speaker/ScorePill', 'Speaker/HintCard', 'Speaker/Field/Search', 'Speaker/Chip/Filter/On', 'Speaker/Chip/Filter/Off', 'Speaker/VocabCard/Collocation', 'Speaker/VocabCard/Word', 'Speaker/VocabCard/New', 'Speaker/Score/Value', 'Speaker/SectionLabel', 'Speaker/SectionLabel/Mic', 'Speaker/Chip/Word', 'Speaker/Panel/Original', 'Speaker/Panel/Rewrite', 'Speaker/Tab/On', 'Speaker/Tab/Off', 'Speaker/Button/Ghost', 'Speaker/Button/Primary/Label', 'Speaker/IconButton/30/dismiss', 'Speaker/IconButton/30/edit', 'Speaker/IconButton/32/arrowLeft', 'Speaker/IconButton/32/chatAdd', 'Speaker/IconButton/30/checkMark', 'Speaker/Select/Menu', 'Speaker/Select/Menu/Voice', 'Speaker/Row/Voice', 'Speaker/Row/Voice/Open', 'Speaker/Row/Provider', 'Speaker/Row/Provider/Off', 'Speaker/Row/Provider/Open', 'Speaker/Toast', 'Speaker/Row/DrawerSession', 'Speaker/Row/DrawerSession/Current', 'Speaker/Button/NewSession', 'Speaker/IconButton/36/search', 'Speaker/IconButton/44/settings'];
+const need = ['Speaker/TopBar', 'Speaker/TopBar/Chat', 'Speaker/TopBar/Review', 'Speaker/Indicator/DoubleChevronDown', 'Speaker/InputBar', 'Speaker/InputBar/Text', 'Speaker/InputBar/Recording', 'Speaker/InputBar/Cancel', 'Speaker/InputBar/Locked', 'Speaker/InputBar/Preview', 'Speaker/LockChip', 'Speaker/Actions/Message', 'Speaker/Menu/Message', 'Speaker/Bubble/Echo', 'Speaker/Bubble/Echo/Translated', 'Speaker/Bubble/User', 'Speaker/ScorePill', 'Speaker/HintCard', 'Speaker/Heatmap', 'Speaker/Heatmap/Selected', 'Speaker/Field/Search', 'Speaker/Chip/Filter/On', 'Speaker/Chip/Filter/Off', 'Speaker/VocabCard/Collocation', 'Speaker/VocabCard/Word', 'Speaker/VocabCard/New', 'Speaker/VocabCard/SwipeOpen', 'Speaker/Score/Value', 'Speaker/SectionLabel', 'Speaker/SectionLabel/Mic', 'Speaker/Chip/Word', 'Speaker/Panel/Original', 'Speaker/Panel/Rewrite', 'Speaker/Tab/On', 'Speaker/Tab/Off', 'Speaker/Button/Ghost', 'Speaker/Button/Primary/Label', 'Speaker/IconButton/30/dismiss', 'Speaker/IconButton/30/edit', 'Speaker/IconButton/32/arrowLeft', 'Speaker/IconButton/32/chatAdd', 'Speaker/IconButton/30/checkMark', 'Speaker/Select/Menu', 'Speaker/Select/Menu/Voice', 'Speaker/Row/Voice', 'Speaker/Row/Voice/Open', 'Speaker/Row/Provider', 'Speaker/Row/Provider/Off', 'Speaker/Row/Provider/Open', 'Speaker/Toast', 'Speaker/Toast/Undo', 'Speaker/Row/DrawerSession', 'Speaker/Row/DrawerSession/Current', 'Speaker/Button/NewSession', 'Speaker/IconButton/36/search', 'Speaker/IconButton/44/settings'];
 const missing = need.filter(n => !C_[n]);
 if (missing.length) return { error: 'missing components', missing };
 
@@ -25,16 +25,16 @@ function screen(name, x, y) {
   const f = frame(page, 'SPK ' + name, { w: 360, h: 792, fill: C.paper, dir: 'VERTICAL', clip: true, x: x, y: y === undefined ? 120 : y });
   f.primaryAxisSizingMode = 'FIXED';
   f.resize(360, 792);
-  const lb = t(page, 'SPK ' + name, { font: F.mono, size: 11, color: C.ink3, lh: 16 });
-  lb.name = 'cap ' + name;
-  lb.x = x; lb.y = (y === undefined ? 120 : y) - 32;
   return f;
 }
 
-function echoRow(parent, text, translated, gloss) {
-  const row = frame(parent, 'msg AI', { w: 320, dir: 'HORIZONTAL' });
-  inst(row, C_[translated ? 'Speaker/Bubble/Echo/Translated' : 'Speaker/Bubble/Echo'], translated ? { text: text, gloss: gloss } : { text: text });
-  return row;
+function echoRow(parent, text, translated, gloss, showActions) {
+  const col = frame(parent, 'msg AI', { w: 320, dir: 'VERTICAL', cross: 'MIN', gap: 4 });
+  inst(col, C_[translated ? 'Speaker/Bubble/Echo/Translated' : 'Speaker/Bubble/Echo'], translated ? { text: text, gloss: gloss } : { text: text });
+  if (showActions !== false) {
+    inst(col, C_['Speaker/Actions/Message'] || C_['Speaker/Menu/Message']);
+  }
+  return col;
 }
 function userRow(parent, text, pron, gram) {
   const col = frame(parent, 'msg user', { w: 320, dir: 'VERTICAL', cross: 'MAX', gap: 9 });
@@ -135,13 +135,9 @@ const preview = screen('06 · 暂停预览', 2000);
 chatStack(preview, { hint: false });
 bar(preview, '/Preview');
 
-/* ---------------- 07 消息菜单 ---------------- */
-const menu = screen('07 · 消息菜单', 2400);
+/* ---------------- 07 消息操作 ---------------- */
+const menu = screen('07 · 消息操作', 2400);
 chatStack(menu);
-frame(menu, 'scrim', { w: 360, h: 792, fill: C.ink, fillA: 0.08, x: 0, y: 0, absolute: true });
-const menuCard = inst(menu, C_['Speaker/Menu/Message']);
-menuCard.layoutPositioning = 'ABSOLUTE';
-menuCard.x = 32; menuCard.y = 196;
 bar(menu);
 
 /* ---------------- 08 评测抽屉 ---------------- */
@@ -192,31 +188,57 @@ inst(cta, C_['Speaker/Button/Primary/Label'], { label: '继续对话' }).layoutG
 sheet.y = 792 - sheet.height;
 list8.resize(360, BAR_Y - TOP - 0);
 
-/* ---------------- 09 生词库 ---------------- */
-const vo = screen('09 · 生词库', 3200);
-const vh = frame(vo, 'header', { w: 360, h: TOP, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, gap: 10 });
-inst(vh, C_['Speaker/IconButton/32/arrowLeft']);
-t(vh, '生词库', { font: F.serifCnMd, size: 20, color: C.ink, lh: 27 });
-const vs = frame(vo, 'search wrap', { w: 360, dir: 'VERTICAL', pl: 20, pr: 20, pb: 12 });
-inst(vs, C_['Speaker/Field/Search']);
-const vf = frame(vo, 'filters', { w: 360, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, gap: 8 });
-inst(vf, C_['Speaker/Chip/Filter/On'], { label: '今天 3' });
-inst(vf, C_['Speaker/Chip/Filter/Off'], { label: '待复习 1' });
-inst(vf, C_['Speaker/Chip/Filter/Off'], { label: '全部 9' });
-const vlist = frame(vo, 'list', { w: 360, h: 792 - TOP - 52 - 44, dir: 'VERTICAL', pl: 20, pr: 20, pt: 6, gap: 12, clip: true });
-function vocabCard(variant, word, phonetic, definition, example, highlight) {
-  const i = inst(vlist, C_['Speaker/VocabCard/' + variant], { word: word, phonetic: phonetic, definition: definition, example: example });
-  const ex = i.findOne(n => n.type === 'TEXT' && n.name === 'example');
-  const idx = example.indexOf(highlight);
-  if (ex && idx >= 0) ex.setRangeFills(idx, idx + highlight.length, [p(C.clayDeep)]);
-  return i;
+/* ---------------- 09 生词库系列（常态、滑动删除、删除撤销） ---------------- */
+function buildVocabScreen(screenName, screenX, mode) {
+  const vo = screen(screenName, screenX);
+  const vh = frame(vo, 'header', { w: 360, h: TOP, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, gap: 10 });
+  inst(vh, C_['Speaker/IconButton/32/arrowLeft']);
+  t(vh, '生词库', { font: F.serifCnMd, size: 20, color: C.ink, lh: 27 });
+
+  const vs = frame(vo, 'search wrap', { w: 360, dir: 'VERTICAL', pl: 20, pr: 20, pb: 12 });
+  inst(vs, C_['Speaker/Field/Search']);
+
+  const vf = frame(vo, 'filters', { w: 360, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, gap: 8 });
+  inst(vf, C_['Speaker/Chip/Filter/On'], { label: mode === 'undo' ? '今天 2' : '今天 3' });
+  inst(vf, C_['Speaker/Chip/Filter/Off'], { label: '待复习 1' });
+  inst(vf, C_['Speaker/Chip/Filter/Off'], { label: mode === 'undo' ? '全部 8' : '全部 9' });
+
+  const vlist = frame(vo, 'list', { w: 360, h: 792 - TOP - 52 - 44, dir: 'VERTICAL', pl: 20, pr: 20, pt: 6, gap: 12, clip: true });
+
+  function vocabCard(variant, word, phonetic, definition, example, highlight) {
+    const i = inst(vlist, C_['Speaker/VocabCard/' + variant], { word: word, phonetic: phonetic, definition: definition, example: example });
+    const ex = i.findOne(n => n.type === 'TEXT' && n.name === 'example');
+    const idx = example.indexOf(highlight);
+    if (ex && idx >= 0) ex.setRangeFills(idx, idx + highlight.length, [p(C.clayDeep)]);
+    return i;
+  }
+
+  vocabCard('Collocation', 'slept badly', '/slept ˈbædli/', '睡得不好。', 'I got up early, but I slept badly — so a hot Americano is exactly what I need.', 'slept badly');
+
+  if (mode === 'swipe') {
+    inst(vlist, C_['Speaker/VocabCard/SwipeOpen']);
+  } else if (mode === 'normal') {
+    vocabCard('Word', 'crave', '/kreɪv/', '强烈渴望。', 'Are you craving an Americano or something else?', 'craving');
+  }
+
+  vocabCard('New', 'keep going back to', '/kiːp ˈɡəʊɪŋ bæk tuː/', '反复回到、总是去。', 'Is there a café you keep going back to?', 'keep going back to');
+
+  if (mode === 'undo') {
+    const toast = inst(vo, C_['Speaker/Toast/Undo']);
+    toast.layoutPositioning = 'ABSOLUTE';
+    toast.x = Math.round((360 - toast.width) / 2);
+    toast.y = TOP + 8;
+  }
 }
-vocabCard('Collocation', 'slept badly', '/slept ˈbædli/', '睡得不好。', 'I got up early, but I slept badly — so a hot Americano is exactly what I need.', 'slept badly');
-vocabCard('Word', 'crave', '/kreɪv/', '强烈渴望。', 'Are you craving an Americano or something else?', 'craving');
-vocabCard('New', 'keep going back to', '/kiːp ˈɡəʊɪŋ bæk tuː/', '反复回到、总是去。', 'Is there a café you keep going back to?', 'keep going back to');
+
+buildVocabScreen('09 · 生词库', 3200, 'normal');
+buildVocabScreen('09b · 生词滑动删除', 3600, 'swipe');
+buildVocabScreen('09c · 生词删除撤销', 4000, 'undo');
 
 /* ---------------- 10 设置 ---------------- */
-function settingsBody(root, open) {
+/* scrolled 那1 份从打卡统计开始铺，用来给滚动位置另存一屏，上半截配置不进这张图。 */
+function settingsBody(root, open, o) {
+  o = o || {};
   const body = frame(root, 'body', { w: 360, h: 792 - TOP, dir: 'VERTICAL', pl: 20, pr: 20, pt: 0, pb: 20, gap: 8, clip: true });
   function sectionTitle(parent, text) {
     const row = frame(parent, 'section ' + text, { w: 320, h: 18, dir: 'HORIZONTAL', cross: 'CENTER', gap: 8 });
@@ -230,27 +252,34 @@ function settingsBody(root, open) {
     const r = frame(parent, 'rule', { w: 292, h: 1, fill: C.hair, fillA: 0.5 });
     r.layoutAlign = 'CENTER';
   }
-  sectionTitle(body, '实时对话');
-  const g1 = groupCard(body);
-  const liveRow = inst(g1, open.live ? C_['Speaker/Row/Provider/Open'] : C_['Speaker/Row/Provider'], { name: 'Gemini Live', meta: 'gemini-3.8-live', status: '已连通' });
-  cardRule(g1);
-  const voiceRow = inst(g1, open.voice ? C_['Speaker/Row/Voice/Open'] : C_['Speaker/Row/Voice'], { value: 'Aoede' });
-  cardRule(g1);
-  inst(g1, C_['Speaker/Row/Provider/Off'], { name: 'OpenAI Realtime', meta: 'gpt-realtime', status: '未配置' });
-  cardRule(g1);
-  inst(g1, C_['Speaker/Row/Provider/Off'], { name: '豆包端到端实时语音', meta: 'volc.speech.dialog', status: '未配置' });
+  let liveRow;
+  let voiceRow;
+  if (!o.scrolled) {
+    sectionTitle(body, '实时对话');
+    const g1 = groupCard(body);
+    liveRow = inst(g1, open.live ? C_['Speaker/Row/Provider/Open'] : C_['Speaker/Row/Provider'], { name: 'Gemini Live', meta: 'gemini-3.8-live', status: '已连通' });
+    cardRule(g1);
+    voiceRow = inst(g1, open.voice ? C_['Speaker/Row/Voice/Open'] : C_['Speaker/Row/Voice'], { value: 'Aoede' });
+    cardRule(g1);
+    inst(g1, C_['Speaker/Row/Provider/Off'], { name: 'OpenAI Realtime', meta: 'gpt-realtime', status: '未配置' });
+    cardRule(g1);
+    inst(g1, C_['Speaker/Row/Provider/Off'], { name: '豆包端到端实时语音', meta: 'volc.speech.dialog', status: '未配置' });
 
-  sectionTitle(body, '发音评测');
-  const g2 = groupCard(body);
-  inst(g2, C_['Speaker/Row/Provider/Off'], { name: '微软 Azure 语音评测', meta: 'F0 · 每月 5 小时', status: '未配置' });
-  cardRule(g2);
-  inst(g2, C_['Speaker/Row/Provider/Off'], { name: '讯飞评测流式版', meta: '每日 500 次', status: '未配置' });
+    sectionTitle(body, '发音评测');
+    const g2 = groupCard(body);
+    inst(g2, C_['Speaker/Row/Provider/Off'], { name: '微软 Azure 语音评测', meta: 'F0 · 每月 5 小时', status: '未配置' });
+    cardRule(g2);
+    inst(g2, C_['Speaker/Row/Provider/Off'], { name: '讯飞评测流式版', meta: '每日 500 次', status: '未配置' });
 
-  sectionTitle(body, '文本分析');
-  const g3 = groupCard(body);
-  inst(g3, C_['Speaker/Row/Provider'], { name: 'DeepSeek', meta: 'deepseek-chat', status: '已连通' });
-  cardRule(g3);
-  inst(g3, C_['Speaker/Row/Provider/Off'], { name: 'Gemini Flash', meta: 'gemini-flash-latest', status: '未配置' });
+    sectionTitle(body, '文本分析');
+    const g3 = groupCard(body);
+    inst(g3, C_['Speaker/Row/Provider'], { name: 'DeepSeek', meta: 'deepseek-chat', status: '已连通' });
+    cardRule(g3);
+    inst(g3, C_['Speaker/Row/Provider/Off'], { name: 'Gemini Flash', meta: 'gemini-flash-latest', status: '未配置' });
+  }
+
+  sectionTitle(body, '打卡统计');
+  inst(body, C_['Speaker/Heatmap' + (o.scrolled ? '/Selected' : '')]);
 
   sectionTitle(body, '系统提示词');
   const prompt = frame(body, 'prompt card', { w: 320, dir: 'VERTICAL', gap: 8, pl: 14, pr: 14, pt: 12, pb: 12, fill: C.paper, stroke: C.hair, strokeA: 0.5, radius: 16 });
@@ -269,16 +298,18 @@ function settingsBody(root, open) {
   return { body: body, liveRow: liveRow, voiceRow: voiceRow };
 }
 
-function settingsScreen(name, x, open) {
+function settingsScreen(name, x, open, o) {
   const s = screen(name, x);
   const hd = frame(s, 'header', { w: 360, h: TOP, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, gap: 10 });
   inst(hd, C_['Speaker/IconButton/32/arrowLeft']);
   t(hd, '设置', { font: F.serifCnMd, size: 20, color: C.ink, lh: 27 });
-  const cfg = settingsBody(s, open || {});
+  const cfg = settingsBody(s, open || {}, o);
   return { screen: s, row: cfg.liveRow, voiceRow: cfg.voiceRow, body: cfg.body };
 }
-const cfg = settingsScreen('10 · 设置', 3600, {});
-const md = settingsScreen('11 · 模型下拉', 4000, { live: true });
+const cfg = settingsScreen('10 · 设置', 4400, {});
+const md = settingsScreen('11 · 模型下拉', 4800, { live: true });
+// 设置页往下滚到打卡统计：二十六周的格区在屏内完整露出，上方的三组配置不在这一屏。
+const ci = settingsScreen('16 · 设置 · 打卡统计', 6800, {}, { scrolled: true });
 dropdown(md.screen, md.row, 'Select/Menu', 320, [
   ['gemini-3.8-live', '手动回合 · 首包 450 毫秒'],
   ['gemini-3.8-live-extended-thinking', '扩展思考 · 更深推理'],
@@ -286,56 +317,98 @@ dropdown(md.screen, md.row, 'Select/Menu', 320, [
   ['gemini-2.5-flash-native-audio-latest', '原生音频 · 长会话']
 ]);
 
-/* ---------------- 13 侧边抽屉 ---------------- */
-const dr = screen('12 · 侧边抽屉', 4400);
-const panel = frame(dr, 'drawer', { w: 295, h: 792, dir: 'VERTICAL', pl: 18, pr: 18, pt: 20, pb: 20, fill: C.paper, x: 0, y: 0, absolute: true });
-const drHead = frame(panel, 'head', { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER' });
-t(drHead, '会话', { font: F.serifCnMd, size: 20, color: C.ink, lh: 27, grow: 1 });
-inst(drHead, C_['Speaker/IconButton/36/search']);
-frame(panel, 'sp 1', { w: 1, h: 8 });
-inst(panel, C_['Speaker/Button/NewSession']);
-frame(panel, 'sp 2', { w: 1, h: 14 });
-const drList = frame(panel, 'sessions', { w: 259, dir: 'VERTICAL' });
-function drGroup(label) {
-  const g = frame(drList, 'group ' + label, { w: 259, h: 31, dir: 'HORIZONTAL', cross: 'MAX', pl: 6, pb: 4, pt: 12 });
-  t(g, label, { font: F.sans, size: 11, color: C.ink4, lh: 15, name: 'group' });
-}
-function drRow(name, current) {
-  const r = inst(drList, C_['Speaker/Row/DrawerSession' + (current ? '/Current' : '')]);
-  r.layoutAlign = 'STRETCH';
-  const n = r.findOne(x => x.type === 'TEXT' && x.name === 'name');
-  if (n) n.characters = name;
-  return r;
-}
-drGroup('今天');
-drRow('没睡好的早晨', true);
-drRow('咖啡店点单');
-drRow('面试自我介绍');
-drGroup('更早');
-drRow('周末出行计划');
-frame(panel, 'sp 3', { w: 1, h: 1, grow: 1 });
-const drDock = frame(panel, 'dock', { w: 259, h: 44, dir: 'HORIZONTAL', main: 'MAX', cross: 'CENTER' });
-inst(drDock, C_['Speaker/IconButton/44/settings']);
+/* ---------------- 12 侧边抽屉系列（普通、右键浮窗、批量多选） ---------------- */
+function buildDrawerScreen(screenName, screenX, mode) {
+  const dr = screen(screenName, screenX);
+  const panel = frame(dr, 'drawer', { w: 295, h: 792, dir: 'VERTICAL', pl: 18, pr: 18, pt: 20, pb: 20, fill: C.paper, x: 0, y: 0, absolute: true });
+  
+  if (mode === 'batch') {
+    const drHead = frame(panel, 'head', { w: 259, h: 44, dir: 'HORIZONTAL', main: 'SPACE_BETWEEN', cross: 'CENTER' });
+    t(drHead, '已选 2 项', { font: F.serifCnMd, size: 18, color: C.ink, lh: 25, grow: 1 });
+    const cancelText = t(drHead, '取消', { font: F.cnMd, size: 14, color: C.ink3, lh: 20 });
+    cancelText.name = 'cancel';
+    frame(panel, 'sp 2', { w: 1, h: 10 });
+    const drList = frame(panel, 'sessions', { w: 259, dir: 'VERTICAL' });
+    function drGroup(label) {
+      const g = frame(drList, 'group ' + label, { w: 259, h: 31, dir: 'HORIZONTAL', cross: 'MAX', pl: 6, pb: 4, pt: 12 });
+      t(g, label, { font: F.sans, size: 11, color: C.ink4, lh: 15, name: 'group' });
+    }
+    function drSelectRow(name, checked) {
+      const r = inst(drList, C_['Speaker/Row/DrawerSessionSelectable' + (checked ? '/Checked' : '')]);
+      r.layoutAlign = 'STRETCH';
+      const n = r.findOne(x => x.type === 'TEXT' && x.name === 'name');
+      if (n) n.characters = name;
+      return r;
+    }
+    drGroup('今天');
+    drSelectRow('没睡好的早晨', true);
+    drSelectRow('咖啡店点单', true);
+    drSelectRow('面试自我介绍', false);
+    drGroup('更早');
+    drSelectRow('周末出行计划', false);
+    frame(panel, 'sp 3', { w: 1, h: 1, grow: 1 });
+    inst(panel, C_['Speaker/Bar/DrawerBatch']);
+  } else {
+    const drHead = frame(panel, 'head', { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER' });
+    t(drHead, '会话', { font: F.serifCnMd, size: 20, color: C.ink, lh: 27, grow: 1 });
+    inst(drHead, C_['Speaker/IconButton/36/search']);
+    frame(panel, 'sp 1', { w: 1, h: 8 });
+    inst(panel, C_['Speaker/Button/NewSession']);
+    frame(panel, 'sp 2', { w: 1, h: 14 });
+    const drList = frame(panel, 'sessions', { w: 259, dir: 'VERTICAL' });
+    function drGroup(label) {
+      const g = frame(drList, 'group ' + label, { w: 259, h: 31, dir: 'HORIZONTAL', cross: 'MAX', pl: 6, pb: 4, pt: 12 });
+      t(g, label, { font: F.sans, size: 11, color: C.ink4, lh: 15, name: 'group' });
+    }
+    function drRow(name, current) {
+      const r = inst(drList, C_['Speaker/Row/DrawerSession' + (current ? '/Current' : '')]);
+      r.layoutAlign = 'STRETCH';
+      const n = r.findOne(x => x.type === 'TEXT' && x.name === 'name');
+      if (n) n.characters = name;
+      return r;
+    }
+    drGroup('今天');
+    drRow('没睡好的早晨', true);
+    const targetRow = drRow('咖啡店点单', mode === 'menu');
+    drRow('面试自我介绍');
+    drGroup('更早');
+    drRow('周末出行计划');
+    frame(panel, 'sp 3', { w: 1, h: 1, grow: 1 });
+    const drDock = frame(panel, 'dock', { w: 259, h: 44, dir: 'HORIZONTAL', main: 'MAX', cross: 'CENTER' });
+    inst(drDock, C_['Speaker/IconButton/44/settings']);
 
-/* 主卡片右推一个抽屉宽、缩到 0.94、圆角 32、垫暖影，表面压六成白蒙层 */
-const card = frame(dr, 'card', { w: 338, h: 745, fill: C.paper, radius: 32, clip: true, x: 306, y: 24, absolute: true });
-card.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#3A2F26'), a: 0.16 }, offset: { x: -8, y: 0 }, radius: 24, spread: 0, blendMode: 'NORMAL', visible: true }];
-const cardView = frame(card, 'card view', { w: 360, h: 792, dir: 'VERTICAL', x: 0, y: 0, absolute: true });
-chatStack(cardView);
-bar(cardView);
-try { cardView.rescale(0.94); } catch (e) {}
-frame(card, 'veil', { w: 338, h: 745, fill: C.card, fillA: 0.6, x: 0, y: 0, absolute: true });
+    if (mode === 'menu') {
+      const sessionMenu = inst(panel, C_['Speaker/Menu/Session']);
+      sessionMenu.layoutPositioning = 'ABSOLUTE';
+      sessionMenu.x = 24;
+      sessionMenu.y = 226;
+    }
+  }
 
-/* ---------------- 14 译文展开 ---------------- */
-const tr = screen('13 · 译文展开', 4800);
+  /* 主卡片右推一个抽屉宽、缩到 0.94、圆角 32、垫暖影，表面压六成白蒙层 */
+  const card = frame(dr, 'card', { w: 338, h: 745, fill: C.paper, radius: 32, clip: true, x: 306, y: 24, absolute: true });
+  card.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#3A2F26'), a: 0.16 }, offset: { x: -8, y: 0 }, radius: 24, spread: 0, blendMode: 'NORMAL', visible: true }];
+  const cardView = frame(card, 'card view', { w: 360, h: 792, dir: 'VERTICAL', x: 0, y: 0, absolute: true });
+  chatStack(cardView);
+  bar(cardView);
+  try { cardView.rescale(0.94); } catch (e) {}
+  frame(card, 'veil', { w: 338, h: 745, fill: C.card, fillA: 0.6, x: 0, y: 0, absolute: true });
+}
+
+buildDrawerScreen('12 · 侧边抽屉', 5200, 'normal');
+buildDrawerScreen('12b · 会话菜单', 5600, 'menu');
+buildDrawerScreen('12c · 批量删除', 6000, 'batch');
+
+/* ---------------- 13 译文展开 ---------------- */
+const tr = screen('13 · 译文展开', 6400);
 inst(tr, C_['Speaker/TopBar/Chat']);
 const trList = frame(tr, 'transcript', { w: 360, h: LIST_H, dir: 'VERTICAL', main: 'MAX', pl: 20, pr: 20, pt: 6, pb: 10, gap: 16, clip: true });
 echoRow(trList, 'Was there a moment today when you completely lost track of time?', true, '今天有没有哪一刻，你完全忘了时间？');
 userRow(trList, 'Yeah, when I was reading by the window. 嗯… time just flew by.', 88, 84);
 bar(tr);
 
-/* ---------------- 15 轻提示 ---------------- */
-const ts = screen('14 · 轻提示', 5200);
+/* ---------------- 14 轻提示 ---------------- */
+const ts = screen('14 · 轻提示', 6800);
 chatStack(ts);
 bar(ts);
 const toast = inst(ts, C_['Speaker/Toast']);
@@ -343,10 +416,10 @@ toast.layoutPositioning = 'ABSOLUTE';
 toast.x = Math.round((360 - toast.width) / 2);
 toast.y = TOP + 8;
 
-/* ---------------- 17 系统提示词 ------------- */
+/* ---------------- 15 系统提示词 ------------- */
 /* 全局共享的一段提示词：所有会话建连接时都带上它，编辑入口只有设置页这一张卡。
    弹窗里只放正文与两个动作，全局记忆不进界面，所以这里也没有它的一行。 */
-const pr = screen('15 · 系统提示词', 5600);
+const pr = screen('15 · 系统提示词', 7200);
 settingsBody(pr, {});
 frame(pr, 'scrim', { w: 360, h: 792, fill: C.ink, fillA: 0.18, x: 0, y: 0, absolute: true });
 const dlg = frame(pr, 'dialog', { w: 320, dir: 'VERTICAL', fill: C.card, radius: 26, pl: 20, pr: 20, pt: 20, pb: 20, gap: 12, x: 20, y: 130, absolute: true });

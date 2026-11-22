@@ -30,9 +30,6 @@ function screen(name, x) {
   const f = frame(page, name, { w: W, h: H, fill: C.paper, dir: 'VERTICAL', clip: true, x: x, y: 120 });
   f.primaryAxisSizingMode = 'FIXED';
   f.resize(W, H);
-  const lb = t(page, name, { font: F.mono, size: 11, color: C.ink3, lh: 16 });
-  lb.name = 'cap ' + name;
-  lb.x = x; lb.y = 92;
   return f;
 }
 

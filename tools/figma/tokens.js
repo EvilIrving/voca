@@ -43,6 +43,27 @@ for (const [name, hex, use] of colors) {
 }
 frame(root, 'sp', { w: 1, h: 32 });
 
+/* 打卡热力五档：颜色只由当日练习分钟决定，与客户端 CheckInLevel 同一套档位 */
+t(root, '打卡热力色阶', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
+frame(root, 'sp', { w: 1, h: 12 });
+const heatSteps = [
+  ['无练习', C.heat0],
+  ['1–4 分', C.heat1],
+  ['5–14 分', C.heat2],
+  ['15–29 分', C.heat3],
+  ['30 分以上', C.heat4]
+];
+const heatRow = frame(root, 'heat steps', { dir: 'HORIZONTAL', w: 820, gap: 10, main: 'MIN' });
+for (const [label, hex] of heatSteps) {
+  const card = frame(heatRow, 'spec heat ' + label, { w: 154, dir: 'VERTICAL', gap: 6, pt: 8, pb: 10, pl: 8, pr: 8, fill: C.card, stroke: C.hair, radius: 12 });
+  frame(card, 'chip', { w: 138, h: 40, fill: hex, radius: 8, stroke: C.hair });
+  t(card, label, { font: F.cnMd, size: 10.5, color: C.ink2, lh: 14 });
+  t(card, hex.toUpperCase(), { font: F.mono, size: 9.5, color: C.ink4, lh: 13 });
+}
+frame(root, 'sp', { w: 1, h: 10 });
+t(root, '热力图铺二十六周乘七天，格 8.3 圆角 2 间距 3，行首为周一，卡片 320 宽内缩 14、格区 292；末列没到的日子留空。', { font: F.cn, size: 11, color: C.ink4, lh: 16, width: 820 });
+frame(root, 'sp', { w: 1, h: 32 });
+
 /* type scale */
 t(root, '字体', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
 frame(root, 'sp', { w: 1, h: 12 });
@@ -152,7 +173,7 @@ const groups = [
     'Row/Provider', 'Row/Provider/Open', 'Row/Provider/Off', 'Row/Voice', 'Row/Voice/Open',
     'Row/DrawerSession', 'Row/DrawerSession/Current', 'Button/NewSession',
     'Row/Menu/Speak', 'Row/Menu/Translate', 'Row/Menu/Save', 'Row/Menu/Copy', 'Row/Menu/Retry', 'Row/Menu/Delete',
-    'Select/Menu', 'Select/Menu/Voice', 'Menu/Message',
+    'Select/Menu', 'Select/Menu/Voice', 'Actions/Message',
     'VocabCard/Collocation', 'VocabCard/Word', 'VocabCard/New',
     'Panel/Original', 'Panel/Rewrite', 'Tab/On', 'Tab/Off'
   ]],
@@ -163,7 +184,7 @@ const groups = [
   ]],
   ['界面 screens', [
     '01 对话', '02 有草稿', '03 按住录音', '04 左滑取消', '05 锁定录音', '06 暂停预览',
-    '07 消息菜单', '08 评测抽屉', '09 生词库', '10 设置', '11 模型下拉',
+    '07 消息操作', '08 评测抽屉', '09 生词库', '10 设置', '11 模型下拉',
     '12 侧边抽屉', '13 译文展开', '14 轻提示', '15 系统提示词'
   ]]
 ];
