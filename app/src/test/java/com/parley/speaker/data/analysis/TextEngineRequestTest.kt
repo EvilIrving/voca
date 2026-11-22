@@ -17,22 +17,30 @@ import org.junit.Test
 
 /**
  * 请求装配的断言：预设、端点、三种鉴权、探针判定与思考参数。
- * 全程不发请求，只看拼出来的 Request。
+ * 模型元数据一律由用例自己给，目录不再带种子。全程不发请求，只看拼出来的 Request。
  */
 class TextEngineRequestTest {
 
+    private val reasoning = TextModel(
+        id = "deepseek-reasoner",
+        thinking = true,
+        defaultEffort = "high",
+        effortLevels = listOf("low", "medium", "high"),
+    )
+
+    private val plain = TextModel(id = "deepseek-chat")
+
     @Test
-    fun `DeepSeek 预设是 flash 打头且保留 chat`() {
+    fun `目录只带端点与鉴权，不带模型种子`() {
         val provider = TextProviderCatalog.deepseek
 
         assertEquals("https://api.deepseek.com/v1", provider.endpoint)
-        assertEquals("deepseek-flash", provider.models.first().id)
-        assertTrue(provider.models.first { it.id == "deepseek-flash" }.thinking)
-        assertTrue(provider.models.first { it.id == "deepseek-chat" }.legacy)
+        assertEquals("Bearer ", provider.auth.prefix)
+        assertTrue("模型清单只从缓存来", TextProviderCatalog.all.all { it.models.isEmpty() })
     }
 
     @Test
-    fun `选了哪家就走哪家，与模型 id 属于谁的目录无关`() {
+    fun `选了哪家就走哪家，与模型 id 属于谁的清单无关`() {
         val settings = AnalysisSettings(
             apiKey = "sk-deep",
             model = "gemini-flash-latest",
@@ -46,12 +54,26 @@ class TextEngineRequestTest {
     }
 
     @Test
+    fun `清单里的元数据按模型 id 挂到请求配置上`() {
+        val settings = AnalysisSettings(
+            apiKey = "sk-deep",
+            model = "deepseek-reasoner",
+            provider = TextProviderCatalog.deepseek.id,
+            thinking = true,
+        )
+        val config = TextEngineConfig.of(settings, listOf(reasoning, plain))
+
+        assertEquals(reasoning, config.modelMeta)
+        val body = Json.parseToJsonElement(bodyOf(config.request("hi", structured = true)!!)).jsonObject
+        assertEquals("high", body["reasoning_effort"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `会话名的请求也走配置里的端点与鉴权`() {
         val settings = AnalysisSettings(
             apiKey = "sk-kimi",
-            model = "kimi-k2-turbo-preview",
+            model = "kimi-k2",
             provider = TextProviderCatalog.kimi.id,
-            thinking = true,
         )
         val config = TextEngineConfig.of(settings)
         val request = config.request(sessionNamePrompt("学生：hi\n助教：hello"), structured = false)!!
@@ -59,13 +81,13 @@ class TextEngineRequestTest {
         assertEquals("https://api.moonshot.cn/v1/chat/completions", request.url.toString())
         assertEquals("Bearer sk-kimi", request.header("Authorization"))
         val body = Json.parseToJsonElement(bodyOf(request)).jsonObject
-        assertEquals("kimi-k2-turbo-preview", body["model"]!!.jsonPrimitive.content)
+        assertEquals("kimi-k2", body["model"]!!.jsonPrimitive.content)
         assertNull("取名只需要一段自由文本，不开 JSON 模式", body["response_format"])
     }
 
     @Test
     fun `三种鉴权各落各处`() {
-        val bearer = TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-flash", "sk-1")
+        val bearer = TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-chat", "sk-1")
         val header = TextEngineConfig.of(TextProviderCatalog.anthropic, "claude-sonnet-4-5", "sk-2")
         val custom = TextEngineConfig(
             provider = TextProviderCatalog.custom,
@@ -95,22 +117,49 @@ class TextEngineRequestTest {
 
     @Test
     fun `结构化输出按供应商能力加`() {
-        val deepseek = TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-flash", "sk-1")
+        val deepseek = TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-chat", "sk-1")
         val body = Json.parseToJsonElement(bodyOf(deepseek.request("hi", structured = true)!!)).jsonObject
 
-        assertEquals("deepseek-flash", body["model"]!!.jsonPrimitive.content)
+        assertEquals("deepseek-chat", body["model"]!!.jsonPrimitive.content)
         assertEquals("json_object", body["response_format"]!!.jsonObject["type"]!!.jsonPrimitive.content)
     }
 
     @Test
     fun `思考参数只在模型支持且开关打开时才发`() {
-        val flash = TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-flash", "sk-1", thinking = true)
-        val chat = TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-chat", "sk-1", thinking = true)
-        val off = TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-flash", "sk-1", thinking = false)
+        val on = TextEngineConfig.of(
+            TextProviderCatalog.deepseek,
+            "deepseek-reasoner",
+            "sk-1",
+            thinking = true,
+            meta = reasoning,
+        )
+        val chat = TextEngineConfig.of(
+            TextProviderCatalog.deepseek,
+            "deepseek-chat",
+            "sk-1",
+            thinking = true,
+            meta = plain,
+        )
+        val off = TextEngineConfig.of(
+            TextProviderCatalog.deepseek,
+            "deepseek-reasoner",
+            "sk-1",
+            thinking = false,
+            meta = reasoning,
+        )
 
-        assertTrue(bodyOf(flash.request("hi", structured = true)!!).contains("thinking"))
+        assertTrue(bodyOf(on.request("hi", structured = true)!!).contains("thinking"))
         assertFalse(bodyOf(chat.request("hi", structured = true)!!).contains("thinking"))
         assertFalse(bodyOf(off.request("hi", structured = true)!!).contains("thinking"))
+    }
+
+    @Test
+    fun `没有元数据时退回开关式思考，不带档位`() {
+        val config = TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-chat", "sk-1", thinking = true)
+        val body = bodyOf(config.request("hi", structured = true)!!)
+
+        assertTrue(body.contains("thinking"))
+        assertFalse("清单没到位就不猜档位", body.contains("reasoning_effort"))
     }
 
     @Test
@@ -124,16 +173,17 @@ class TextEngineRequestTest {
         )
 
         assertEquals("https://llm.example.com/v1/chat/completions", config.chatUrl)
+        assertEquals("https://llm.example.com/v1/models", modelsUrl(config.endpoint))
         assertFalse(bodyOf(config.request("hi", structured = true)!!).contains("max_tokens"))
     }
 
     @Test
     fun `探针先判本地配置再给最小请求`() {
         val unconfigured = AnalysisProbe.plan(
-            TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-flash", ""),
+            TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-chat", ""),
         )
         val catalog = AnalysisProbe.plan(
-            TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-flash", "sk-1"),
+            TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-chat", "sk-1"),
         )
         val custom = AnalysisProbe.plan(
             TextEngineConfig(

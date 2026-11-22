@@ -10,6 +10,7 @@ import kotlinx.serialization.json.contentOrNull
 /**
  * models.json 与各家 /models 清单的解析。三种外壳都认：data 数组、models 数组、按 id 作键的对象。
  * 字段名各厂不一致，按别名依次尝试；类型不对一律当没有，不抛异常。
+ * Gemini 的兼容端点在 id 上带 models/ 前缀，进来就摘掉，与目录按同一个 id 对齐。
  */
 object ModelsJson {
 
@@ -46,8 +47,9 @@ object ModelsJson {
         return root.entries.map { (id, value) -> id to (value as JsonObject) }
     }
 
-    private fun model(id: String, entry: JsonObject): TextModel? {
-        val modelId = id.ifBlank { entry.text("id") ?: return null }
+    /** 一条模型条目 → 元数据。id 在调用方给的和条目自带的里取，tools 目录用键当 id。 */
+    internal fun model(id: String, entry: JsonObject): TextModel? {
+        val modelId = normalize(id.ifBlank { entry.text("id").orEmpty() })
         if (modelId.isBlank()) return null
         val limit = entry.obj("limit")
         val top = entry.obj("top_provider")
@@ -68,11 +70,35 @@ object ModelsJson {
                 ?: top?.int("max_completion_tokens")
                 ?: 0,
             thinking = entry.thinking() ?: false,
-            effort = entry.text("reasoning_effort")
-                ?: entry.obj("reasoning")?.text("effort")
-                ?: entry.obj("thinking")?.text("effort"),
+            defaultEffort = entry.defaultEffort(),
+            effortLevels = entry.effortLevels(),
+            releaseDate = entry.text("release_date")
+                ?: entry.text("released")
+                ?: entry.text("releaseDate"),
         )
     }
+
+    fun normalize(id: String): String = id.trim().removePrefix("models/")
+
+    private fun JsonObject.defaultEffort(): String? =
+        text("reasoning_effort")
+            ?: obj("effort")?.text("default")
+            ?: obj("reasoning")?.text("effort")
+            ?: obj("thinking")?.text("effort")
+
+    /** 档位表各家挂在 effort、reasoning 或顶层，字段名 supported_levels / effort_levels / levels 都见过。 */
+    private fun JsonObject.effortLevels(): List<String> {
+        val holders = listOf(this, obj("effort"), obj("reasoning"), obj("thinking")).filterNotNull()
+        holders.forEach { holder ->
+            listOf("supported_levels", "effort_levels", "levels", "supported_efforts").forEach { key ->
+                (holder[key] as? JsonArray)?.strings()?.takeIf { it.isNotEmpty() }?.let { return it }
+            }
+        }
+        return emptyList()
+    }
+
+    private fun JsonArray.strings(): List<String> =
+        mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { text -> text.isNotEmpty() } }
 
     private fun JsonObject.thinking(): Boolean? =
         flag("reasoning")
@@ -81,11 +107,11 @@ object ModelsJson {
             ?: obj("thinking")?.let { it.flag("enabled") ?: true }
             ?: obj("reasoning")?.let { it.flag("enabled") ?: true }
             ?: obj("capabilities")?.flag("reasoning")
+            ?: effortLevels().takeIf { it.isNotEmpty() }?.let { true }
             ?: parameters()?.let { it.contains("reasoning") || it.contains("include_reasoning") }
 
     private fun JsonObject.parameters(): List<String>? =
-        (this["supported_parameters"] as? JsonArray)
-            ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+        (this["supported_parameters"] as? JsonArray)?.strings()
 
     private fun JsonObject.obj(key: String): JsonObject? = this[key] as? JsonObject
 
@@ -103,6 +129,4 @@ object ModelsJson {
         }
         else -> null
     }
-
-    private fun JsonObject?.asObject(): JsonObject = this ?: JsonObject(emptyMap())
 }

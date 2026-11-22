@@ -20,6 +20,12 @@ import java.util.concurrent.TimeUnit
 
 private val JsonMedia = "application/json".toMediaType()
 
+/** 估算窗口时一个 token 折两字符，中英混说偏保守，宁可少裁不裁过头。 */
+internal const val CharsPerToken = 2
+
+/** 一份分析报告加三条词卡不到一千 token，译文与取名更短，四千已绦绦有余。 */
+private const val AnalysisMaxOutput = 4_096
+
 private const val SystemRole =
     "你是英语口语教练，只输出调用方要求的 JSON，不输出解释、代码块标记或多余字段。"
 
@@ -30,7 +36,8 @@ internal val defaultEngineClient: OkHttpClient = OkHttpClient.Builder()
 
 /**
  * 一次文本请求需要的全部参数。供应商差异只落在端点、鉴权与请求体的可选段上，
- * 管道里没有按供应商名字分叉的代码。
+ * 管道里没有按供应商名字分叉的代码。modelMeta 是清单缓存里这一条模型的元数据，
+ * 没带就按未知处理：思考参数退成开关式，输出上限与输入窗口都不裁。
  */
 data class TextEngineConfig(
     val provider: TextProvider,
@@ -40,12 +47,12 @@ data class TextEngineConfig(
     val apiKey: String,
     val thinking: Boolean = false,
     val headers: Map<String, String> = provider.headers,
+    val modelMeta: TextModel? = null,
 ) {
     val chatUrl: String get() = appendPath(endpoint, "chat/completions")
 
-    val ready: Boolean get() = apiKey.isNotBlank() && endpoint.isNotBlank()
-
-    val modelMeta: TextModel? get() = TextProviderCatalog.modelOf(provider, model)
+    /** 模型名空着不是一条能发的请求，边界只在这里判一次。 */
+    val ready: Boolean get() = apiKey.isNotBlank() && endpoint.isNotBlank() && model.isNotBlank()
 
     companion object {
         fun of(
@@ -53,25 +60,29 @@ data class TextEngineConfig(
             model: String,
             apiKey: String,
             thinking: Boolean = false,
+            meta: TextModel? = null,
         ): TextEngineConfig = TextEngineConfig(
             provider = provider,
-            model = model.ifBlank { provider.models.firstOrNull()?.id.orEmpty() },
+            model = model.ifBlank { meta?.id.orEmpty() },
             endpoint = provider.endpoint,
             auth = provider.auth,
             apiKey = apiKey,
             thinking = thinking,
+            modelMeta = meta,
         )
 
         /** 配置中心的设置是唯一来源：供应商、端点、鉴权、思考参数都从这里进管道。 */
-        fun of(settings: AnalysisSettings): TextEngineConfig {
+        fun of(settings: AnalysisSettings, models: List<TextModel> = emptyList()): TextEngineConfig {
             val provider = TextProviderCatalog.of(settings.provider) ?: TextProviderCatalog.gemini
+            val model = settings.model.ifBlank { models.firstOrNull()?.id.orEmpty() }
             return TextEngineConfig(
                 provider = provider,
-                model = settings.model.ifBlank { provider.models.firstOrNull()?.id.orEmpty() },
+                model = model,
                 endpoint = settings.endpoint.ifBlank { provider.endpoint },
                 auth = settings.authSpec(provider),
                 apiKey = settings.apiKey,
                 thinking = settings.thinking,
+                modelMeta = models.firstOrNull { it.id == model },
             )
         }
     }
@@ -88,12 +99,11 @@ internal fun AnalysisSettings.authSpec(provider: TextProvider): AuthSpec = when 
     AuthKind.Query -> AuthSpec.query(authName.ifBlank { "key" })
 }
 
-/** 请求体：JSON 输出、温度、思考段都由模型元数据与配置决定，不写死在某一家身上。 */
-internal fun TextEngineConfig.request(
-    prompt: String,
-    structured: Boolean,
-    maxTokens: Int = 0,
-): Request? {
+/**
+ * 请求体：JSON 输出、温度、思考段、输出上限与输入窗口都由模型元数据与配置决定，不写死在某一家身上。
+ * 输出上限取清单里的 maxOutput，输入按上下文窗口裁剪，档位取清单自报的默认值。
+ */
+internal fun TextEngineConfig.request(prompt: String, structured: Boolean): Request? {
     val url = signed(chatUrl) ?: return null
     val body = buildJsonObject {
         put("model", model)
@@ -104,12 +114,12 @@ internal fun TextEngineConfig.request(
             })
             add(buildJsonObject {
                 put("role", "user")
-                put("content", prompt)
+                put("content", promptWithinContext(prompt))
             })
         }
         put("temperature", 0.3)
         put("stream", false)
-        if (maxTokens > 0) put("max_tokens", maxTokens)
+        if (maxOutputTokens > 0) put("max_tokens", maxOutputTokens)
         if (structured && provider.jsonMode) {
             putJsonObject("response_format") { put("type", "json_object") }
         }
@@ -121,11 +131,30 @@ internal fun TextEngineConfig.request(
     return builder(url).post(body.toString().toRequestBody(JsonMedia)).build()
 }
 
+/** 输出上限只认清单里的 maxOutput，没同步到就不带，交给服务端默认值。 */
+internal val TextEngineConfig.maxOutputTokens: Int
+    get() = modelMeta?.maxOutput?.takeIf { it > 0 }?.coerceAtMost(AnalysisMaxOutput) ?: 0
+
+/**
+ * 输入按窗口裁剪：窗口先扣掉输出预留，再按两字符一 token 保守折算成字符数。
+ * 窗口未知就不裁；分析与译文的提示只有几百字符，会撞上限的只有整段对话取名的材料。
+ */
+internal fun TextEngineConfig.promptWithinContext(prompt: String): String {
+    val context = modelMeta?.context?.takeIf { it > 0 } ?: return prompt
+    val budget = (context - maxOutputTokens).coerceAtLeast(context / 2) * CharsPerToken
+    return if (prompt.length <= budget) prompt else prompt.take(budget)
+}
+
+/** 清单请求：带该供应商自己的密钥取 GET /models，没有密钥时拼不出签过名的地址。 */
+internal fun TextEngineConfig.modelsRequest(): Request? {
+    val url = signed(modelsUrl(endpoint)) ?: return null
+    return builder(url).get().build()
+}
+
 /** 探针要的最小请求：能取模型清单就只要一次清单，端点是完整 chat 地址时改发一条一 token 的生成。 */
 internal fun TextEngineConfig.probeRequest(): Request? {
-    val fullChat = endpoint.trimEnd('/').endsWith("/chat/completions")
-    val url = signed(if (fullChat) chatUrl else appendPath(endpoint, "models")) ?: return null
-    if (!fullChat) return builder(url).get().build()
+    if (!endpoint.trimEnd('/').endsWith("/chat/completions")) return modelsRequest()
+    val url = signed(chatUrl) ?: return null
     val body = buildJsonObject {
         put("model", model)
         putJsonArray("messages") {
@@ -214,10 +243,13 @@ class OpenAiCompatibleEngine(
     }
 }
 
-/** 组装入口：配置中心的文本分析设置直接换成一台引擎。 */
+/**
+ * 组装入口：配置中心的文本分析设置加该模型在清单缓存里的元数据换成一台引擎。
+ * 清单可以不给，那样请求只按设置的开关发思考参数，不带上限与档位。
+ */
 object TurnAnalyzerFactory {
-    fun of(settings: AnalysisSettings): TurnAnalyzer =
-        OpenAiCompatibleEngine(TextEngineConfig.of(settings))
+    fun of(settings: AnalysisSettings, models: List<TextModel> = emptyList()): TurnAnalyzer =
+        OpenAiCompatibleEngine(TextEngineConfig.of(settings, models))
 }
 
 /**
