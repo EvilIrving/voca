@@ -29,20 +29,32 @@ class SpeechGateTest {
     }
 
     @Test
-    fun `有一帧高过底噪就送去识别`() {
+    fun `高过底噪的帧凑够四百毫秒才送去识别`() {
+        // 五十帧里只有一半冲高，正好是四百毫秒的说话声。
         val frames = DoubleArray(50) { -60.0 }
-        frames[20] = -25.0
+        for (i in 10 until 30) frames[i] = -30.0
 
         assertFalse(SpeechGate.shouldDrop(frames))
     }
 
     @Test
-    fun `底噪随环境抬升，同样响度在嘈杂处不算说话`() {
-        val quiet = DoubleArray(50) { -70.0 }
-        quiet[10] = -30.0
-        val noisy = DoubleArray(50) { -30.0 }
+    fun `环境噪声里夹一两下敲击不算说话`() {
+        // 三十秒底噪，中间夹三帧一声碰麦：单帧峰值很高，但它们只占六十毫秒。
+        val frames = DoubleArray(1_500) { -62.0 + (it % 4) }
+        frames[700] = -20.0
+        frames[701] = -22.0
+        frames[702] = -28.0
 
-        assertFalse("安静房间里的低于三十的峰值属于说话", SpeechGate.shouldDrop(quiet))
+        assertTrue("只有六十毫秒高过底噪，不该送去识别", SpeechGate.shouldDrop(frames))
+    }
+
+    @Test
+    fun `底噪随环境抬升，同样响度在嘈杂处不算说话`() {
+        val quiet = DoubleArray(60) { -70.0 }
+        for (i in 10 until 40) quiet[i] = -40.0
+        val noisy = DoubleArray(60) { -30.0 }
+
+        assertFalse("安静房间里高过底噪的那六百毫秒属于说话", SpeechGate.shouldDrop(quiet))
         assertTrue("整段就停在三十，没有高过它自己的底噪", SpeechGate.shouldDrop(noisy))
     }
 

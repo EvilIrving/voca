@@ -6,7 +6,9 @@ import kotlin.math.sqrt
 
 /**
  * 静音闸门：收完音之后判断这一轮值不值得送去识别与生成。
- * 只有两个丢弃条件：时长短于 [MinSpeechMs]，或者整段没有一帧高出环境底噪 [FloorMarginDb]。
+ * 两个丢弃条件：时长短于 [MinSpeechMs]，或者高过环境底噪 [FloorMarginDb] 的帧加起来不够 [MinSpeechMs]。
+ * 后者按累计时长而不是单帧峰值判：环境里一次敲门、一次碰麦都会有一两帧冲高，
+ * 只看峰值就把它当成说话送出去，模型会给出一段与对话无关的转写。
  * 底噪基线取各帧能量的低分位而不是写死数值，空调声与街道噪声抬起来时基线跟着抬。
  */
 object SpeechGate {
@@ -44,14 +46,21 @@ object SpeechGate {
         return sorted[index]
     }
 
+    /** 累计够这么多毫秒的帧高过底噪，才算这一轮里真的有人说话。 */
+    fun voicedMs(framesDb: DoubleArray, floorDb: Double): Long {
+        val bar = floorDb + FloorMarginDb
+        return framesDb.count { it >= bar } * FrameMs
+    }
+
     /** 只拿到统计量时的入口：时长、峰值、底噪都已经算好。 */
     fun shouldDrop(durationMs: Long, peakDb: Double, floorDb: Double): Boolean =
         durationMs < MinSpeechMs || peakDb < floorDb + FloorMarginDb
 
-    /** 拿到整段帧序列时的入口，底噪从这段帧自己身上取。 */
-    fun shouldDrop(framesDb: DoubleArray): Boolean = shouldDrop(
-        durationMs = framesDb.size.toLong() * FrameMs,
-        peakDb = framesDb.maxOrNull() ?: SilenceDb,
-        floorDb = noiseFloor(framesDb),
-    )
+    /** 拿到整段帧序列时的入口，底噪从这段帧自己身上取，说话时长也按同一份帧数累计。 */
+    fun shouldDrop(framesDb: DoubleArray): Boolean {
+        if (framesDb.isEmpty()) return true
+        val floor = noiseFloor(framesDb)
+        return framesDb.size.toLong() * FrameMs < MinSpeechMs ||
+            voicedMs(framesDb, floor) < MinSpeechMs
+    }
 }
