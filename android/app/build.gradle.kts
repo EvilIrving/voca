@@ -8,8 +8,8 @@ plugins {
 }
 
 val devEnv: Properties = Properties().apply {
-    val file = rootProject.file(".env")
-    if (file.exists()) file.inputStream().use { load(it) }
+    val file = sequenceOf(rootProject.file("../.env"), rootProject.file(".env")).firstOrNull { it.exists() }
+    if (file != null) file.inputStream().use { load(it) }
 }
 
 fun secret(key: String): String = devEnv.getProperty(key).orEmpty()
