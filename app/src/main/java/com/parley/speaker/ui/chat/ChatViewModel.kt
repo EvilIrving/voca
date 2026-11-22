@@ -88,26 +88,16 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
 
+/** 连接状态只在内部流转，界面上不呈现：连不上就按退避重连，失败原文进日志。 */
 enum class Connection { Unconfigured, Connecting, Ready, Failed }
 
-/** 顶栏那枚状态点只有这四种读数；退避等待期仍然算 [Waiting]，所以圆点保持红色。 */
-enum class ConnectionDot { Connected, Handshaking, Waiting, Unconfigured }
-
-fun Connection.dot(): ConnectionDot = when (this) {
-    Connection.Ready -> ConnectionDot.Connected
-    Connection.Connecting -> ConnectionDot.Handshaking
-    Connection.Failed -> ConnectionDot.Waiting
-    Connection.Unconfigured -> ConnectionDot.Unconfigured
-}
-
 data class ChatState(
-    val scenario: String,
     val turns: List<Turn>,
     val hint: String? = null,
     val recording: Boolean = false,
     val connection: Connection = Connection.Connecting,
     val notice: String? = null,
-    /** 顶栏中段显示的会话名：收段那一刻写回，新的一段还没开口时露上一段的名字，取不到就留占位。 */
+    /** 顶栏中段显示的会话名：新会话不显示，历史回看时由外部传入。 */
     val sessionName: String? = null,
 ) {
     val round: Int get() = turns.count { it.speaker == Speaker.User }
@@ -148,7 +138,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(
         ChatState(
-            scenario = SeedContent.Scenarios.first(),
             turns = emptyList(),
             hint = null,
             connection = Connection.Connecting,
@@ -156,7 +145,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     )
     val state: StateFlow<ChatState> = _state.asStateFlow()
 
-    /** 最近收掉的那条会话记录：顶栏中段的名字与自动命名都看它，写好之后会被替换一次。 */
+    /** 最近收掉的那条会话记录：自动命名写好之后会被替换一次。 */
     private val _lastSession = MutableStateFlow<SessionRecord?>(null)
     val lastSession: StateFlow<SessionRecord?> = _lastSession.asStateFlow()
 
@@ -219,8 +208,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /** 当前这一段的账：起点、上次活动、有没有收过。四种收段时机都从这里过。 */
     private val ledger = SessionLedger()
 
-    /** 当前这一段开场时定下的场景与系统提示词。 */
-    private var plan = SegmentPlan(SeedContent.Scenarios.first(), settingsStore.settings.value.prompt)
+    /** 当前这一段开场时定下的系统提示词。 */
+    private var plan = SegmentPlan(settingsStore.settings.value.prompt)
 
     /**
      * 全局记忆：跨会话保留的那一段，界面看不见也改不了。库里留着上一场写下的那份就接着用，
@@ -455,16 +444,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun project() {
         val phase = flow.phase
-        // 收段那一刻把名字写回顶栏：新的一段还没开口时中段露上一段的名字，取不到就退回「本次会话」。
-        val carried = _lastSession.value?.name?.takeIf { it.isNotBlank() && flow.turns.isEmpty() }
         _state.update {
             it.copy(
-                scenario = plan.scenario,
                 turns = flow.turns,
                 recording = phase is TurnPhase.Recording,
                 connection = connection,
                 notice = notice,
-                sessionName = carried,
+                sessionName = null,
             )
         }
     }
@@ -970,14 +956,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
-    /** 收段之后紧接着开新的一段：切场景、点新会话、离开回看都走这里。 */
+    /** 收段之后紧接着开新的一段：点新会话、离开回看都走这里。 */
     private fun rollSegment() {
         endSegment()
         beginSegment()
     }
 
     /**
-     * 开新的一段：场景与角色提示词照旧带走，只换会话标识与那一屏对话。
+     * 开新的一段：角色提示词照旧带走，只换会话标识与那一屏对话。
      * 历史对话留在库里，回看那条链只看 sessionId，不靠清表。
      * [greet] 为假就不让助手先开口：静默收段那一段是收给空房间的，用户回来自己起头即可。
      */
@@ -995,7 +981,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         connect()
     }
 
-    /** 顶栏中段的会话名跟着这条记录走：收段后自动名写回就换成真名，新的一段开口后退回占位。 */
+    /** 记录收段历史：自动命名完成后写回并通知界面。 */
     private fun publishSession(record: SessionRecord?) {
         _lastSession.value = record
         project()
@@ -1012,7 +998,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         loadTranscript(sessionId)
     }
 
-    /** 抽屉里的「新会话」：手上这一段收掉，开新的一段。 */
+    /** 顶栏气泡加号与抽屉里的「新会话」走同一条：手上这一段收掉，开新的一段。 */
     fun startNewSession() {
         reviewing = false
         // 回看的那条只是只读视图，切新会话时一并退出。

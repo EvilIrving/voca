@@ -1,6 +1,5 @@
 package com.parley.speaker.ui.chat
 
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -80,7 +79,6 @@ private val ListBottomPadding = 18.dp
 fun ChatScreen(
     state: ChatState,
     turns: List<Turn>,
-    onScenarioClick: () -> Unit,
     onVocabClick: () -> Unit,
     onSessionNameTap: () -> Unit = {},
     onReviewClick: (Turn) -> Unit,
@@ -92,10 +90,10 @@ fun ChatScreen(
     onRecordPressStart: () -> Boolean,
     onRecordArmed: (Boolean) -> Unit,
     onRecordPressEnd: (cancelled: Boolean) -> Unit,
-    onRetry: () -> Unit,
     sessionName: String = "",
     reviewing: Boolean = false,
     onExitReview: () -> Unit = {},
+    onNewSession: () -> Unit = {},
     onSendText: (String) -> Unit = {},
     onSaveTurn: (String, Boolean) -> Unit = { _, _ -> },
     onPlayTurn: (String) -> Unit = {},
@@ -172,15 +170,14 @@ fun ChatScreen(
             .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
     ) {
         TopBar(
-            state = state,
             sessionName = sessionName,
             reviewing = reviewing,
+            canStartNew = showNewSessionAction(reviewing, turns.size),
             vocabToday = vocabToday,
-            onScenarioClick = onScenarioClick,
             onExitReview = onExitReview,
+            onNewSession = onNewSession,
             onVocabClick = onVocabClick,
             onSessionNameTap = onSessionNameTap,
-            onRetry = onRetry,
         )
 
         // 列表让位给输入条：底栏自己报多高，列表就拿剩下的多高，草稿输入与录音态同样高。
@@ -298,15 +295,14 @@ private fun EchoRow(
 
 @Composable
 private fun TopBar(
-    state: ChatState,
     sessionName: String,
     reviewing: Boolean,
+    canStartNew: Boolean,
     vocabToday: Int,
-    onScenarioClick: () -> Unit,
     onExitReview: () -> Unit,
+    onNewSession: () -> Unit,
     onVocabClick: () -> Unit,
     onSessionNameTap: () -> Unit,
-    onRetry: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -315,65 +311,42 @@ private fun TopBar(
             .height(44.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 回看时原来场景胶囊的位置换成返回箭头，防止对着旧记录切场景。
-        if (reviewing) {
-            BackButton(onExitReview)
-        } else {
-            Pressable(
-                shape = RoundedCornerShape(Radius.pill),
-                resting = Palette.card,
-                border = BorderStroke(1.dp, Palette.hair),
-                onClick = onScenarioClick,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .widthIn(max = TopBarSpec.ScenarioMax)
-                        .padding(start = 12.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        state.scenario,
-                        style = Type.uiStrong,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Icon(
-                        FluentIcons.ChevDown,
-                        contentDescription = "切换场景",
-                        modifier = Modifier.size(14.dp),
-                        tint = Palette.ink4,
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.width(4.dp))
-        StatusDot(
-            connection = state.connection,
-            onRetry = if (reviewing) null else onRetry,
-        )
-        // 会话名看着就是一段文字：没有箭头、按下也不换底色，但那一小块仍然收得下点击，
-        // 点它就是拉出抽屉——入口留着，界面上不出现。
-        Pressable(
-            modifier = Modifier
-                .widthIn(min = TopBarSpec.NameMin, max = TopBarSpec.NameMax)
-                .padding(horizontal = 2.dp, vertical = 5.dp),
-            shape = RoundedCornerShape(Radius.pill),
-            resting = Color.Transparent,
-            pressing = Color.Transparent,
-            contentDescription = "会话记录",
-            onClick = onSessionNameTap,
-        ) {
-            Text(
-                text = sessionName.ifBlank { UntitledSession },
-                style = Type.uiStrong,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        // 回看时左上角换成返回箭头；对话进行中换成气泡加号，点一下收掉这一段并开新的一段。
+        // 空着的新会话已经站在起点，左上角不重复放同一枚。
+        when {
+            reviewing -> BackButton(onExitReview)
+            canStartNew -> ParleyIconButton(
+                icon = FluentIcons.ChatAdd,
+                contentDescription = "新会话",
+                onClick = onNewSession,
+                size = TopBarSpec.IconButton,
+                iconSize = TopBarSpec.Icon,
+                tint = Palette.ink2,
             )
         }
+        Spacer(Modifier.width(4.dp))
+        if (sessionName.isNotBlank()) {
+            // 会话名看着就是一段文字：没有箭头、按下也不换底色，那一小块仍收得下点击拉出抽屉。
+            Pressable(
+                modifier = Modifier
+                    .widthIn(min = TopBarSpec.NameMin, max = TopBarSpec.NameMax)
+                    .padding(horizontal = 2.dp, vertical = 5.dp),
+                shape = RoundedCornerShape(Radius.pill),
+                resting = Color.Transparent,
+                pressing = Color.Transparent,
+                contentDescription = "会话记录",
+                onClick = onSessionNameTap,
+            ) {
+                Text(
+                    text = sessionName,
+                    style = Type.uiStrong,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         Spacer(Modifier.weight(1f))
-        // 顶栏只剩生词本一枚，靠最右；配置中心收在左侧抽屉右下角。
+        // 生词本靠最右，设置页收在左侧抽屉右下角。
         Box {
             ParleyIconButton(
                 icon = FluentIcons.Book,
@@ -405,72 +378,21 @@ private fun TopBar(
     }
 }
 
-/** 顶栏这一排的尺寸：生词本一枚图标占三十二，会话名单行省略、宽度上限一百零八。 */
+/** 对话进行中才出气泡加号；空着的新会话与历史回看都不放。 */
+internal fun showNewSessionAction(reviewing: Boolean, turnCount: Int): Boolean =
+    !reviewing && turnCount > 0
+
+/** 顶栏这一排的尺寸：左右两枚图标各占三十二，会话名单行省略、宽度上限一百零八。 */
 object TopBarSpec {
     val IconButton = 32.dp
     val Icon = 20.dp
     val NameMax = 108.dp
-    // 场景胶囊让位：会话名有下限，长场景名宁可自己截断，也不能把会话名挤成「设…」。
     val NameMin = 76.dp
-    val ScenarioMax = 108.dp
-    val DotTouch = 44.dp
-    val Dot = 8.dp
     val Badge = 16.dp
 }
-
-private const val UntitledSession = "本次会话"
 
 /**
  * 连接状态只剩一枚八像素圆点：已连接鼠尾草绿、未连接取消态深红、未配置四级灰，
  * 连接中做透明度呼吸。退避等待期仍算未连接，所以圆点不会先黄后红来回跳。
  * 触控区按 44dp 计，状态文案全交给无障碍标签，不只靠颜色分辨。
  */
-@Composable
-private fun StatusDot(connection: Connection, onRetry: (() -> Unit)?) {
-    val dot = connection.dot()
-    val clickable = onRetry != null && (dot == ConnectionDot.Waiting || dot == ConnectionDot.Unconfigured)
-    val alpha = if (dot == ConnectionDot.Handshaking) breathingAlpha() else 1f
-    val color = when (dot) {
-        ConnectionDot.Connected -> Palette.olive
-        ConnectionDot.Handshaking -> Palette.amber
-        ConnectionDot.Waiting -> Palette.danger
-        ConnectionDot.Unconfigured -> Palette.ink4
-    }
-    Pressable(
-        modifier = Modifier.size(TopBarSpec.DotTouch),
-        shape = CircleShape,
-        enabled = clickable,
-        contentDescription = dot.label(),
-        onClick = { onRetry?.invoke() },
-    ) {
-        Box(
-            modifier = Modifier
-                .size(TopBarSpec.Dot)
-                .background(color.copy(alpha = alpha), CircleShape),
-        )
-    }
-}
-
-// 0.35 到 1.0 往返一次 1.2 秒，呼吸不抢气泡与波形的注意力。
-@Composable
-private fun breathingAlpha(): Float {
-    val transition = rememberInfiniteTransition(label = "statusDot")
-    val alpha by transition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "statusDotAlpha",
-    )
-    return alpha
-}
-
-private fun ConnectionDot.label(): String = when (this) {
-    ConnectionDot.Connected -> "已连接"
-    ConnectionDot.Handshaking -> "连接中"
-    ConnectionDot.Waiting -> "重连中"
-    ConnectionDot.Unconfigured -> "未配置，请在设置中填写"
-}
-

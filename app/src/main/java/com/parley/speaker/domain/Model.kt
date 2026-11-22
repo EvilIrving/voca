@@ -175,8 +175,6 @@ private fun VocabCard.matches(query: String): Boolean {
         meaning.contains(needle, ignoreCase = true)
 }
 
-data class Scenario(val name: String)
-
 enum class LinkStatus { Connected, Configured, Unconfigured, Failed, NotSupported }
 
 data class ProviderLine(

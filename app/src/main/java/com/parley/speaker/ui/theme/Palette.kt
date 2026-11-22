@@ -27,9 +27,6 @@ object Palette {
 
     val danger = Color(0xFFA8503C)
 
-    /** 连接中：顶栏状态点做透明度呼吸，只剩这一处用得上。 */
-    val amber = Color(0xFFC08A2E)
-
     /** 浮层唯一那层暖影：陶土偏褐的低透明度，纯黑会在羊皮纸上压出一道灰边。 */
     val shade = Color(0x223A2F26)
 }

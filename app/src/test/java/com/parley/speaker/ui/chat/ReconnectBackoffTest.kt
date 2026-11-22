@@ -80,12 +80,4 @@ class ReconnectBackoffTest {
         assertFalse("也不认被取消那一轮的", next.isCurrent(waiting.epoch))
     }
 
-    @Test
-    fun `状态点把四种连接状态分开报`() {
-        assertEquals(ConnectionDot.Connected, Connection.Ready.dot())
-        assertEquals(ConnectionDot.Handshaking, Connection.Connecting.dot())
-        // 退避等待期仍然算未连接，圆点保持红色。
-        assertEquals(ConnectionDot.Waiting, Connection.Failed.dot())
-        assertEquals(ConnectionDot.Unconfigured, Connection.Unconfigured.dot())
-    }
 }

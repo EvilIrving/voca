@@ -35,7 +35,7 @@ data class Segment(
 /**
  * 当前这一段的账本。四种时机都走 [closeIfOpen]，交出来的永远是还没收过的那一段，
  * 收完停在闭合态，要接着开就调 [begin] 换一段新的。
- * 收段与开段是两步：切到别的会话先只收，退出回看再开；切场景、点新会话、静默到点收完就开。
+ * 收段与开段是两步：切到别的会话先只收，退出回看再开；点新会话、静默到点收完就开。
  */
 class SessionLedger(private val clock: () -> Long = System::currentTimeMillis) {
 
@@ -74,14 +74,10 @@ class SessionLedger(private val clock: () -> Long = System::currentTimeMillis) {
 }
 
 /**
- * 一段会话开场时定下的两样东西。换会话只换场景，角色提示词原样带走，
- * 设置里改过的角色要等下一段开门才生效。
+ * 一段会话开场时定下的角色提示词，设置里改过的角色要等下一段开门才生效。
  */
-data class SegmentPlan(val scenario: String, val prompt: String) {
+data class SegmentPlan(val prompt: String) {
 
-    /** 切场景：场景换成新选的，提示词一个字不动。 */
-    fun withScenario(picked: String): SegmentPlan = copy(scenario = picked)
-
-    /** 开新的一段：提示词按当下设置刷新，场景照旧。 */
+    /** 开新的一段：提示词按当下设置刷新。 */
     fun resuming(prompt: String): SegmentPlan = copy(prompt = prompt)
 }

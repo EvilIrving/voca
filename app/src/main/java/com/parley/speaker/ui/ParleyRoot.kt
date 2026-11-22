@@ -54,9 +54,6 @@ import com.parley.speaker.domain.vocabPage
 import com.parley.speaker.ui.chat.ChatScreen
 import com.parley.speaker.ui.chat.ChatViewModel
 import com.parley.speaker.ui.chat.Connection
-import com.parley.speaker.ui.component.MenuItem
-import com.parley.speaker.ui.component.Scrim
-import com.parley.speaker.ui.component.ParleyMenu
 import com.parley.speaker.ui.review.ReviewSheet
 import com.parley.speaker.ui.session.DrawerScaffold
 import com.parley.speaker.ui.session.SessionDrawer
@@ -91,7 +88,6 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
     val report by vm.report.collectAsStateWithLifecycle()
     var panel by remember { mutableStateOf(Panel.None) }
     var viewingSession by remember { mutableStateOf<com.parley.speaker.data.SessionRecord?>(null) }
-    var scenarioOpen by remember { mutableStateOf(false) }
     var reviewTurn by remember { mutableStateOf<Turn?>(null) }
     val drawer = rememberDrawerState()
     val drawerShown by remember(drawer) { derivedStateOf { drawer.current > 0.001f } }
@@ -131,12 +127,11 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
         }
     }
 
-    BackHandler(enabled = drawerShown || viewingSession != null || panel != Panel.None || reviewTurn != null || scenarioOpen) {
+    BackHandler(enabled = drawerShown || viewingSession != null || panel != Panel.None || reviewTurn != null) {
         when {
             reviewTurn != null -> reviewTurn = null
             drawerShown -> drawer.close()
             viewingSession != null -> closeReview()
-            scenarioOpen -> scenarioOpen = false
             else -> panel = Panel.None
         }
     }
@@ -174,7 +169,7 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
                 reviewing = reviewing,
                 // 切会话有两条路：底栏以上向右横滑拉出抽屉；或者看不见的那一块——点会话名。
                 onExitReview = closeReview,
-                onScenarioClick = { if (!reviewing) scenarioOpen = !scenarioOpen },
+                onNewSession = startNewSession,
                 onVocabClick = { panel = Panel.Vocab },
                 onSessionNameTap = { drawer.open() },
                 onReviewClick = { reviewTurn = it },
@@ -193,48 +188,12 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
                 },
                 onRecordArmed = vm::onRecordArmed,
                 onRecordPressEnd = vm::onRecordPressEnd,
-                // 未配置时圆点只是通往配置中心，配好了才跳过等待立即重试一次。
-                onRetry = {
-                    when {
-                        reviewing -> Unit
-                        state.connection == Connection.Unconfigured -> panel = Panel.Settings
-                        else -> vm.retryNow()
-                    }
-                },
                 onSendText = vm::sendText,
                 onSaveTurn = { id, saved -> vm.setSaved(id, saved) },
                 onPlayTurn = vm::playTurn,
                 onTranslateTurn = vm::translate,
                 onCopyTurn = vm::copyTurn,
                 onDeleteTurn = vm::deleteTurn,
-            )
-        }
-
-        AnimatedVisibility(visible = scenarioOpen, enter = fadeIn(), exit = fadeOut()) {
-            // 透明遮罩只用来接住划过菜单外的点击，不再压暗整屏
-            Scrim(onDismiss = { scenarioOpen = false })
-        }
-
-        AnimatedVisibility(
-            visible = scenarioOpen,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopStart),
-        ) {
-            ParleyMenu(
-                items = SeedContent.Scenarios.map { scenario ->
-                    MenuItem(
-                        label = scenario,
-                        selected = scenario == state.scenario,
-                        onClick = {
-                            vm.setScenario(scenario)
-                            scenarioOpen = false
-                        },
-                    )
-                },
-                modifier = Modifier
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(start = Spacing.screen, top = 48.dp),
             )
         }
 
