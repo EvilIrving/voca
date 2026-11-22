@@ -4,7 +4,7 @@
 
 `lib.js` 是构件助手，包含令牌、`frame` / `t` / `icon` / `comp` / `inst`；`fluent-compact.js` 存微软 Fluent System Icons 的 path 数据，`icon()` 从这里取图。上面两个是所有脚本的前置。
 
-`components.js` 建 `01 · 组件` 页的四十一个原子与复合组件（含下拉菜单、选项行、动作行、会话记录行），`org.js` 建组织层（顶栏与顶栏打开态、底栏、收音面板、声波柱、拾音按钮），`screens.js` 建 `02 · 界面` 页的十套 360×792 视图并全部用组件实例，`tokens.js` 建 `00 · 规范` 页。
+`components.js` 建 `01 · 组件` 页的五十二个原子与复合组件（含下拉菜单、选项行、动作行、会话记录行、改名铅笔），`org.js` 建组织层（顶栏三态、底栏、收音面板与取消态、中空声波柱、按压钮），`screens.js` 建 `02 · 界面` 页的十六套 360×792 视图并全部用组件实例，`tokens.js` 建 `00 · 规范` 页。
 
 ```bash
 ./build.sh components "重建组件页"

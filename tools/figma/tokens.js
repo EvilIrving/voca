@@ -92,22 +92,22 @@ const map = frame(root, 'structure', { w: 820, dir: 'HORIZONTAL', gap: 12, cross
 map.layoutWrap = 'WRAP';
 const groups = [
   ['原子层 atoms', [
-    'Avatar', 'IconButton/30-32-34-44', 'Button/Primary/Talk', 'Button/Primary/Label', 'Button/Ghost',
+    'IconButton/30-32-34-44', 'Button/Primary/Talk', 'Button/Primary/Label', 'Button/Ghost',
     'Chip/Filter/On', 'Chip/Filter/Off', 'Chip/Tag/Olive', 'Chip/Tag/Neutral', 'Chip/Word', 'Score/Value',
-    'Select/Option/On', 'Select/Option/Off', 'Row/Session'
+    'Select/Option/On', 'Select/Option/Off', 'Select/Option/Single/On-Off', 'Row/Session', 'Toast'
   ]],
   ['复合层 molecules', [
-    'Bubble/Echo', 'Bubble/User', 'ScorePill', 'HintCard', 'SectionLabel', 'SectionLabel/Mic',
-    'Field/Search', 'Row/Provider', 'Row/Provider/Open', 'Row/Provider/Off', 'Row/Action/Text', 'Row/Action/Summary', 'Row/Action/Records',
-    'Select/Menu', 'VocabCard/Collocation', 'VocabCard/Word', 'VocabCard/New',
-    'Panel/Original', 'Panel/Rewrite', 'Tab/On', 'Tab/Off', 'Waveform', 'MicButton'
+    'Bubble/Echo', 'Bubble/Echo/Translated', 'Bubble/User', 'ScorePill', 'HintCard', 'SectionLabel', 'SectionLabel/Mic',
+    'Field/Search', 'Field/Input', 'Field/Rename', 'IconButton/44/mic', 'IconButton/44/arrowUp', 'IconButton/30/checkMark', 'Row/Provider', 'Row/Provider/Open', 'Row/Provider/Off', 'Row/Action/Text', 'Row/Action/Summary', 'Row/Action/Records',
+    'Select/Menu', 'Select/Menu/Scene', 'VocabCard/Collocation', 'VocabCard/Word', 'VocabCard/New',
+    'Panel/Original', 'Panel/Rewrite', 'Tab/On', 'Tab/Off', 'Waveform/Split', 'Waveform/Split/Cancel'
   ]],
   ['组织层 organisms', [
-    'TopBar', 'TopBar/Open', 'BottomBar', 'RecordSheet'
+    'TopBar', 'TopBar/Open', 'TopBar/Offline', 'TopBar/Connecting', 'BottomBar', 'RecordSheet', 'RecordSheet/Cancel', 'Waveform/Cancel', 'PressButton', 'PressButton/Cancel'
   ]],
   ['界面 screens', [
     '01 对话', '02 收音中', '03 评测抽屉', '04 生词库', '05 配置中心',
-    '06 场景下拉', '07 模型下拉', '08 动作面板', '09 会话小结', '10 会话记录'
+    '06 场景下拉', '07 模型下拉', '08 动作面板', '09 会话小结', '10 会话记录', '11 上滑取消', '12 轻提示', '13 打字输入', '14 改名', '15 未连接', '16 译文展开'
   ]]
 ];
 for (const [title, lines] of groups) {

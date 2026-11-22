@@ -9,7 +9,7 @@ for (const f of fonts) { try { await figma.loadFontAsync(f); } catch (e) {} }
 const lib = figma.root.children.find(x => x.name === '01 · 组件');
 const C_ = {};
 for (const n of lib.children) { if (n.type === 'COMPONENT') C_[String(n.name)] = n; }
-const need = ['Speaker/TopBar', 'Speaker/TopBar/Open', 'Speaker/BottomBar', 'Speaker/RecordSheet', 'Speaker/Avatar', 'Speaker/Bubble/Echo', 'Speaker/Bubble/User', 'Speaker/ScorePill', 'Speaker/HintCard', 'Speaker/Field/Search', 'Speaker/Chip/Filter/On', 'Speaker/Chip/Filter/Off', 'Speaker/VocabCard/Collocation', 'Speaker/VocabCard/Word', 'Speaker/VocabCard/New', 'Speaker/Score/Value', 'Speaker/SectionLabel', 'Speaker/SectionLabel/Mic', 'Speaker/Chip/Word', 'Speaker/Panel/Original', 'Speaker/Panel/Rewrite', 'Speaker/Tab/On', 'Speaker/Tab/Off', 'Speaker/Button/Ghost', 'Speaker/Button/Primary/Label', 'Speaker/IconButton/30/dismiss', 'Speaker/IconButton/30/edit', 'Speaker/IconButton/32/arrowLeft', 'Speaker/Select/Menu', 'Speaker/Row/Provider', 'Speaker/Row/Provider/Off', 'Speaker/Row/Provider/Open', 'Speaker/Row/Action/Text', 'Speaker/Row/Action/Summary', 'Speaker/Row/Action/Records', 'Speaker/Row/Session', 'Speaker/IconButton/44/add'];
+const need = ['Speaker/TopBar', 'Speaker/TopBar/Open', 'Speaker/TopBar/Offline', 'Speaker/TopBar/Connecting', 'Speaker/BottomBar', 'Speaker/RecordSheet', 'Speaker/RecordSheet/Cancel', 'Speaker/Bubble/Echo', 'Speaker/Bubble/Echo/Translated', 'Speaker/Bubble/User', 'Speaker/ScorePill', 'Speaker/HintCard', 'Speaker/Field/Search', 'Speaker/Chip/Filter/On', 'Speaker/Chip/Filter/Off', 'Speaker/VocabCard/Collocation', 'Speaker/VocabCard/Word', 'Speaker/VocabCard/New', 'Speaker/Score/Value', 'Speaker/SectionLabel', 'Speaker/SectionLabel/Mic', 'Speaker/Chip/Word', 'Speaker/Panel/Original', 'Speaker/Panel/Rewrite', 'Speaker/Tab/On', 'Speaker/Tab/Off', 'Speaker/Button/Ghost', 'Speaker/Button/Primary/Label', 'Speaker/IconButton/30/dismiss', 'Speaker/IconButton/30/edit', 'Speaker/IconButton/32/arrowLeft', 'Speaker/Select/Menu', 'Speaker/Select/Menu/Scene', 'Speaker/Row/Provider', 'Speaker/Row/Provider/Off', 'Speaker/Row/Provider/Open', 'Speaker/Row/Action/Text', 'Speaker/Row/Action/Summary', 'Speaker/Row/Action/Records', 'Speaker/Row/Session', 'Speaker/Toast', 'Speaker/Field/Input', 'Speaker/Field/Rename', 'Speaker/IconButton/44/mic', 'Speaker/IconButton/44/arrowUp', 'Speaker/IconButton/30/checkMark', 'Speaker/IconButton/44/add'];
 const missing = need.filter(n => !C_[n]);
 if (missing.length) return { error: 'missing components', missing };
 
@@ -24,8 +24,7 @@ function screen(name, x) {
 }
 
 function echoRow(parent, text) {
-  const row = frame(parent, 'msg AI', { w: 320, dir: 'HORIZONTAL', gap: 10 });
-  inst(row, C_['Speaker/Avatar']);
+  const row = frame(parent, 'msg AI', { w: 320, dir: 'HORIZONTAL' });
   inst(row, C_['Speaker/Bubble/Echo'], { text: text });
   return row;
 }
@@ -47,17 +46,19 @@ inst(list, C_['Speaker/HintCard'], { text: 'Actually, I didn’t sleep a wink la
 inst(chat, C_['Speaker/BottomBar']);
 
 /* ---------------- 02 recording ---------------- */
-const rec = screen('02 · 收音中', 400);
-inst(rec, C_['Speaker/TopBar']);
-const sheetH = Math.round(C_['Speaker/RecordSheet'].height);
-const list2 = frame(rec, 'transcript', { w: 360, h: 792 - 56 - sheetH, dir: 'VERTICAL', main: 'MAX', pl: 20, pr: 20, pt: 6, pb: 16, gap: 18, clip: true });
-echoRow(list2, 'Good morning! How did you start your day? Are you craving an Americano or something else?');
-userRow(list2, 'I get up early today. Actually I… 嗯… 没睡好，feeling a bit tired, so I want a cup of hot Americano.', 86, 82);
-frame(rec, 'scrim', { w: 360, h: 792, fill: C.ink, fillA: 0.12, x: 0, y: 0, absolute: true });
-const recSheet = inst(rec, C_['Speaker/RecordSheet']);
-recSheet.layoutPositioning = 'ABSOLUTE'; recSheet.x = 0; recSheet.y = 792 - recSheet.height;
-const recTitle = recSheet.findOne(n => n.type === 'TEXT' && n.name === 'title');
-if (recTitle) recTitle.characters = '松手发送';
+function recordScreen(name, x, componentName) {
+  const scr = screen(name, x);
+  inst(scr, C_['Speaker/TopBar']);
+  const component = C_['Speaker/' + componentName];
+  const list = frame(scr, 'transcript', { w: 360, h: 792 - 56 - Math.round(component.height), dir: 'VERTICAL', main: 'MAX', pl: 20, pr: 20, pt: 6, pb: 16, gap: 18, clip: true });
+  echoRow(list, 'Good morning! How did you start your day? Are you craving an Americano or something else?');
+  userRow(list, 'I get up early today. Actually I… 嗯… 没睡好，feeling a bit tired, so I want a cup of hot Americano.', 86, 82);
+  frame(scr, 'scrim', { w: 360, h: 792, fill: C.ink, fillA: 0.12, x: 0, y: 0, absolute: true });
+  const sh = inst(scr, component);
+  sh.layoutPositioning = 'ABSOLUTE'; sh.x = 0; sh.y = 792 - sh.height;
+  return scr;
+}
+const rec = recordScreen('02 · 收音中', 400, 'RecordSheet');
 
 /* ---------------- 03 evaluation ---------------- */
 const ev = screen('03 · 评测抽屉', 800);
@@ -206,21 +207,18 @@ const cfg = settingsScreen('05 · 配置中心', 1600, false);
 const st = cfg.screen;
 
 /* ---------------- 06 scene dropdown ---------------- */
-function dropdown(root, anchor, w, items, cnName) {
+function dropdown(root, anchor, componentName, w, items) {
   const ab = anchor.absoluteBoundingBox, rb = root.absoluteBoundingBox;
-  const m = inst(root, C_['Speaker/Select/Menu']);
+  const m = inst(root, C_['Speaker/' + componentName]);
   m.layoutPositioning = 'ABSOLUTE';
   m.x = Math.round(ab.x - rb.x); m.y = Math.round(ab.y + ab.height - rb.y + 6);
-  if (w !== 320) { m.resize(w, m.height); m.primaryAxisSizingMode = 'AUTO'; }
+  if (w !== m.width) { m.resize(w, m.height); m.primaryAxisSizingMode = 'AUTO'; }
   m.children.forEach((o, i) => {
     const it = items[i]; if (!it) return;
     const nm = o.findOne(n => n.type === 'TEXT' && n.name === 'name');
     const nt = o.findOne(n => n.type === 'TEXT' && n.name === 'note');
-    if (nm) {
-      nm.characters = it[0];
-      if (cnName) { nm.fontName = F.cnMd; nm.fontSize = 13; nm.lineHeight = { unit: 'PIXELS', value: 19 }; }
-    }
-    if (nt) nt.characters = it[1];
+    if (nm) nm.characters = it[0];
+    if (nt && it[1]) nt.characters = it[1];
   });
   return m;
 }
@@ -234,21 +232,21 @@ userRow(scList, 'I get up early today. Actually I… 嗯… 没睡好，feeling 
 echoRow(scList, 'An Americano on a tired morning — that is a very honest choice. Do you usually brew it at home, or is there a café you keep going back to?');
 inst(sc, C_['Speaker/BottomBar']);
 const scPill = scTop.findOne(n => n.name === 'scene pill');
-dropdown(sc, scPill || scTop, 232, [
-  ['随便聊', '想到什么说什么'],
-  ['咖啡点单', '门店与口味'],
-  ['面试对练', '自我介绍与追问'],
-  ['雅思考官', '第二部分长答']
-], true);
+dropdown(sc, scPill || scTop, 'Select/Menu/Scene', 232, [
+  ['随便聊'],
+  ['咖啡点单'],
+  ['面试对练'],
+  ['雅思考官']
+]);
 
 /* ---------------- 07 model dropdown ---------------- */
 const md = settingsScreen('07 · 模型下拉', 2400, true);
-dropdown(md.screen, md.row, 320, [
+dropdown(md.screen, md.row, 'Select/Menu', 320, [
   ['gemini-3.8-live', '手动回合 · 首包 450 毫秒'],
   ['gemini-3.8-live-extended-thinking', '扩展思考 · 更深推理'],
   ['gemini-3.1-flash-live-preview', '更快首包 · 预览'],
   ['gemini-2.5-flash-native-audio-latest', '原生音频 · 长会话']
-], false);
+]);
 
 /* ---------------- 08 action sheet ---------------- */
 function chatStack(root) {
@@ -282,21 +280,6 @@ panel.y = 792 - 80 - panel.height;
 asBar.layoutPositioning = 'ABSOLUTE'; asBar.x = 0; asBar.y = 792 - 80;
 
 /* ---------------- 09 session summary ---------------- */
-const sm = screen('09 · 会话小结', 3200);
-chatStack(sm);
-frame(sm, 'scrim', { w: 360, h: 792, fill: C.ink, fillA: 0.18, x: 0, y: 0, absolute: true });
-const sumSheet = frame(sm, 'summary sheet', { w: 360, dir: 'VERTICAL', pl: 20, pr: 20, pt: 12, pb: 24, x: 0, y: 0, absolute: true, fill: C.card, corners: [26, 26, 0, 0], clip: true });
-sumSheet.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: 0.07 }, offset: { x: 0, y: -4 }, radius: 20, spread: 0, blendMode: 'NORMAL', visible: true }];
-const smHandle = frame(sumSheet, 'handle', { w: 38, h: 4, fill: C.hairStrong, radius: 2 });
-smHandle.layoutAlign = 'CENTER';
-frame(sumSheet, 'sp 1', { w: 1, h: 16 });
-const smHead = frame(sumSheet, 'head', { w: 320, dir: 'HORIZONTAL', cross: 'CENTER', gap: 8 });
-t(smHead, '没睡好的早晨', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
-frame(smHead, 'gap', { w: 1, h: 1, grow: 1 });
-inst(smHead, C_['Speaker/IconButton/30/edit']);
-inst(smHead, C_['Speaker/IconButton/30/dismiss']);
-frame(sumSheet, 'sp 2', { w: 1, h: 14 });
-const stats = frame(sumSheet, 'stats', { w: 320, dir: 'HORIZONTAL', cross: 'MIN', fill: C.paper, radius: 14, pl: 16, pr: 16, pt: 12, pb: 12 });
 function stat(parent, label, value, unit) {
   const col = frame(parent, 'stat ' + label, { dir: 'VERTICAL', gap: 2, grow: 1 });
   t(col, label, { font: F.cn, size: 10, color: C.ink4, lh: 14, ls: 6 });
@@ -304,21 +287,49 @@ function stat(parent, label, value, unit) {
   t(row, value, { font: F.serifMd, size: 22, color: C.ink, lh: 26 });
   if (unit) t(row, unit, { font: F.cn, size: 10, color: C.ink4, lh: 14 });
 }
-stat(stats, '轮次', '12', '');
-frame(stats, 'divider', { w: 1, h: 40, fill: C.hair });
-stat(stats, '发音', '84', '分');
-frame(stats, 'divider', { w: 1, h: 40, fill: C.hair });
-stat(stats, '语法', '81', '分');
-frame(stats, 'divider', { w: 1, h: 40, fill: C.hair });
-stat(stats, '新词', '5', '条');
-frame(sumSheet, 'sp 3', { w: 1, h: 14 });
-const smHint = frame(sumSheet, 'hint', { w: 320, dir: 'HORIZONTAL', cross: 'CENTER', gap: 10, pl: 14, pr: 12, pt: 12, pb: 12, fill: C.oliveTint, stroke: '#DEE4CF', radius: 14 });
-icon(smHint, 'bulb', 14, C.olive);
-t(smHint, 'slept badly 这一轮复现三次，下次试着自己先用上。', { font: F.cn, size: 12.5, color: C.ink2, lh: 19, width: 262 });
-frame(sumSheet, 'sp 4', { w: 1, h: 18 });
-const smCta = frame(sumSheet, 'cta', { w: 320, h: 48, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', fill: C.clay, radius: 999 });
-t(smCta, '开始新会话', { font: F.cnMd, size: 14, color: C.card, lh: 20, ls: 6 });
-sumSheet.y = 792 - sumSheet.height;
+
+function summarySheet(root, renaming) {
+  chatStack(root);
+  frame(root, 'scrim', { w: 360, h: 792, fill: C.ink, fillA: 0.18, x: 0, y: 0, absolute: true });
+  const sheet = frame(root, 'summary sheet', { w: 360, dir: 'VERTICAL', pl: 20, pr: 20, pt: 12, pb: 24, x: 0, y: 0, absolute: true, fill: C.card, corners: [26, 26, 0, 0], clip: true });
+  sheet.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: 0.07 }, offset: { x: 0, y: -4 }, radius: 20, spread: 0, blendMode: 'NORMAL', visible: true }];
+  const handle = frame(sheet, 'handle', { w: 38, h: 4, fill: C.hairStrong, radius: 2 });
+  handle.layoutAlign = 'CENTER';
+  frame(sheet, 'sp 1', { w: 1, h: 16 });
+  const head = frame(sheet, 'head', { w: 320, dir: 'HORIZONTAL', cross: 'CENTER', gap: 8 });
+  if (renaming) {
+    const field = inst(head, C_['Speaker/Field/Rename']);
+    field.layoutGrow = 1;
+    inst(head, C_['Speaker/IconButton/30/checkMark']);
+    inst(head, C_['Speaker/IconButton/30/dismiss']);
+  } else {
+    t(head, '没睡好的早晨', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
+    frame(head, 'gap', { w: 1, h: 1, grow: 1 });
+    inst(head, C_['Speaker/IconButton/30/edit']);
+    inst(head, C_['Speaker/IconButton/30/dismiss']);
+  }
+  frame(sheet, 'sp 2', { w: 1, h: 14 });
+  const stats = frame(sheet, 'stats', { w: 320, dir: 'HORIZONTAL', cross: 'MIN', fill: C.paper, radius: 14, pl: 16, pr: 16, pt: 12, pb: 12 });
+  stat(stats, '轮次', '12', '');
+  frame(stats, 'divider', { w: 1, h: 40, fill: C.hair });
+  stat(stats, '发音', '84', '分');
+  frame(stats, 'divider', { w: 1, h: 40, fill: C.hair });
+  stat(stats, '语法', '81', '分');
+  frame(stats, 'divider', { w: 1, h: 40, fill: C.hair });
+  stat(stats, '新词', '5', '条');
+  frame(sheet, 'sp 3', { w: 1, h: 14 });
+  const hint = frame(sheet, 'hint', { w: 320, dir: 'HORIZONTAL', cross: 'CENTER', gap: 10, pl: 14, pr: 12, pt: 12, pb: 12, fill: C.oliveTint, stroke: '#DEE4CF', radius: 14 });
+  icon(hint, 'bulb', 14, C.olive);
+  t(hint, 'slept badly 这一轮复现三次，下次试着自己先用上。', { font: F.cn, size: 12.5, color: C.ink2, lh: 19, width: 262 });
+  frame(sheet, 'sp 4', { w: 1, h: 18 });
+  const cta = frame(sheet, 'cta', { w: 320, h: 48, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', fill: C.clay, radius: 999 });
+  t(cta, '开始新会话', { font: F.cnMd, size: 14, color: C.card, lh: 20, ls: 6 });
+  sheet.y = 792 - sheet.height;
+  return sheet;
+}
+
+const sm = screen('09 · 会话小结', 3200);
+summarySheet(sm, false);
 
 /* ---------------- 10 session records ---------------- */
 const rc = screen('10 · 会话记录', 3600);
@@ -342,4 +353,51 @@ sessionRow('面试自我介绍', '昨天 22:10 · 15 轮 · 发音 79');
 sessionRow('雅思口语第三部分', '昨天 07:05 · 10 轮 · 发音 77');
 sessionRow('周末出行计划', '周二 21:30 · 9 轮 · 发音 83');
 
-return { screens: [chat.id, rec.id, ev.id, vo.id, st.id, sc.id, md.screen.id, as.id, sm.id, rc.id], sheetH: Math.round(sheet.height), settingsBody: Math.round(cfg.body.height) };
+/* ---------------- 11 cancel state ---------------- */
+const cxl = recordScreen('11 · 上滑取消', 4000, 'RecordSheet/Cancel');
+
+/* ---------------- 12 toast ---------------- */
+const ts = screen('12 · 轻提示', 4400);
+const tsStack = chatStack(ts);
+inst(ts, C_['Speaker/BottomBar']);
+const toast = inst(ts, C_['Speaker/Toast']);
+toast.layoutPositioning = 'ABSOLUTE';
+toast.x = Math.round((360 - toast.width) / 2);
+toast.y = 64;
+
+/* ---------------- 13 text input ---------------- */
+const ti = screen('13 · 打字输入', 4800);
+const tiTop = inst(ti, C_['Speaker/TopBar']);
+const tiList = frame(ti, 'transcript', { w: 360, h: 656, dir: 'VERTICAL', main: 'MAX', pl: 20, pr: 20, pt: 6, pb: 16, gap: 18, clip: true });
+echoRow(tiList, 'Good morning! How did you start your day? Are you craving an Americano or something else?');
+userRow(tiList, 'I get up early today. Actually I… 嗯… 没睡好，feeling a bit tired, so I want a cup of hot Americano.', 86, 82);
+const tiBar = frame(ti, 'bar', { w: 360, h: 80, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, pt: 16, pb: 16, gap: 8, fill: C.paper });
+tiBar.strokeTopWeight = 1; tiBar.strokeBottomWeight = 0; tiBar.strokeLeftWeight = 0; tiBar.strokeRightWeight = 0;
+tiBar.strokes = [p(C.hair)];
+inst(tiBar, C_['Speaker/IconButton/44/mic']);
+const tiField = inst(tiBar, C_['Speaker/Field/Input']);
+tiField.layoutGrow = 1;
+inst(tiBar, C_['Speaker/IconButton/44/arrowUp']);
+
+/* ---------------- 14 rename ---------------- */
+const rn = screen('14 · 改名', 5200);
+summarySheet(rn, true);
+
+/* ---------------- 15 offline ---------------- */
+const of = screen('15 · 未连接', 5600);
+inst(of, C_['Speaker/TopBar/Offline']);
+const ofList = frame(of, 'transcript', { w: 360, h: 656, dir: 'VERTICAL', main: 'MAX', pl: 20, pr: 20, pt: 6, pb: 16, gap: 18, clip: true });
+echoRow(ofList, 'Good morning! How did you start your day? Are you craving an Americano or something else?');
+userRow(ofList, 'I get up early today. Actually I… 嗯… 没睡好，feeling a bit tired, so I want a cup of hot Americano.', 86, 82);
+inst(of, C_['Speaker/BottomBar']);
+
+/* ---------------- 16 translated bubble ---------------- */
+const tr = screen('16 · 译文展开', 7200);
+inst(tr, C_['Speaker/TopBar']);
+const trList = frame(tr, 'transcript', { w: 360, h: 656, dir: 'VERTICAL', main: 'MAX', pl: 20, pr: 20, pt: 6, pb: 16, gap: 18, clip: true });
+const trRow = frame(trList, 'msg AI', { w: 320, dir: 'HORIZONTAL' });
+inst(trRow, C_['Speaker/Bubble/Echo/Translated'], { text: 'Was there a moment today when you completely lost track of time?', gloss: '今天有没有哪一刻，你完全忘了时间？' });
+userRow(trList, 'Yeah, when I was reading by the window. 嗯… time just flew by.', 88, 84);
+inst(tr, C_['Speaker/BottomBar']);
+
+return { screens: [chat.id, rec.id, ev.id, vo.id, st.id, sc.id, md.screen.id, as.id, sm.id, rc.id, cxl.id, ts.id, ti.id, rn.id, of.id, tr.id], sheetH: Math.round(C_['Speaker/RecordSheet'].height), settingsBody: Math.round(cfg.body.height) };
