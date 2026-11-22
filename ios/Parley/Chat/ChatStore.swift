@@ -58,6 +58,9 @@ final class ChatStore: ObservableObject, ParleySession {
     private var idleTask: Task<Void, Never>?
     private var memoryTask: Task<Void, Never>?
     private var audioTask: Task<Void, Never>?
+
+    /** 松手后的人声判定：上一轮还没判完就来了新的一轮，先把它掐掉。 */
+    private var vadTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     private let audioStream: AsyncStream<AudioChunk>
     private let audioContinuation: AsyncStream<AudioChunk>.Continuation
@@ -116,6 +119,9 @@ final class ChatStore: ObservableObject, ParleySession {
         case .ready:
             break
         }
+        // 上一轮的判定还在跑就掐掉：它的结论属于上一段，落到这一轮会把这一段判错。
+        vadTask?.cancel()
+        vadTask = nil
         player.flush()
         dispatch(.pressStart)
         return true
@@ -126,6 +132,8 @@ final class ChatStore: ObservableObject, ParleySession {
     }
 
     func onRecordPressEnd(cancelled: Bool) {
+        vadTask?.cancel()
+        vadTask = nil
         if cancelled {
             recorder.cancel()
             stopPreview()
@@ -133,14 +141,33 @@ final class ChatStore: ObservableObject, ParleySession {
             capture.dropUplink()
             return
         }
-        if SpeechGate.shouldDrop(capture.gateFrames()) {
-            recorder.cancel()
-            stopPreview()
-            dispatch(.silentTurn)
-            capture.dropUplink()
+        // 这一段里没人说话就在这里结束：本地回 Idle，不发收尾、不落气泡、也不弹提示。
+        // 判定要跑一遍分类器，一百多毫秒，挪到后台；采集照旧跑到收尾事件把它停掉，多录的那点静音无害。
+        let pcm = capture.peekPcm()
+        guard !pcm.isEmpty else {
+            settleSilentTurn()
             return
         }
-        dispatch(.commit)
+        vadTask = Task { [weak self] in
+            let speechMs = await Task.detached(priority: .userInitiated) {
+                SpeechGate.longestSpeechMs(SpeechDetector.windows(pcm))
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            if SpeechGate.shouldDrop(speechMs: speechMs) {
+                logger.info("这一段没人说话，人声 \(speechMs)ms")
+                settleSilentTurn()
+                return
+            }
+            dispatch(.commit)
+        }
+    }
+
+    /// 这一轮按静音收尾：采集停掉、预览收掉、上行音频丢掉，界面回空态。
+    private func settleSilentTurn() {
+        recorder.cancel()
+        stopPreview()
+        dispatch(.silentTurn)
+        capture.dropUplink()
     }
 
     func onRecordHold(_ held: Bool) {
@@ -922,29 +949,36 @@ private struct AudioGate {
 
 private final class CaptureBuffer: @unchecked Sendable {
     private let lock = NSLock()
-    private var frames: [Double] = []
     private var uplink = Data()
 
     func reset() {
         lock.lock()
-        frames.removeAll(keepingCapacity: true)
         uplink.removeAll(keepingCapacity: true)
         lock.unlock()
     }
 
     func record(_ frame: [Int16]) {
         lock.lock()
-        if frames.count < 3_000 { frames.append(SpeechGate.frameDb(frame)) }
         if uplink.count < 16_000 * 2 * 60 {
             frame.withUnsafeBytes { uplink.append(contentsOf: $0) }
         }
         lock.unlock()
     }
 
-    func gateFrames() -> [Double] {
+    /// 判定用：读一份上行音频的副本，不动缓冲本身。
+    func peekPcm() -> [Int16] {
         lock.lock()
         defer { lock.unlock() }
-        return frames
+        var samples = [Int16](repeating: 0, count: uplink.count / 2)
+        uplink.withUnsafeBytes { raw in
+            for index in samples.indices {
+                let offset = index * 2
+                let low = Int16(raw[offset]) & 0x00FF
+                let high = Int16(bitPattern: UInt16(raw[offset + 1]) << 8)
+                samples[index] = high | low
+            }
+        }
+        return samples
     }
 
     func takeUplink() -> Data {

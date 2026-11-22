@@ -14,6 +14,7 @@ import com.parley.speaker.audio.AudioPlayer
 import com.parley.speaker.audio.AzureCredential
 import com.parley.speaker.audio.Tts
 import com.parley.speaker.audio.TurnAudioStore
+import com.parley.speaker.audio.SileroVad
 import com.parley.speaker.audio.VoiceClip
 import com.parley.speaker.audio.VoiceRecorder
 import com.parley.speaker.data.SeedContent
@@ -74,8 +75,8 @@ import com.parley.speaker.domain.systemPromptOf
 import com.parley.speaker.domain.transcriptLine
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -85,6 +86,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -214,6 +216,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var capabilities: Capabilities? = null
     private var timerJob: Job? = null
 
+    /** 松手后的 VAD 判定：上一轮还没判完就来了新的一轮，先把它掐掉。 */
+    private var vadJob: Job? = null
+
     /** 每次开连接加一，适配器回调里带着这一格，旧连接迟到的事件按作废处理。 */
     private var connectSeq = 0
     private var reconnect = ReconnectState()
@@ -241,15 +246,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /** 删掉的那几轮还会继续吐音频：出声与写盘都先问它一句。 */
     private val audio = AudioGate()
 
-    // 采集线程写、主线程读，用递增计数而不是加锁：帧序只增不减，读时按当时计数截断即可。
-    private val gateFrames = DoubleArray(MaxGateFrames)
-    private val gateCount = AtomicInteger()
+    /** 这一轮有没有人说话由本地 VAD 判断，模型随包走，第一次用到时在后台建会话。 */
+    private val vad = SileroVad {
+        getApplication<Application>().assets.open(SileroVad.AssetName).readBytes()
+    }
 
     // 上行快照的读写跨线程，缓冲本身不设可见性保证，所有触碰都在这一把锁里完成。
     private val uplinkLock = Any()
     private val uplink = ByteArrayOutputStream()
 
     init {
+        viewModelScope.launch(Dispatchers.Default) { runCatching { vad.warmUp() } }
         viewModelScope.launch {
             for (event in events) handle(event)
         }
@@ -414,12 +421,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun tryStartCapture(): Boolean {
         val current = session ?: return false
-        resetGate()
         uplink.reset()
         val started = recorder.start(
             getApplication<Application>().cacheDir,
             onFrame = { frame ->
-                recordFrame(frame)
                 appendUplink(frame)
                 current.sendAudio(frame)
             },
@@ -704,6 +709,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             Connection.Ready -> Unit
         }
+        // 上一轮的判定还在跑就掐掉：它的结论属于上一段，落到这一轮会把这一段判错。
+        vadJob?.cancel()
+        vadJob = null
         dispatch(TurnEvent.PressStart)
         return true
     }
@@ -711,6 +719,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun onRecordArmed(armed: Boolean) = dispatch(TurnEvent.ArmCancel(armed))
 
     fun onRecordPressEnd(cancelled: Boolean) {
+        vadJob?.cancel()
+        vadJob = null
         if (cancelled) {
             recorder.cancel()
             stopPreview()
@@ -718,16 +728,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             dropUplink()
             return
         }
-        // 太短或者整段没高过环境底噪的一轮在这里就结束：本地回 Idle，不发收尾、不落气泡、也不弹提示。
-        if (SpeechGate.shouldDrop(gateFrames())) {
-            recorder.cancel()
-            stopPreview()
-            dispatch(TurnEvent.SilentTurn)
-            // 这一轮不会走到评测，攒下的上行音频也就没有归属，当场丢掉，免得起下一轮评错人。
-            dropUplink()
+        // 这一段里没人说话就在这里结束：本地回 Idle，不发收尾、不落气泡、也不弹提示。
+        // 判定要跑一遍模型，几百毫秒，挪到后台；采集照旧跑到收尾事件把它停掉，多录的那点静音无害。
+        val pcm = peekUplink()
+        if (pcm.isEmpty()) {
+            settleSilentTurn()
             return
         }
-        dispatch(TurnEvent.Commit)
+        vadJob = viewModelScope.launch {
+            val speechMs = withContext(Dispatchers.Default) {
+                SpeechGate.longestSpeechMs(vad.probabilities(pcm))
+            }
+            if (SpeechGate.shouldDrop(speechMs)) {
+                Log.i(Tag, "这一段没人说话，人声 ${speechMs}ms")
+                settleSilentTurn()
+                return@launch
+            }
+            dispatch(TurnEvent.Commit)
+        }
     }
 
     /**
@@ -1147,14 +1165,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _levelFrame.value += 1
     }
 
-    private fun recordFrame(frame: ShortArray) {
-        val index = gateCount.getAndIncrement()
-        if (index < gateFrames.size) gateFrames[index] = SpeechGate.frameDb(frame)
+    /** 这一轮按静音收尾：采集停掉、预览收掉、上行音频丢掉，界面回空态。 */
+    private fun settleSilentTurn() {
+        recorder.cancel()
+        stopPreview()
+        dispatch(TurnEvent.SilentTurn)
+        // 这一轮不会走到评测，攒下的上行音频也就没有归属，当场丢掉，免得起下一轮评错人。
+        dropUplink()
     }
-
-    private fun gateFrames(): DoubleArray = gateFrames.copyOf(gateCount.get().coerceIn(0, gateFrames.size))
-
-    private fun resetGate() = gateCount.set(0)
 
     /** 上行是十六千赫兹单声道十六位，评测接口要的就是这个形态，按小端摊平即可。 */
     private fun appendUplink(frame: ShortArray) {
@@ -1170,6 +1188,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun takeUplink(): ByteArray = synchronized(uplinkLock) {
         uplink.toByteArray().also { uplink.reset() }
+    }
+
+    /** 判定用：读一份上行音频的副本，不动缓冲本身。 */
+    private fun peekUplink(): ShortArray = synchronized(uplinkLock) {
+        val bytes = uplink.toByteArray()
+        ShortArray(bytes.size / 2) { index ->
+            val low = bytes[index * 2].toInt() and 0xFF
+            val high = bytes[index * 2 + 1].toInt()
+            ((high shl 8) or low).toShort()
+        }
     }
 
     private fun dropUplink() {
@@ -1275,7 +1303,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         private const val Tag = "ChatViewModel"
         private const val CopyLabel = "Parley"
         private const val AssessorLocale = "en-US"
-        const val MaxGateFrames = 3_000
         private const val ExitPersistMs = 2_000L
         private const val MaxUplinkBytes = 16_000 * 2 * 60
         private const val GreetingPrompt =

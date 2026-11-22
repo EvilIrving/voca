@@ -6,75 +6,130 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 静音闸门的两个丢弃条件：太短，或者整段没高过环境底噪。
- * 底噪由这段帧自己算，所以同样的峰值在安静房间是说话、在嘈杂环境只是噪声。
+ * 人声概率序列到"这一轮值不值得发出去"的换算：看最长的一段连续人声，不看累计。
+ * 概率本身由模型给，这里只测后处理与归一化。
  */
 class SpeechGateTest {
 
-    private fun frame(amplitude: Int) = ShortArray(320) { amplitude.toShort() }
+    private fun probs(vararg values: Float) = values
 
     @Test
-    fun `不足四百毫秒的一轮直接丢弃`() {
-        // 十九帧三百八十毫秒，哪怕每一帧都很响也不够长。
-        val frames = DoubleArray(19) { -20.0 }
+    fun `整整一段都判成人声`() {
+        val window = SpeechGate.WindowMs
 
-        assertTrue(SpeechGate.shouldDrop(frames))
+        assertFalse(SpeechGate.shouldDrop(SpeechGate.longestSpeechMs(FloatArray(20) { 0.9f })))
+        assertEquals(20 * window, SpeechGate.longestSpeechMs(FloatArray(20) { 0.9f }))
     }
 
     @Test
-    fun `时长够但整段没高过底噪就丢弃`() {
-        val frames = DoubleArray(50) { -60.0 + (it % 3) }
-
-        assertTrue("全是环境噪声，不该送去识别，实际底噪 ${SpeechGate.noiseFloor(frames)}", SpeechGate.shouldDrop(frames))
+    fun `整段没人声的一轮丢弃`() {
+        assertTrue(SpeechGate.shouldDrop(SpeechGate.longestSpeechMs(FloatArray(50) { 0.02f })))
     }
 
     @Test
-    fun `高过底噪的帧凑够四百毫秒才送去识别`() {
-        // 五十帧里只有一半冲高，正好是四百毫秒的说话声。
-        val frames = DoubleArray(50) { -60.0 }
-        for (i in 10 until 30) frames[i] = -30.0
+    fun `零散尖峰凑够时长也不算说话`() {
+        // 每十窗才有一窗过线，间隔三百多毫秒，各自成段。
+        val values = FloatArray(100) { 0.01f }
+        for (hit in 0 until 10) values[hit * 10] = 0.95f
 
-        assertFalse(SpeechGate.shouldDrop(frames))
+        val speech = SpeechGate.longestSpeechMs(values)
+        assertEquals("最长的一段就是单独一窗", SpeechGate.WindowMs, speech)
+        assertTrue(SpeechGate.shouldDrop(speech))
     }
 
     @Test
-    fun `环境噪声里夹一两下敲击不算说话`() {
-        // 三十秒底噪，中间夹三帧一声碰麦：单帧峰值很高，但它们只占六十毫秒。
-        val frames = DoubleArray(1_500) { -62.0 + (it % 4) }
-        frames[700] = -20.0
-        frames[701] = -22.0
-        frames[702] = -28.0
+    fun `换气空档不把一句话切碎`() {
+        // 连续人声里空三窗，不到一百毫秒，仍算同一段。
+        val values = FloatArray(40) { 0.9f }
+        for (i in 20 until 23) values[i] = 0.1f
 
-        assertTrue("只有六十毫秒高过底噪，不该送去识别", SpeechGate.shouldDrop(frames))
+        val speech = SpeechGate.longestSpeechMs(values)
+        assertTrue("换气之后应当接上，实际 $speech", speech > 20 * SpeechGate.WindowMs)
+        assertFalse(SpeechGate.shouldDrop(speech))
     }
 
     @Test
-    fun `底噪随环境抬升，同样响度在嘈杂处不算说话`() {
-        val quiet = DoubleArray(60) { -70.0 }
-        for (i in 10 until 40) quiet[i] = -40.0
-        val noisy = DoubleArray(60) { -30.0 }
+    fun `空档超过一百毫秒就另起一段`() {
+        // 两百五十六毫秒人声、一百九十二毫秒空档、两百二十四毫秒人声：分开算就都不够。
+        val values = FloatArray(60) { 0.02f }
+        for (i in 0 until 8) values[i] = 0.9f
+        for (i in 14 until 21) values[i] = 0.9f
 
-        assertFalse("安静房间里高过底噪的那六百毫秒属于说话", SpeechGate.shouldDrop(quiet))
-        assertTrue("整段就停在三十，没有高过它自己的底噪", SpeechGate.shouldDrop(noisy))
+        val speech = SpeechGate.longestSpeechMs(values)
+        assertEquals(8 * SpeechGate.WindowMs, speech)
+        assertTrue(SpeechGate.shouldDrop(speech))
     }
 
     @Test
-    fun `统计量入口只看时长与峰值`() {
-        assertTrue(SpeechGate.shouldDrop(durationMs = 380, peakDb = -10.0, floorDb = -70.0))
-        assertTrue(SpeechGate.shouldDrop(durationMs = 5_000, peakDb = -66.0, floorDb = -70.0))
-        assertFalse("刚好高出底噪六分贝就算说话", SpeechGate.shouldDrop(durationMs = 5_000, peakDb = -64.0, floorDb = -70.0))
-        assertFalse(SpeechGate.shouldDrop(durationMs = 5_000, peakDb = -50.0, floorDb = -70.0))
+    fun `太短的一段人声丢弃`() {
+        val values = FloatArray(200) { 0.02f }
+        for (i in 40 until 46) values[i] = 0.9f
+
+        assertTrue("六窗才一百九十二毫秒", SpeechGate.shouldDrop(SpeechGate.longestSpeechMs(values)))
     }
 
     @Test
-    fun `帧电平按满量程折算成分贝`() {
-        assertEquals(-6.02, SpeechGate.frameDb(frame(16_384)), 0.05)
-        assertEquals(-120.0, SpeechGate.frameDb(ShortArray(0)), 0.0)
-        assertTrue("静音帧远低于任何环境底噪", SpeechGate.frameDb(frame(0)) < -80.0)
+    fun `整段静音归一化之后仍是零`() {
+        val flat = SpeechGate.normalize(ShortArray(1_000))
+
+        assertTrue(flat.all { it == 0f })
     }
 
     @Test
-    fun `空的一轮不会漏进识别`() {
-        assertTrue(SpeechGate.shouldDrop(DoubleArray(0)))
+    fun `归一化把整段的电平平到负二十分贝`() {
+        val pcm = ShortArray(1_000) { if (it % 2 == 0) 3_000 else -3_000 }
+
+        val peak = SpeechGate.normalize(pcm).maxOf { kotlin.math.abs(it) }
+
+        assertEquals(0.1f, peak, 0.001f)
+    }
+
+    @Test
+    fun `极低电平的语音归一化之后幅度回到工作点`() {
+        // 峰值只有三十分贝的小声：归一化把它拉回同一档，模型才看得见频谱。
+        val pcm = ShortArray(1_000) { if (it % 2 == 0) 32 else -32 }
+
+        val peak = SpeechGate.normalize(pcm).maxOf { kotlin.math.abs(it) }
+
+        assertEquals(0.1f, peak, 0.001f)
+    }
+
+    @Test
+    fun `开头一声撞击不把后面的话压下去`() {
+        // 手指碰到机壳那一下能顶到满量程，电平参照按分位取，不跟着峰值走。
+        val pcm = ShortArray(SpeechGate.SampleRate * 3) {
+            val value = when {
+                it < SpeechGate.WindowSamples * 5 / 8 -> 30_000
+                else -> 3_000
+            }
+            if (it % 2 == 0) value.toShort() else (-value).toShort()
+        }
+
+        val level = SpeechGate.normalize(pcm).last()
+
+        assertEquals(0.1f, kotlin.math.abs(level), 0.002f)
+    }
+
+    @Test
+    fun `直流被抹掉`() {
+        val pcm = ShortArray(SpeechGate.SampleRate) { (12_000 + if (it % 2 == 0) 3_000 else -3_000).toShort() }
+
+        val normalized = SpeechGate.normalize(pcm)
+
+        assertEquals(0.0, normalized.average(), 0.001)
+        assertEquals(0.1f, normalized.maxOf { kotlin.math.abs(it) }, 0.002f)
+    }
+
+    @Test
+    fun `空数组不会漏进识别`() {
+        assertTrue(SpeechGate.shouldDrop(SpeechGate.longestSpeechMs(FloatArray(0))))
+        assertEquals(0, SpeechGate.normalize(ShortArray(0)).size)
+    }
+
+    @Test
+    fun `阈值之上的概率才算人声`() {
+        val values = probs(0.49f, 0.5f, 0.51f)
+
+        assertEquals(2 * SpeechGate.WindowMs, SpeechGate.longestSpeechMs(values))
     }
 }

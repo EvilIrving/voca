@@ -32,6 +32,7 @@
 		3733D8D354DED73F05E34010 /* inter.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4DCAC8B7A4F85BD4CB000EC2 /* inter.ttf */; };
 		3D97976E3A6B3346AE98E9C2 /* Realtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78313A042161575952227884 /* Realtime.swift */; };
 		3E11889DA3AC51D14081C048 /* BackButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF5A5841A3FE7051044FB8B /* BackButton.swift */; };
+		459B47D1C13782533C41808C /* SpeechDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC567BDF66C7156CCB902516 /* SpeechDetector.swift */; };
 		462D1A6EBEEEB0BD529AD8F4 /* OpenAiWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F25FE01D2457042BE7884F /* OpenAiWire.swift */; };
 		4750A6687CA022D2908C283B /* ClipPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DFC59B602DF0BB2031B9E43 /* ClipPlayer.swift */; };
 		47C044616BD9626E5BD51883 /* VoiceGestureTrack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70F3C6276D2EF704E16FF7A9 /* VoiceGestureTrack.swift */; };
@@ -159,6 +160,7 @@
 		B2C0CF57535636029C4109DD /* SpeechAssessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechAssessor.swift; sourceTree = "<group>"; };
 		B4B09322002D12FB5FDF78E9 /* TtsSpeaker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TtsSpeaker.swift; sourceTree = "<group>"; };
 		B8D8F37DB9F3843F95B1FC06 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BC567BDF66C7156CCB902516 /* SpeechDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechDetector.swift; sourceTree = "<group>"; };
 		BFD2FCA189FC757EA0F01CCD /* Memory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Memory.swift; sourceTree = "<group>"; };
 		C38C64FB3167FD7A06E4B725 /* noto_serif_sc.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = noto_serif_sc.ttf; sourceTree = "<group>"; };
 		C42D0D0C8C6DFA6A9BA4C57D /* VoiceRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecorder.swift; sourceTree = "<group>"; };
@@ -243,6 +245,7 @@
 				943906759F9BD068062AD527 /* Pcm.swift */,
 				240D18F8A0B8881847F48EAF /* PlaybackSession.swift */,
 				B080F01FF4212F317138DFC5 /* Resampler.swift */,
+				BC567BDF66C7156CCB902516 /* SpeechDetector.swift */,
 				B4B09322002D12FB5FDF78E9 /* TtsSpeaker.swift */,
 				9B9E63D003EC3F563370CA4B /* TurnAudioStore.swift */,
 				E4B8941F80C3CDCDBF807CC5 /* VoiceClip.swift */,
@@ -581,6 +584,7 @@
 				5868599792690125D9EAA064 /* SettingsScreen.swift in Sources */,
 				07329D2D9B196C0A6864405B /* SettingsStore.swift in Sources */,
 				7EC8D341E48D334AF4ADF210 /* SpeechAssessor.swift in Sources */,
+				459B47D1C13782533C41808C /* SpeechDetector.swift in Sources */,
 				00766305DB71CF249622ACCF /* SpeechGate.swift in Sources */,
 				B2021184C72C1EC4C0D801C5 /* TextProviders.swift in Sources */,
 				4B9ED01D196952D1FE7939E2 /* TtsSpeaker.swift in Sources */,

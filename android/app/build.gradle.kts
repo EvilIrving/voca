@@ -30,6 +30,12 @@ android {
         buildConfigField("String", "DEV_GEMINI_LIVE_MODEL", "\"${secret("GEMINI_LIVE_MODEL").ifBlank { "gemini-3.8-live" }}\"")
         buildConfigField("String", "DEV_GEMINI_TEXT_MODEL", "\"${secret("GEMINI_TEXT_MODEL").ifBlank { "gemini-flash-latest" }}\"")
         buildConfigField("String", "DEV_GEMINI_VOICE", "\"${secret("GEMINI_VOICE").ifBlank { "Aoede" }}\"")
+
+        // 只留真机在用的 arm64：onnxruntime 一套原生库就三十多兆，四套指令集全打进去
+        // 光这一项就占一百四十多兆，安装包凭空大一倍。
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
@@ -100,6 +106,10 @@ dependencies {
     // 垃圾桶那支吞噬动效用 Lottie 播，其余动效仍然手写。
     implementation(libs.lottie.compose)
 
+    // 这一轮里有没有人说话由 Silero VAD 判，模型随包走，不依赖网络。
+    implementation(libs.onnxruntime.android)
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation(libs.onnxruntime.jvm)
 }
