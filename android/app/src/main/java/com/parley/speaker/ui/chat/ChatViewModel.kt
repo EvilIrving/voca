@@ -127,7 +127,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 朗读凭据与发音评测共用同一份 Azure 语音资源，没配就自然落到系统语音。 */
     private val tts by lazy {
-        Tts(application, player) {
+        Tts(player) {
             val assessor = settingsStore.settings.value.assessor
             AzureCredential(assessor.azureKey, assessor.azureRegion)
         }
