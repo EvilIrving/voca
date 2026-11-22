@@ -922,7 +922,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
         val before = settingsStore.settings.value
-        settingsStore.update { current -> transform(current).withFreshModel(before.analysis) }
+        settingsStore.update(transform)
         val after = settingsStore.settings.value
         _linkStatus.value = emptyMap()
         refreshProviders()
@@ -973,24 +973,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * 拉一次该家的清单并落库。密钥为空就地清掉该家缓存；拉取失败保留旧清单，不弹提示。
-     * 密钥只存一份，所以只有当前选中的那家拿得到密钥，其余几家自然没有清单可列。
+     * 每家拿自己那一格的密钥与端点，因此没被选中的那几家照样能列出清单。
      */
     private suspend fun refreshModels(providerId: String) {
         val provider = TextProviderCatalog.of(providerId) ?: return
-        val analysis = settingsStore.settings.value.analysis
-        val own = provider.id == analysis.provider
-        val models = if (own) {
-            runCatching {
-                catalogs.refresh(
-                    provider = provider,
-                    apiKey = analysis.apiKey,
-                    endpoint = analysis.endpoint.ifBlank { provider.endpoint },
-                    auth = analysis.authSpec(provider),
-                )
-            }.getOrDefault(emptyList())
-        } else {
-            runCatching { catalogs.refresh(provider, apiKey = "") }.getOrDefault(emptyList())
-        }
+        val credentials = settingsStore.settings.value.analysis.of(providerId)
+        val models = runCatching {
+            catalogs.refresh(
+                provider = provider,
+                apiKey = credentials.apiKey,
+                endpoint = credentials.endpoint.ifBlank { provider.endpoint },
+                auth = credentials.authSpec(provider),
+            )
+        }.getOrDefault(emptyList())
         _textProviders.update { injectModels(it, provider.id, models) }
         adoptModel(provider.id, models)
     }
@@ -1002,10 +997,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         refreshProviders()
     }
 
-    /** 换供应商时旧那家的密钥已被清空，顺手把它的缓存也清掉；密钥、端点、鉴权任一格变了就重拉。 */
+    /**
+     * 只重拉凭据变过的那几家：密钥、端点、鉴权任一格变了才发请求，清空密钥则由存储器顺手清缓存。
+     * 单纯换选中的家不发请求，别家的清单原样留着，切回来时不用再等一次。
+     */
     private suspend fun syncCatalog(before: AnalysisSettings, after: AnalysisSettings) {
-        if (before.provider != after.provider) refreshModels(before.provider)
-        if (before != after) refreshModels(after.provider)
+        val ids = (before.saved.keys + after.saved.keys).ifEmpty { setOf(after.provider) }
+        ids.forEach { id -> if (before.of(id) != after.of(id)) refreshModels(id) }
     }
 
     private fun probeReport(live: LiveSettings, status: LinkStatus): String = when {
@@ -1272,17 +1270,13 @@ internal fun providerLines(settings: AppSettings, status: Map<String, LinkStatus
     )
     val analysis = settings.analysis
     val text = TextProviderCatalog.all.map { provider ->
-        val active = provider.id == analysis.provider
+        val own = analysis.of(provider.id)
         ProviderLine(
             key = analysisKey(provider.id),
             group = "analysis",
             name = provider.label,
-            detail = if (active) analysis.model.ifBlank { hostOf(provider) } else hostOf(provider),
-            status = if (active && analysis.apiKey.isNotBlank()) {
-                LinkStatus.Configured
-            } else {
-                LinkStatus.Unconfigured
-            },
+            detail = own.model.ifBlank { hostOf(provider) },
+            status = if (own.ready) LinkStatus.Configured else LinkStatus.Unconfigured,
             editable = true,
         )
     }
@@ -1326,7 +1320,7 @@ internal fun textRefusal(connection: Connection, capabilities: Capabilities?): S
 }
 
 /**
- * 清单到位后的选择：只认当前选中的那家，空清单与已落在清单里的选择都不动，
+ * 清单到位后的选择：每家各写自己那一格，空清单与已落在清单里的选择都不动，
  * 空着或不在清单里就改到最新一个。返回 null 表示设置不用改写。
  */
 internal fun pickedAnalysis(
@@ -1334,15 +1328,11 @@ internal fun pickedAnalysis(
     providerId: String,
     models: List<TextModel>,
 ): AnalysisSettings? {
-    if (providerId != analysis.provider) return null
-    val picked = ModelCatalog.pick(ModelCatalog.ordered(models), analysis.model)
-    if (picked.isBlank() || picked == analysis.model) return null
-    return analysis.copy(model = picked)
+    val current = analysis.of(providerId).model
+    val picked = ModelCatalog.pick(ModelCatalog.ordered(models), current)
+    if (picked.isBlank() || picked == current) return null
+    return analysis.amend(providerId) { it.copy(model = picked) }
 }
-
-/** 换供应商就把模型留空：旧那家的模型 id 对新家没有意义，等新家清单到位再自动选。 */
-internal fun AppSettings.withFreshModel(previous: AnalysisSettings): AppSettings =
-    if (analysis.provider == previous.provider) this else copy(analysis = analysis.copy(model = ""))
 
 internal fun liveKey(vendor: LiveVendor): String = vendor.name.lowercase()
 

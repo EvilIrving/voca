@@ -6,6 +6,8 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.parley.speaker.BuildConfig
 import com.parley.speaker.data.SeedContent
+import com.parley.speaker.data.analysis.TextProviderCatalog
+import com.parley.speaker.domain.AnalysisCredentials
 import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AppSettings
 import com.parley.speaker.domain.AssessorProvider
@@ -44,8 +46,12 @@ class SettingsStore(context: Context) {
             ),
         ),
         analysis = AnalysisSettings(
-            apiKey = BuildConfig.DEV_GEMINI_API_KEY,
-            model = BuildConfig.DEV_GEMINI_TEXT_MODEL,
+            saved = mapOf(
+                TextProviderCatalog.GeminiId to AnalysisCredentials(
+                    apiKey = BuildConfig.DEV_GEMINI_API_KEY,
+                    model = BuildConfig.DEV_GEMINI_TEXT_MODEL,
+                ),
+            ),
         ),
         assessor = AssessorSettings(provider = AssessorProvider.None),
         prompt = SeedContent.DefaultPrompt,
@@ -60,17 +66,7 @@ class SettingsStore(context: Context) {
         }
         return AppSettings(
             live = readLive(prefs),
-            analysis = AnalysisSettings(
-                apiKey = prefs.getString(KEY_ANALYSIS_KEY, "") ?: "",
-                model = prefs.getString(KEY_ANALYSIS_MODEL, "") ?: BuildConfig.DEV_GEMINI_TEXT_MODEL,
-                provider = prefs.getString(KEY_ANALYSIS_PROVIDER, null) ?: "gemini",
-                endpoint = prefs.getString(KEY_ANALYSIS_ENDPOINT, "") ?: "",
-                authKind = prefs.getString(KEY_ANALYSIS_AUTH, null)
-                    ?.let { name -> AuthKind.entries.firstOrNull { it.name == name } },
-                authName = prefs.getString(KEY_ANALYSIS_AUTH_NAME, "") ?: "",
-                authPrefix = prefs.getString(KEY_ANALYSIS_AUTH_PREFIX, "") ?: "",
-                thinking = prefs.getBoolean(KEY_ANALYSIS_THINKING, false),
-            ),
+            analysis = readAnalysis(prefs),
             assessor = readAssessor(prefs),
             prompt = prefs.getString(KEY_PROMPT, null) ?: SeedContent.DefaultPrompt,
         )
@@ -79,14 +75,7 @@ class SettingsStore(context: Context) {
     private fun write(settings: AppSettings) {
         prefs.edit()
             .putLive(settings.live)
-            .putString(KEY_ANALYSIS_KEY, settings.analysis.apiKey)
-            .putString(KEY_ANALYSIS_MODEL, settings.analysis.model)
-            .putString(KEY_ANALYSIS_PROVIDER, settings.analysis.provider)
-            .putString(KEY_ANALYSIS_ENDPOINT, settings.analysis.endpoint)
-            .putString(KEY_ANALYSIS_AUTH, settings.analysis.authKind?.name)
-            .putString(KEY_ANALYSIS_AUTH_NAME, settings.analysis.authName)
-            .putString(KEY_ANALYSIS_AUTH_PREFIX, settings.analysis.authPrefix)
-            .putBoolean(KEY_ANALYSIS_THINKING, settings.analysis.thinking)
+            .putAnalysis(settings.analysis)
             .putAssessor(settings.assessor)
             .putString(KEY_PROMPT, settings.prompt)
             .apply()
@@ -106,16 +95,84 @@ class SettingsStore(context: Context) {
     private companion object {
         const val FILE_NAME = "parley_secure"
         const val KEY_SEEDED = "seeded"
-        const val KEY_ANALYSIS_KEY = "analysis_api_key"
-        const val KEY_ANALYSIS_MODEL = "analysis_model"
-        const val KEY_ANALYSIS_PROVIDER = "analysis_provider"
-        const val KEY_ANALYSIS_ENDPOINT = "analysis_endpoint"
-        const val KEY_ANALYSIS_AUTH = "analysis_auth_kind"
-        const val KEY_ANALYSIS_AUTH_NAME = "analysis_auth_name"
-        const val KEY_ANALYSIS_AUTH_PREFIX = "analysis_auth_prefix"
-        const val KEY_ANALYSIS_THINKING = "analysis_thinking"
         const val KEY_PROMPT = "prompt"
     }
+}
+
+private const val KEY_ANALYSIS_SAVED = "analysis_saved"
+private const val KEY_ANALYSIS_PROVIDER = "analysis_provider"
+private const val KEY_ANALYSIS_THINKING = "analysis_thinking"
+
+/** 旧版只有一格，这六个键是那版的遗留，读到就挪进对应供应商名下，挪完删掉。 */
+private const val LEGACY_ANALYSIS_KEY = "analysis_api_key"
+private const val LEGACY_ANALYSIS_MODEL = "analysis_model"
+private const val LEGACY_ANALYSIS_ENDPOINT = "analysis_endpoint"
+private const val LEGACY_ANALYSIS_AUTH = "analysis_auth_kind"
+private const val LEGACY_ANALYSIS_AUTH_NAME = "analysis_auth_name"
+private const val LEGACY_ANALYSIS_AUTH_PREFIX = "analysis_auth_prefix"
+
+private fun slotKey(id: String, field: String): String = "analysis.$id.$field"
+
+/**
+ * 文本分析按供应商各存一格：id 集合记在 analysis_saved 里，其余按 analysis.<id>.<字段> 摊开。
+ * 配第二家只写它自己那几条，第一家原封不动。读到旧版单格那套就顺手迁过来并删掉遗留键，
+ * 升级的人不必重填密钥，模型留空由清单到位时自动选。
+ */
+internal fun readAnalysis(prefs: SharedPreferences): AnalysisSettings {
+    val provider = prefs.getString(KEY_ANALYSIS_PROVIDER, null) ?: TextProviderCatalog.GeminiId
+    val thinking = prefs.getBoolean(KEY_ANALYSIS_THINKING, false)
+    if (prefs.contains(KEY_ANALYSIS_SAVED)) {
+        val saved = prefs.getStringSet(KEY_ANALYSIS_SAVED, null).orEmpty().associateWith { id ->
+            AnalysisCredentials(
+                apiKey = prefs.getString(slotKey(id, "key"), "").orEmpty(),
+                model = prefs.getString(slotKey(id, "model"), "").orEmpty(),
+                endpoint = prefs.getString(slotKey(id, "endpoint"), "").orEmpty(),
+                authKind = prefs.getString(slotKey(id, "auth"), null)?.let(::authKindOf),
+                authName = prefs.getString(slotKey(id, "auth_name"), "").orEmpty(),
+                authPrefix = prefs.getString(slotKey(id, "auth_prefix"), "").orEmpty(),
+            )
+        }
+        return AnalysisSettings(provider, saved.filterValues { it != AnalysisCredentials() }, thinking)
+    }
+
+    val legacy = AnalysisCredentials(
+        apiKey = prefs.getString(LEGACY_ANALYSIS_KEY, "").orEmpty(),
+        model = prefs.getString(LEGACY_ANALYSIS_MODEL, "").orEmpty(),
+        endpoint = prefs.getString(LEGACY_ANALYSIS_ENDPOINT, "").orEmpty(),
+        authKind = prefs.getString(LEGACY_ANALYSIS_AUTH, null)?.let(::authKindOf),
+        authName = prefs.getString(LEGACY_ANALYSIS_AUTH_NAME, "").orEmpty(),
+        authPrefix = prefs.getString(LEGACY_ANALYSIS_AUTH_PREFIX, "").orEmpty(),
+    )
+    val migrated = if (legacy == AnalysisCredentials()) emptyMap() else mapOf(provider to legacy)
+    val settings = AnalysisSettings(provider, migrated, thinking)
+    prefs.edit()
+        .putAnalysis(settings)
+        .remove(LEGACY_ANALYSIS_KEY)
+        .remove(LEGACY_ANALYSIS_MODEL)
+        .remove(LEGACY_ANALYSIS_ENDPOINT)
+        .remove(LEGACY_ANALYSIS_AUTH)
+        .remove(LEGACY_ANALYSIS_AUTH_NAME)
+        .remove(LEGACY_ANALYSIS_AUTH_PREFIX)
+        .apply()
+    return settings
+}
+
+private fun authKindOf(name: String): AuthKind? = AuthKind.entries.firstOrNull { it.name == name }
+
+/** 只写非空那几家：清空的供应商落到默认格子，写与读都当它不存在。 */
+internal fun SharedPreferences.Editor.putAnalysis(analysis: AnalysisSettings): SharedPreferences.Editor {
+    val saved = analysis.saved.filterValues { it != AnalysisCredentials() }
+    putStringSet(KEY_ANALYSIS_SAVED, saved.keys)
+    saved.forEach { (id, credentials) ->
+        putString(slotKey(id, "key"), credentials.apiKey)
+        putString(slotKey(id, "model"), credentials.model)
+        putString(slotKey(id, "endpoint"), credentials.endpoint)
+        putString(slotKey(id, "auth"), credentials.authKind?.name)
+        putString(slotKey(id, "auth_name"), credentials.authName)
+        putString(slotKey(id, "auth_prefix"), credentials.authPrefix)
+    }
+    return putString(KEY_ANALYSIS_PROVIDER, analysis.provider)
+        .putBoolean(KEY_ANALYSIS_THINKING, analysis.thinking)
 }
 
 private const val KEY_ASSESSOR_PROVIDER = "assessor_provider"

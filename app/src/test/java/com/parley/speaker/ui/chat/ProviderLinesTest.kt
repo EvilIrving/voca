@@ -2,6 +2,8 @@ package com.parley.speaker.ui.chat
 
 import com.parley.speaker.data.analysis.TextModel
 import com.parley.speaker.data.analysis.TextProviderCatalog
+import com.parley.speaker.domain.AnalysisCredentials
+import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AppSettings
 import com.parley.speaker.domain.AssessorSettings
 import com.parley.speaker.domain.AuthKind
@@ -93,7 +95,10 @@ class ProviderLinesTest {
     @Test
     fun `文本分析七家一行不落，只有当前那家有密钥才算已配置`() {
         val settings = AppSettings(
-            analysis = AppSettings().analysis.copy(provider = "deepseek", apiKey = "sk-deep", model = "deepseek-chat"),
+            analysis = AnalysisSettings(
+                provider = "deepseek",
+                saved = mapOf("deepseek" to AnalysisCredentials(apiKey = "sk-deep", model = "deepseek-chat")),
+            ),
         )
 
         val lines = providerLines(settings, emptyMap()).filter { it.group == "analysis" }
@@ -138,13 +143,17 @@ class ProviderLinesTest {
     @Test
     fun `自定义端点那一行也用目录 id 作 key`() {
         val settings = AppSettings(
-            analysis = AppSettings().analysis.copy(
+            analysis = AnalysisSettings(
                 provider = TextProviderCatalog.CustomId,
-                apiKey = "sk-custom",
-                model = "deepseek-chat",
-                endpoint = "https://api.example.com/v1",
-                authKind = AuthKind.Header,
-                authName = "x-api-key",
+                saved = mapOf(
+                    TextProviderCatalog.CustomId to AnalysisCredentials(
+                        apiKey = "sk-custom",
+                        model = "deepseek-chat",
+                        endpoint = "https://api.example.com/v1",
+                        authKind = AuthKind.Header,
+                        authName = "x-api-key",
+                    ),
+                ),
             ),
         )
 

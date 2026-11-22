@@ -68,19 +68,47 @@ private fun LiveSettings.credentials(): List<String> =
     listOf(geminiKey, openAiKey, doubaoAppId, doubaoAppKey, doubaoAccessKey)
 
 /**
- * 文本分析设置。provider 是供应商 id，endpoint 与 auth 留空表示用目录里的默认值，
- * 只有自定义端点需要把这三样手填。
+ * 一家供应商自己的一份配置：密钥、挑好的模型、自定义端点与鉴权落点。
+ * endpoint 与 auth 留空表示用目录里的默认值，只有自定义端点需要把这几样手填。
  */
-data class AnalysisSettings(
+data class AnalysisCredentials(
     val apiKey: String = "",
-    val model: String = "gemini-flash-latest",
-    val provider: String = "gemini",
+    val model: String = "",
     val endpoint: String = "",
     val authKind: AuthKind? = null,
     val authName: String = "",
     val authPrefix: String = "",
+) {
+    val ready: Boolean get() = apiKey.isNotBlank()
+}
+
+/**
+ * 文本分析设置。provider 是当前生效的那家，saved 按供应商 id 各存一份，
+ * 配第二家不会把第一家顶掉，换回来时密钥与挑好的模型都还在。
+ * 下面那几个读的是当前这家的格子，请求装配与界面取的都是同一份。
+ */
+data class AnalysisSettings(
+    val provider: String = "gemini",
+    val saved: Map<String, AnalysisCredentials> = emptyMap(),
     val thinking: Boolean = false,
-)
+) {
+    fun of(id: String): AnalysisCredentials = saved[id] ?: AnalysisCredentials()
+
+    val active: AnalysisCredentials get() = of(provider)
+
+    /** 只动一家那几格，别家的原样留着。 */
+    fun amend(id: String, transform: (AnalysisCredentials) -> AnalysisCredentials): AnalysisSettings =
+        copy(saved = saved + (id to transform(of(id))))
+
+    fun select(id: String): AnalysisSettings = copy(provider = id)
+
+    val apiKey: String get() = active.apiKey
+    val model: String get() = active.model
+    val endpoint: String get() = active.endpoint
+    val authKind: AuthKind? get() = active.authKind
+    val authName: String get() = active.authName
+    val authPrefix: String get() = active.authPrefix
+}
 
 /**
  * 两家的凭据各占一组，齐备即启用。Azure 认密钥与区域两项；讯飞认 AppID、APIKey、APISecret 三件套。

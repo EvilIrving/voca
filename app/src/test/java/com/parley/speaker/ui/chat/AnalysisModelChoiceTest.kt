@@ -2,8 +2,8 @@ package com.parley.speaker.ui.chat
 
 import com.parley.speaker.data.analysis.TextEngineConfig
 import com.parley.speaker.data.analysis.TextModel
+import com.parley.speaker.domain.AnalysisCredentials
 import com.parley.speaker.domain.AnalysisSettings
-import com.parley.speaker.domain.AppSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -11,11 +11,14 @@ import org.junit.Test
 
 /**
  * 清单到位后的模型选择：空清单不动设置，空着或不在清单里的选择改到最新一个，
- * 换供应商时旧那家的模型留空等新家清单。清单在这里故意乱序给，选择只认发布日。
+ * 改动只落在那一家的格子里，别家挑好的模型不动。清单在这里故意乱序给，选择只认发布日。
  */
 class AnalysisModelChoiceTest {
 
-    private val settings = AnalysisSettings(apiKey = "sk-deep", model = "", provider = "deepseek")
+    private val settings = AnalysisSettings(
+        provider = "deepseek",
+        saved = mapOf("deepseek" to AnalysisCredentials(apiKey = "sk-deep")),
+    )
 
     private val catalog = listOf(
         TextModel(id = "deepseek-v3", releaseDate = "2024-12-26"),
@@ -42,37 +45,36 @@ class AnalysisModelChoiceTest {
 
     @Test
     fun `模型不在清单里也落到最新一个`() {
-        val stale = settings.copy(model = "gemini-flash-latest")
+        val stale = settings.amend("deepseek") { it.copy(model = "gemini-flash-latest") }
 
         assertEquals("deepseek-chat", pickedAnalysis(stale, "deepseek", catalog)?.model)
     }
 
     @Test
     fun `模型还在清单里就不动`() {
-        assertNull(pickedAnalysis(settings.copy(model = "deepseek-v3"), "deepseek", catalog))
+        val kept = settings.amend("deepseek") { it.copy(model = "deepseek-v3") }
+
+        assertNull(pickedAnalysis(kept, "deepseek", catalog))
     }
 
     @Test
-    fun `别家的清单不改写当前选择`() {
-        assertNull(pickedAnalysis(settings, "kimi", catalog))
+    fun `别家的清单只写别家那一格，当前那家不动`() {
+        val adopted = pickedAnalysis(settings, "kimi", catalog)
+
+        assertEquals("deepseek-chat", adopted?.of("kimi")?.model)
+        assertEquals("", adopted?.of("deepseek")?.model)
+        assertEquals("deepseek", adopted?.provider)
     }
 
     @Test
-    fun `换供应商就把模型留空`() {
-        val previous = AnalysisSettings(
-            apiKey = "sk-gem",
-            model = "gemini-flash-latest",
-            provider = "gemini",
-        )
-        val switched = AppSettings(analysis = previous.copy(provider = "deepseek"))
+    fun `换供应商不碰模型，各家记各家的`() {
+        val both = settings
+            .amend("gemini") { it.copy(apiKey = "sk-gem", model = "gemini-flash-latest") }
+            .amend("deepseek") { it.copy(model = "deepseek-chat") }
 
-        assertEquals("", switched.withFreshModel(previous).analysis.model)
-    }
-
-    @Test
-    fun `同供应商的选择原样保留`() {
-        val previous = settings.copy(model = "deepseek-chat")
-
-        assertEquals("deepseek-chat", AppSettings(analysis = previous).withFreshModel(previous).analysis.model)
+        assertEquals("deepseek-chat", both.of("deepseek").model)
+        assertEquals("gemini-flash-latest", both.of("gemini").model)
+        assertEquals("gemini-flash-latest", both.select("gemini").model)
+        assertEquals("deepseek-chat", both.select("gemini").select("deepseek").model)
     }
 }

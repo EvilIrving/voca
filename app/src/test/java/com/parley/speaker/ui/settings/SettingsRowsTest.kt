@@ -2,6 +2,7 @@ package com.parley.speaker.ui.settings
 
 import com.parley.speaker.data.analysis.TextModel
 import com.parley.speaker.data.analysis.TextProviderCatalog
+import com.parley.speaker.domain.AnalysisCredentials
 import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AppSettings
 import com.parley.speaker.domain.AssessorProvider
@@ -73,15 +74,50 @@ class SettingsRowsTest {
     }
 
     @Test
-    fun `没有密钥的文本分析行不可展开，一个清单请求都不发`() {
-        val analysis = AnalysisSettings(provider = "deepseek", model = "deepseek-chat")
+    fun `填了密钥的那家可展开，没填的不可展开`() {
+        val bare = AnalysisSettings(provider = "deepseek")
 
-        assertTrue(modelsToLoad(analysis, "deepseek").isEmpty())
-        assertTrue("密钥只存一份，别家本来就拉不到清单", modelsToLoad(analysis, "kimi").isEmpty())
+        assertTrue(modelsToLoad(bare, "deepseek").isEmpty())
+        assertTrue(modelsToLoad(bare, "kimi").isEmpty())
 
-        val withKey = analysis.copy(apiKey = "sk-deep")
+        val withKey = bare.amend("deepseek") { it.copy(apiKey = "sk-deep") }
         assertEquals(listOf("deepseek"), modelsToLoad(withKey, "deepseek"))
         assertTrue(modelsToLoad(withKey, "kimi").isEmpty())
+    }
+
+    @Test
+    fun `配了第二家，第一家的密钥与模型都还在`() {
+        val deepseek = TextProviderCatalog.deepseek.copy(models = listOf(TextModel("deepseek-chat")))
+        val gemini = TextProviderCatalog.of(TextProviderCatalog.GeminiId)!!.copy(
+            models = listOf(TextModel("gemini-flash-latest")),
+        )
+        val first = AppSettings().withAnalysisCredentials(
+            provider = deepseek,
+            apiKey = "sk-deep",
+            model = "deepseek-chat",
+            endpoint = "",
+            authKind = null,
+            authName = "",
+            authPrefix = "",
+        )
+
+        val both = first.withAnalysisCredentials(
+            provider = gemini,
+            apiKey = "AIza-gem",
+            model = "gemini-flash-latest",
+            endpoint = "",
+            authKind = null,
+            authName = "",
+            authPrefix = "",
+        )
+
+        assertEquals("gemini", both.analysis.provider)
+        assertEquals("sk-deep", both.analysis.of("deepseek").apiKey)
+        assertEquals("deepseek-chat", both.analysis.of("deepseek").model)
+        assertEquals("AIza-gem", both.analysis.of(TextProviderCatalog.GeminiId).apiKey)
+
+        assertEquals(LinkStatus.Configured, analysisRow(both.analysis, deepseek, analysisLines(both.analysis)).status)
+        assertEquals("deepseek-chat", analysisRow(both.analysis, deepseek, analysisLines(both.analysis)).detail)
     }
 
     @Test
@@ -89,30 +125,36 @@ class SettingsRowsTest {
         val provider = TextProviderCatalog.deepseek.copy(
             models = listOf(TextModel("deepseek-chat"), TextModel("deepseek-reasoner")),
         )
-        val analysis = AnalysisSettings(provider = "deepseek", apiKey = "sk-deep", model = "deepseek-reasoner")
+        val analysis = AnalysisSettings(
+            provider = "deepseek",
+            saved = mapOf("deepseek" to AnalysisCredentials(apiKey = "sk-deep", model = "deepseek-reasoner")),
+        )
 
         val picked = analysisRow(analysis, provider, analysisLines(analysis))
         assertEquals("deepseek-reasoner", picked.detail)
         assertEquals(LinkStatus.Configured, picked.status)
 
-        val gone = analysisRow(analysis.copy(model = "deepseek-v2"), provider, analysisLines(analysis))
+        val gone = analysisRow(stale(analysis, "deepseek-v2"), provider, analysisLines(analysis))
         assertEquals(Unpicked, gone.detail)
 
-        val blank = analysisRow(analysis.copy(model = ""), provider, analysisLines(analysis))
+        val blank = analysisRow(stale(analysis, ""), provider, analysisLines(analysis))
         assertEquals(Unpicked, blank.detail)
     }
 
     @Test
     fun `模型下拉的候选就是这一家的清单，选中项只在清单里才勾得上`() {
         val provider = TextProviderCatalog.kimi.copy(models = listOf(TextModel("kimi-k2"), TextModel("kimi-k1")))
-        val analysis = AnalysisSettings(provider = "kimi", apiKey = "sk", model = "kimi-k1")
+        val analysis = AnalysisSettings(
+            provider = "kimi",
+            saved = mapOf("kimi" to AnalysisCredentials(apiKey = "sk", model = "kimi-k1")),
+        )
 
         val menu = modelChoices(provider, analysis)
 
         assertEquals(listOf("kimi-k2", "kimi-k1"), menu.options.map { it.id })
         assertEquals("kimi-k1", menu.selected)
 
-        val stale = modelChoices(provider, analysis.copy(model = "kimi-legacy"))
+        val stale = modelChoices(provider, stale(analysis, "kimi-legacy"))
         assertTrue("清单里没有的名字勾不上", stale.options.none { it.id == stale.selected })
     }
 
@@ -120,7 +162,10 @@ class SettingsRowsTest {
     fun `清单外的模型 id 与空串都不会写回设置`() {
         val provider = TextProviderCatalog.deepseek.copy(models = listOf(TextModel("deepseek-chat")))
         val settings = AppSettings(
-            analysis = AnalysisSettings(provider = "deepseek", apiKey = "sk", model = "deepseek-chat"),
+            analysis = AnalysisSettings(
+                provider = "deepseek",
+                saved = mapOf("deepseek" to AnalysisCredentials(apiKey = "sk", model = "deepseek-chat")),
+            ),
         )
 
         assertNull("空串不发下去", settings.withAnalysisModel(provider, ""))
@@ -130,8 +175,11 @@ class SettingsRowsTest {
             settings.withAnalysisModel(provider, "deepseek-chat")?.analysis?.model,
         )
 
-        val other = TextProviderCatalog.kimi.copy(models = listOf(TextModel("kimi-k2")))
-        assertNull("别家的清单不改当前那家", settings.withAnalysisModel(other, "kimi-k2"))
+        val kimi = TextProviderCatalog.kimi.copy(models = listOf(TextModel("kimi-k2")))
+        val picked = settings.withAnalysisModel(kimi, "kimi-k2")
+        assertEquals("kimi", picked?.analysis?.provider)
+        assertEquals("kimi-k2", picked?.analysis?.of("kimi")?.model)
+        assertEquals("deepseek-chat", picked?.analysis?.of("deepseek")?.model)
     }
 
     @Test
@@ -181,6 +229,9 @@ class SettingsRowsTest {
 
     private fun analysisLines(analysis: AnalysisSettings) =
         providerLines(AppSettings(analysis = analysis), emptyMap()).filter { it.group == "analysis" }
+
+    private fun stale(analysis: AnalysisSettings, model: String): AnalysisSettings =
+        analysis.amend(analysis.provider) { it.copy(model = model) }
 
     private fun live(
         provider: LiveVendor = LiveVendor.Gemini,

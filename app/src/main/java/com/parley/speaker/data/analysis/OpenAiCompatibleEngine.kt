@@ -1,6 +1,7 @@
 package com.parley.speaker.data.analysis
 
 import android.util.Log
+import com.parley.speaker.domain.AnalysisCredentials
 import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AuthKind
 import kotlinx.coroutines.Dispatchers
@@ -89,7 +90,10 @@ data class TextEngineConfig(
 }
 
 /** 自定义端点手填的鉴权压过供应商默认值，没填的那一段继续用目录里的。 */
-internal fun AnalysisSettings.authSpec(provider: TextProvider): AuthSpec = when (authKind) {
+internal fun AnalysisSettings.authSpec(provider: TextProvider): AuthSpec = active.authSpec(provider)
+
+/** 同一套判定按供应商名下的那一格来一次，拉清单时不必先把设置切成那一家。 */
+internal fun AnalysisCredentials.authSpec(provider: TextProvider): AuthSpec = when (authKind) {
     null -> provider.auth
     AuthKind.Bearer -> AuthSpec.bearer()
     AuthKind.Header -> AuthSpec.header(

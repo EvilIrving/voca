@@ -33,6 +33,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.parley.speaker.data.analysis.TextProvider
+import com.parley.speaker.domain.AnalysisCredentials
 import com.parley.speaker.domain.AppSettings
 import com.parley.speaker.domain.AssessorProvider
 import com.parley.speaker.domain.AssessorSettings
@@ -116,7 +117,8 @@ fun AppSettings.liveSaved(vendor: LiveVendor, values: Map<String, String>, voice
 
 /**
  * 目录里的供应商只存密钥，端点与鉴权走默认值；自定义端点那几项都落盘。
- * 模型留空表示沿用旧值，换供应商时由存储器清空等新清单到位，界面不往这里塞空串。
+ * 每一家各写自己那一格，配第二家不会动第一家的密钥；存完顺带把这家设为生效的那家。
+ * 模型留空表示沿用这一家旧值，界面不往这里塞空串。
  */
 fun AppSettings.withAnalysisCredentials(
     provider: TextProvider,
@@ -126,26 +128,26 @@ fun AppSettings.withAnalysisCredentials(
     authKind: AuthKind?,
     authName: String,
     authPrefix: String,
-): AppSettings = copy(
-    analysis = analysis.copy(
-        provider = provider.id,
+): AppSettings {
+    val current = analysis.of(provider.id)
+    val next = AnalysisCredentials(
         apiKey = apiKey.trim(),
-        model = model.trim().ifBlank { analysis.model },
+        model = model.trim().ifBlank { current.model },
         endpoint = if (provider.custom) endpoint.trim() else "",
         authKind = if (provider.custom) authKind else null,
         authName = if (provider.custom) authName.trim() else "",
         authPrefix = if (provider.custom) authPrefix.trim() else "",
-    ),
-)
+    )
+    return copy(analysis = analysis.amend(provider.id) { next }.select(provider.id))
+}
 
 /**
  * 只认这一家清单里的模型 id。清单外的值与空串都不写回去，界面显示未选择等用户挑一个。
- * 返回 null 表示这次点击不改设置。
+ * 挑谁家的模型就用谁家，因此写模型的同时把这家设为生效。返回 null 表示这次点击不改设置。
  */
 fun AppSettings.withAnalysisModel(provider: TextProvider, modelId: String): AppSettings? {
-    if (provider.id != analysis.provider) return null
     if (provider.models.none { it.id == modelId }) return null
-    return copy(analysis = analysis.copy(model = modelId))
+    return copy(analysis = analysis.amend(provider.id) { it.copy(model = modelId) }.select(provider.id))
 }
 
 /** Azure 认密钥与区域两项，填完按齐备情况归位。 */

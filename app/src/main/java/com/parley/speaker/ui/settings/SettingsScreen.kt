@@ -466,12 +466,12 @@ private fun AuthKind.label(): String = when (this) {
 }
 
 /**
- * 文本分析的一行：第二行读数与状态。当前那家读模型，模型空着或不在清单里就写未选择；
- * 其余几家读端点域名，密钥只存一份，它们本来就没清单可列。
+ * 文本分析的一行：第二行读数与状态。每家读自己那一格，有密钥且有模型就写模型名，
+ * 模型空着或不在清单里就写未选择，没填密钥就写端点域名。
  */
 internal data class AnalysisRow(val provider: TextProvider, val detail: String, val status: LinkStatus)
 
-/** 当前模型不在清单里时行内就这么写，点开挑一个才落定。 */
+/** 模型空着或不在这一家的清单里时行内就这么写，点开挑一个才落定。 */
 internal const val Unpicked = "未选择，点开挑一个"
 
 internal fun analysisRow(
@@ -479,27 +479,28 @@ internal fun analysisRow(
     provider: TextProvider,
     lines: List<ProviderLine>,
 ): AnalysisRow {
-    val active = provider.id == analysis.provider
+    val own = analysis.of(provider.id)
     val detail = when {
-        !active -> hostOf(provider)
-        analysis.model.isBlank() || provider.models.none { it.id == analysis.model } -> Unpicked
-        else -> analysis.model
+        !own.ready -> hostOf(provider)
+        own.model.isBlank() -> Unpicked
+        provider.models.isNotEmpty() && provider.models.none { it.id == own.model } -> Unpicked
+        else -> own.model
     }
     val status = lines.firstOrNull { it.key == injectedKey(provider.id) }?.status ?: LinkStatus.Unconfigured
     return AnalysisRow(provider, detail, status)
 }
 
 /**
- * 展开一行时该拉的清单。空表示这行不可展开：没有密钥，或者不是当前选中的那家。
+ * 展开一行时该拉的清单。空表示这行不可展开：这一家自己没填密钥。
  * 界面按这一格决定要不要画箭头、要不要发请求，两处不各自判一次。
  */
 internal fun modelsToLoad(analysis: AnalysisSettings, providerId: String): List<String> =
-    if (providerId == analysis.provider && analysis.apiKey.isNotBlank()) listOf(providerId) else emptyList()
+    if (analysis.of(providerId).ready) listOf(providerId) else emptyList()
 
 /** 模型下拉的候选只来自这一家拉到的清单，选中项不在清单里就一行都不勾。 */
 internal fun modelChoices(provider: TextProvider, analysis: AnalysisSettings): MenuSpec = MenuSpec(
     options = provider.models.map { MenuOption(it.id, metaLine(it).ifBlank { null }) },
-    selected = if (provider.id == analysis.provider) analysis.model else "",
+    selected = analysis.of(provider.id).model,
 )
 
 @Composable
@@ -847,20 +848,20 @@ private fun ProviderDialog(
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val active = analysis.provider == provider.id
-    // 密钥只存一份，给未启用的供应商开对话框时不能把当前那家的密钥预填进去。
+    // 每家各存一格，开谁的对话框就预填谁自己的密钥与端点，别家的不会串进来。
+    val own = analysis.of(provider.id)
     val drafts = rememberDrafts(
         remember(provider.id, analysis) {
             mapOf(
-                "apiKey" to if (active) analysis.apiKey else "",
-                "endpoint" to if (active) analysis.endpoint else "",
-                "model" to if (active) analysis.model else "",
-                "name" to (if (active) analysis.authName else "").ifBlank { provider.auth.name },
-                "prefix" to (if (active) analysis.authPrefix else "").ifBlank { provider.auth.prefix },
+                "apiKey" to own.apiKey,
+                "endpoint" to own.endpoint,
+                "model" to own.model,
+                "name" to own.authName.ifBlank { provider.auth.name },
+                "prefix" to own.authPrefix.ifBlank { provider.auth.prefix },
             )
         },
     )
-    var kind by remember(provider.id) { mutableStateOf((if (active) analysis.authKind else null) ?: provider.auth.kind) }
+    var kind by remember(provider.id) { mutableStateOf(own.authKind ?: provider.auth.kind) }
     SettingsDialog(
         title = provider.label,
         onSave = {

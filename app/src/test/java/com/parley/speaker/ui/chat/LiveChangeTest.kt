@@ -61,7 +61,11 @@ class LiveChangeTest {
 
     @Test
     fun `改文本分析设置不碰实时会话`() {
-        val after = AllSet.copy(analysis = AllSet.analysis.copy(apiKey = "sk-deep", model = "deepseek-chat", provider = "deepseek"))
+        val after = AllSet.copy(
+            analysis = AllSet.analysis
+                .amend("deepseek") { it.copy(apiKey = "sk-deep", model = "deepseek-chat") }
+                .select("deepseek"),
+        )
 
         assertEquals(LiveChange.None, liveChange(AllSet, after))
     }
