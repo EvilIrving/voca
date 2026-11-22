@@ -319,6 +319,10 @@ actor ParleyDatabase {
         try run("DELETE FROM turn")
     }
 
+    /// 删一段会话时连带清掉它的轮次，录音文件由存储层按列逐个删。
+    func deleteTurnsBySession(sessionId: String) throws {
+        try run("DELETE FROM turn WHERE sessionId = ?", sessionId)
+    }
 
     private func queryTurns(_ sql: String, _ args: Any?...) throws -> [TurnRow] {
         try query(sql, args) { stmt in
@@ -477,6 +481,9 @@ actor ParleyDatabase {
         )
     }
 
+    func deleteSession(id: String) throws {
+        try run("DELETE FROM session WHERE id = ?", id)
+    }
 
     private func querySessions(_ sql: String, _ args: Any?...) throws -> [SessionRow] {
         try query(sql, args) { stmt in

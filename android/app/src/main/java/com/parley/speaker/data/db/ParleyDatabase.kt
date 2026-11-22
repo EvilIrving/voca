@@ -128,6 +128,9 @@ interface TurnDao {
     @Query("DELETE FROM turn WHERE id = :id")
     suspend fun delete(id: String)
 
+    // 删一段会话时连带清掉它的轮次，录音文件由存储层按列逐个删。
+    @Query("DELETE FROM turn WHERE sessionId = :sessionId")
+    suspend fun deleteBySession(sessionId: String)
 
     @Query("DELETE FROM turn")
     suspend fun clear()
@@ -211,6 +214,8 @@ interface SessionDao {
     )
     suspend fun rename(id: String, name: String, manual: Boolean)
 
+    @Query("DELETE FROM `session` WHERE id = :id")
+    suspend fun delete(id: String)
 }
 
 /** 模型清单缓存按供应商一条，重复拉取整条盖掉。 */

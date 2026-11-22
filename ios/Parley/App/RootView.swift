@@ -48,6 +48,12 @@ struct RootView<VM: ParleySession>: View {
                         drawer.close()
                         panel = .settings
                     },
+                    onDelete: { id in
+                        vm.deleteSession(id: id)
+                    },
+                    onRename: { id, name in
+                        vm.renameSession(id: id, name: name)
+                    }
                 )
             } content: {
                 ChatScreen(

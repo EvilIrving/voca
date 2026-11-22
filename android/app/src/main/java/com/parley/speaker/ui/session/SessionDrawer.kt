@@ -29,12 +29,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -67,6 +69,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.parley.speaker.data.SessionGroup
 import com.parley.speaker.data.SessionRecord
 import com.parley.speaker.data.groupedByDay
@@ -380,7 +384,7 @@ private suspend fun AwaitPointerEventScope.trackHorizontal(
 
 /**
  * 抽屉正文：右侧检索、新建会话、按天摊开的会话，右下角设置页。
- * 正在看的那条垫陶土浅底；这里不放删除这类管理动作。
+ * 正在看的那条垫陶土浅底；长按可呼出重命名与删除操作菜单。
  */
 @Composable
 fun SessionDrawer(
@@ -390,9 +394,13 @@ fun SessionDrawer(
     onNewSession: () -> Unit,
     onPick: (String) -> Unit,
     onSettings: () -> Unit,
+    onDelete: (String) -> Unit = {},
+    onRename: (String, String) -> Unit = { _, _ -> },
 ) {
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
+    var activeRecord by remember { mutableStateOf<SessionRecord?>(null) }
+    var renamingRecord by remember { mutableStateOf<SessionRecord?>(null) }
     val focus = remember { FocusRequester() }
 
     // 抽屉收起时检索跟着退场，下次拉开不会带着上一条关键字。
@@ -400,6 +408,8 @@ fun SessionDrawer(
         if (!open) {
             searching = false
             query = ""
+            activeRecord = null
+            renamingRecord = null
         }
     }
     LaunchedEffect(searching) { if (searching) focus.requestFocus() }
@@ -463,13 +473,44 @@ fun SessionDrawer(
                 model.groups.forEach { group ->
                     item(key = "group-${group.label}") { GroupLabel(group) }
                     items(group.sessions, key = { it.id }) { record ->
-                        SessionRow(record, model.isCurrent(record)) { onPick(record.id) }
+                        SessionRow(
+                            record = record,
+                            current = model.isCurrent(record),
+                            onClick = { onPick(record.id) },
+                            onLongClick = { activeRecord = record },
+                        )
                     }
                 }
             }
         }
 
         DrawerDock(onSettings)
+    }
+
+    activeRecord?.let { record ->
+        SessionActionDialog(
+            record = record,
+            onRename = {
+                activeRecord = null
+                renamingRecord = record
+            },
+            onDelete = {
+                activeRecord = null
+                onDelete(record.id)
+            },
+            onDismiss = { activeRecord = null },
+        )
+    }
+
+    renamingRecord?.let { record ->
+        RenameSessionDialog(
+            initialName = record.name,
+            onSave = { newName ->
+                renamingRecord = null
+                onRename(record.id, newName)
+            },
+            onDismiss = { renamingRecord = null },
+        )
     }
 }
 
@@ -587,14 +628,21 @@ private fun GroupLabel(group: SessionGroup) {
 }
 
 @Composable
-private fun SessionRow(record: SessionRecord, current: Boolean, onClick: () -> Unit) {
+private fun SessionRow(
+    record: SessionRecord,
+    current: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     Pressable(
         modifier = Modifier
             .fillMaxWidth()
-            .height(SessionDrawerSpec.RowHeight),
+            .height(SessionDrawerSpec.RowHeight)
+            .padding(vertical = 2.dp),
         shape = RoundedCornerShape(Radius.drawerRow),
         resting = if (current) Palette.clayTint else Color.Transparent,
         onClick = onClick,
+        onLongClick = onLongClick,
         contentAlignment = Alignment.CenterStart,
     ) {
         Text(
@@ -602,8 +650,171 @@ private fun SessionRow(record: SessionRecord, current: Boolean, onClick: () -> U
             style = if (current) Type.uiStrong else Type.uiStrongInk2,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 4.dp, end = 12.dp),
+            modifier = Modifier.padding(horizontal = 12.dp),
         )
+    }
+}
+
+@Composable
+private fun SessionActionDialog(
+    record: SessionRecord,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.screen),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                color = Palette.card,
+                shape = RoundedCornerShape(Radius.sheet),
+                modifier = Modifier
+                    .widthIn(max = 280.dp)
+                    .fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        text = record.name.ifBlank { UntitledSession },
+                        style = Type.title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Pressable(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(Radius.chip),
+                        resting = Palette.tint,
+                        onClick = onRename,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("重命名", style = Type.uiStrong)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Pressable(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(Radius.chip),
+                        resting = Palette.tint,
+                        onClick = onDelete,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("删除", style = Type.uiStrong.copy(color = Palette.danger))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RenameSessionDialog(
+    initialName: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember(initialName) { mutableStateOf(initialName) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.screen),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                color = Palette.card,
+                shape = RoundedCornerShape(Radius.sheet),
+                modifier = Modifier
+                    .widthIn(max = 300.dp)
+                    .fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(20.dp)) {
+                    Text("重命名会话", style = Type.display)
+                    Spacer(Modifier.height(14.dp))
+                    Surface(
+                        color = Palette.tint,
+                        shape = RoundedCornerShape(Radius.control),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        BasicTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            singleLine = true,
+                            textStyle = Type.uiInk,
+                            cursorBrush = SolidColor(Palette.clay),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            decorationBox = { inner ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (text.isEmpty()) {
+                                        Text("会话名称", style = Type.uiInk4)
+                                    }
+                                    inner()
+                                }
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Pressable(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(Radius.pill),
+                            resting = Palette.tint,
+                            onClick = onDismiss,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(42.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("取消", style = Type.uiStrongInk2)
+                            }
+                        }
+                        Pressable(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(Radius.pill),
+                            resting = Palette.clay,
+                            onClick = { onSave(text.trim()) },
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(42.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("保存", style = Type.uiStrongOnDark)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

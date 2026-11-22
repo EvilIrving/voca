@@ -22,6 +22,7 @@ import com.parley.speaker.domain.Turn
 import com.parley.speaker.domain.VocabCard
 import com.parley.speaker.domain.withoutAnnotation
 import android.content.Context
+import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.serialization.json.Json
 
@@ -224,6 +225,13 @@ class SessionStore(context: Context) {
         db.sessions().rename(id, trimmed, manual)
     }
 
+    /** 删一段会话：轮次、录音文件与会话自身一起清，音频按列里的路径逐个删。 */
+    suspend fun deleteSession(sessionId: String) {
+        val turns = db.turns().bySession(sessionId)
+        turns.mapNotNull { it.audioPath }.forEach { path -> runCatching { File(path).delete() } }
+        db.turns().deleteBySession(sessionId)
+        db.sessions().delete(sessionId)
+    }
 
     private fun TurnRow.toTurn(): Turn? {
         val speaker = runCatching { Speaker.valueOf(speaker) }.getOrNull() ?: return null

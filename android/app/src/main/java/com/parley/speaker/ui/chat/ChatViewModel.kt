@@ -1076,7 +1076,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** 删掉的一段会话如果就是正在看的那条，当场开新的一段，不回看一个已经不存在的段。 */
+    fun deleteSession(sessionId: String) {
+        viewModelScope.launch {
+            store.deleteSession(sessionId)
+            loadSessions()
+            if (continuing?.id == sessionId || ledger.current.id == sessionId) {
+                startNewSession()
+            }
+        }
+    }
 
+    /** 手动改名是真名字：接回来那条的 manualName 跟着置真，自动补名不能再盖掉它。 */
+    fun renameSession(sessionId: String, name: String) {
+        viewModelScope.launch {
+            store.rename(sessionId, name, manual = true)
+            loadSessions()
+            if (continuing?.id == sessionId) {
+                continuing = continuing?.copy(name = name, manualName = true)
+                project()
+            }
+        }
+    }
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
         val before = settingsStore.settings.value

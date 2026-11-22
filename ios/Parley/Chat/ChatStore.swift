@@ -352,7 +352,40 @@ final class ChatStore: ObservableObject, ParleySession {
         }
     }
 
+    /// 删掉的一段会话如果就是正在看的那条，当场开新的一段，不回看一个已经不存在的段。
+    func deleteSession(id: String) {
+        Task {
+            try? await store.deleteSession(id: id)
+            loadSessions()
+            if continuing?.id == id || ledger.current.id == id {
+                startNewSession()
+            }
+        }
+    }
 
+    /// 手动改名是真名字：接回来那条的 manualName 跟着置真，自动补名不能再盖掉它。
+    func renameSession(id: String, name: String) {
+        Task {
+            try? await store.rename(id: id, name: name, manual: true)
+            loadSessions()
+            if continuing?.id == id {
+                continuing = continuing.map { record in
+                    SessionRecord(
+                        id: record.id,
+                        name: name,
+                        startedAt: record.startedAt,
+                        endedAt: record.endedAt,
+                        rounds: record.rounds,
+                        pronunciationAvg: record.pronunciationAvg,
+                        grammarAvg: record.grammarAvg,
+                        newWordCount: record.newWordCount,
+                        manualName: true
+                    )
+                }
+                project()
+            }
+        }
+    }
 
     func updateSettings(_ transform: (AppSettings) -> AppSettings) {
         let before = settingsStore.settings

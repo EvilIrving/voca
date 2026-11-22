@@ -36,6 +36,8 @@ protocol ParleySession: AnyObject, ObservableObject {
     func leaveSession()
     func startNewSession()
     func loadSessions()
+    func deleteSession(id: String)
+    func renameSession(id: String, name: String)
     func updateSettings(_ transform: (AppSettings) -> AppSettings)
     func probe()
     func loadModels(providerId: String)
@@ -80,6 +82,8 @@ final class PreviewParleySession: ParleySession {
     func leaveSession() {}
     func startNewSession() {}
     func loadSessions() {}
+    func deleteSession(id: String) {}
+    func renameSession(id: String, name: String) {}
     func updateSettings(_ transform: (AppSettings) -> AppSettings) { settings = transform(settings) }
     func probe() {}
     func loadModels(providerId: String) {}

@@ -148,6 +148,8 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
                         drawer.close()
                         panel = Panel.Settings
                     },
+                    onDelete = vm::deleteSession,
+                    onRename = vm::renameSession,
                 )
             },
         ) {

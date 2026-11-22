@@ -231,6 +231,15 @@ actor SessionStore {
         try await db.renameSession(id: id, name: trimmed, manual: manual)
     }
 
+    /// 删一段会话：轮次、录音文件与会话自身一起清，音频按列里的路径逐个删。
+    func deleteSession(id: String) async throws {
+        let turns = try await db.turnsBySession(id)
+        for path in turns.compactMap(\.audioPath) {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        try await db.deleteTurnsBySession(sessionId: id)
+        try await db.deleteSession(id: id)
+    }
 
     private func toTurn(_ row: TurnRow) -> Turn? {
         guard let speaker = Speaker.fromDB(row.speaker) else { return nil }

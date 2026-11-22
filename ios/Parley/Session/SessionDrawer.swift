@@ -203,9 +203,13 @@ struct SessionDrawer: View {
     var onNewSession: @MainActor () -> Void
     var onPick: @MainActor (String) -> Void
     var onSettings: @MainActor () -> Void
+    var onDelete: @MainActor (String) -> Void = { _ in }
+    var onRename: @MainActor (String, String) -> Void = { _, _ in }
 
     @State private var query = ""
     @State private var searching = false
+    @State private var renaming: SessionRecord?
+    @State private var renameText = ""
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -328,10 +332,33 @@ struct SessionDrawer: View {
                 .font(current ? Type.uiStrong : Type.uiStrong)
                 .foregroundStyle(current ? Palette.ink : Palette.ink2)
                 .lineLimit(1)
-                .padding(.leading, 4)
-                .padding(.trailing, 12)
+                .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.vertical, 2)
         .frame(height: SessionDrawerSpec.rowHeight)
+        .contextMenu {
+            Button {
+                renaming = record
+                renameText = record.name
+            } label: {
+                Label("重命名", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                onDelete(record.id)
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+        }
+        .alert("重命名会话", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("会话名称", text: $renameText)
+            Button("取消", role: .cancel) { renaming = nil }
+            Button("保存") {
+                if let target = renaming {
+                    onRename(target.id, renameText.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                renaming = nil
+            }
+        }
     }
 }
