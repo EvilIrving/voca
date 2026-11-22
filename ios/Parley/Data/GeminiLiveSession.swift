@@ -30,6 +30,9 @@ final class GeminiLiveSession: RealtimeSession, @unchecked Sendable {
     private var userBuffer = ""
     private var replyBuffer = ""
 
+    /// 打字打断在跑的生成时，先到的那段尾巴与收尾属于被打断那一轮，不落到新的一句头上。
+    private let interruptions: InterruptedGeneration
+
     private var ready = false
     private var turnOpen = false
     private var awaitingTurn = false
@@ -52,6 +55,7 @@ final class GeminiLiveSession: RealtimeSession, @unchecked Sendable {
     private static let maxPending = 200
     private static let minuteMs: Int64 = 60_000
     private static let cancelWindowMs: Int64 = 1_500
+    private static let interruptWindowMs: Int64 = 2_000
     private static let setupTimeoutMs: Int64 = 8_000
     private static let peekBytes = 1_024
     private static let maxResumeAttempts = 2
@@ -79,6 +83,9 @@ final class GeminiLiveSession: RealtimeSession, @unchecked Sendable {
         self.maxSessionMinutes = maxSessionMinutes
         self.history = history
         self.cancels = CancelWindow(windowMs: Self.cancelWindowMs) {
+            Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+        }
+        self.interruptions = InterruptedGeneration(windowMs: Self.interruptWindowMs) {
             Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
         }
         self.capabilities = Capabilities(
@@ -134,7 +141,13 @@ final class GeminiLiveSession: RealtimeSession, @unchecked Sendable {
 
     func sendText(_ text: String) {
         workQueue.async { [weak self] in
-            self?.send(GeminiWire.clientContent(text: text))
+            guard let self else { return }
+            if self.ready {
+                // 服务端还在作答时推一句文字就是打断：它先收掉在跑的那一轮，再回这一句。
+                if self.awaitingTurn { self.interruptions.arm() }
+                self.awaitingTurn = true
+            }
+            self.send(GeminiWire.clientContent(text: text))
         }
     }
 
@@ -409,13 +422,17 @@ final class GeminiLiveSession: RealtimeSession, @unchecked Sendable {
 
     private func serverContent(_ content: [String: Any]) {
         let tag = cancels.tag()
+        // 打字打断之后，在跑那一轮的尾巴与收尾先于新的一句到达。
+        let swallowing = interruptions.swallowing()
 
         if jsonString(content["interrupted"]) == "true" {
             awaitingTurn = false
             cancels.boundary()
+            interruptions.interrupt()
             emit(.interrupted)
             if rotatePending && !turnOpen { rotate() }
-            return
+            // 收尾可能与打断同条到达，那时要继续往下走，把那条收尾吞掉。
+            if !swallowing { return }
         }
 
         if jsonString(content["waitingForInput"]) == "true" {
@@ -424,28 +441,30 @@ final class GeminiLiveSession: RealtimeSession, @unchecked Sendable {
             if rotatePending && !turnOpen { rotate() }
         }
 
-        if let input = content["inputTranscription"] as? [String: Any], let text = jsonString(input["text"]) {
-            transcriptLock.lock()
-            if tag == nil { userBuffer.append(text) }
-            transcriptLock.unlock()
-            emit(.userText(text, tag))
-        }
-        if let output = content["outputTranscription"] as? [String: Any], let text = jsonString(output["text"]) {
-            transcriptLock.lock()
-            if tag == nil { replyBuffer.append(text) }
-            transcriptLock.unlock()
-            emit(.assistantText(text, tag))
-        }
-        if let modelTurn = content["modelTurn"] as? [String: Any],
-           let partsArray = modelTurn["parts"] as? [Any]
-        {
-            for item in partsArray {
-                guard let part = item as? [String: Any],
-                      let inline = part["inlineData"] as? [String: Any],
-                      let dataB64 = jsonString(inline["data"]),
-                      let pcm = Data(base64Encoded: dataB64)
-                else { continue }
-                emit(.audio(pcm, tag))
+        if !swallowing {
+            if let input = content["inputTranscription"] as? [String: Any], let text = jsonString(input["text"]) {
+                transcriptLock.lock()
+                if tag == nil { userBuffer.append(text) }
+                transcriptLock.unlock()
+                emit(.userText(text, tag))
+            }
+            if let output = content["outputTranscription"] as? [String: Any], let text = jsonString(output["text"]) {
+                transcriptLock.lock()
+                if tag == nil { replyBuffer.append(text) }
+                transcriptLock.unlock()
+                emit(.assistantText(text, tag))
+            }
+            if let modelTurn = content["modelTurn"] as? [String: Any],
+               let partsArray = modelTurn["parts"] as? [Any]
+            {
+                for item in partsArray {
+                    guard let part = item as? [String: Any],
+                          let inline = part["inlineData"] as? [String: Any],
+                          let dataB64 = jsonString(inline["data"]),
+                          let pcm = Data(base64Encoded: dataB64)
+                    else { continue }
+                    emit(.audio(pcm, tag))
+                }
             }
         }
 
@@ -453,6 +472,8 @@ final class GeminiLiveSession: RealtimeSession, @unchecked Sendable {
             awaitingTurn = false
             flushDialogue()
             cancels.boundary()
+            // 被打断那一轮的收尾：新的一句还没开始，界面不该当成说完。
+            if interruptions.boundary() { return }
             emit(.turnComplete)
             if rotatePending { rotate() }
         }

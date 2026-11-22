@@ -64,6 +64,9 @@ class GeminiLiveSession(
 
     private val cancels = CancelWindow(CANCEL_WINDOW_MS) { System.nanoTime() / 1_000_000 }
 
+    /** 打字打断在跑的生成时，先到的那段尾巴与收尾属于被打断那一轮，不落到新的一句头上。 */
+    private val interruptions = InterruptedGeneration(INTERRUPT_WINDOW_MS) { System.nanoTime() / 1_000_000 }
+
     // 换连接时要把旧上下文交给新会话，服务端不给 turn 号，只能自己记一份文字流水。
     // 收消息在 okhttp 的读线程，换连接在计时协程里，这份流水用一把锁守着。
     private val dialogue = ArrayDeque<String>()
@@ -276,6 +279,11 @@ class GeminiLiveSession(
     }
 
     override fun sendText(text: String) {
+        if (ready) {
+            // 服务端还在作答时推一句文字就是打断：它先收掉在跑的那一轮，再回这一句。
+            if (awaitingTurn) interruptions.arm()
+            awaitingTurn = true
+        }
         send(GeminiWire.clientContent(text))
     }
 
@@ -413,13 +421,17 @@ class GeminiLiveSession(
 
     private fun serverContent(content: JsonObject) {
         val tag = cancels.tag()
+        // 打字打断之后，在跑那一轮的尾巴与收尾先于新的一句到达。
+        val swallowing = interruptions.swallowing()
 
         if (content["interrupted"]?.jsonPrimitive?.contentOrNull == "true") {
             awaitingTurn = false
             cancels.boundary()
+            interruptions.interrupt()
             onEvent(RealtimeEvent.Interrupted)
             if (rotatePending && !turnOpen) rotate()
-            return
+            // 收尾可能与打断同条到达，那时要继续往下走，把那条收尾吞掉。
+            if (!swallowing) return
         }
 
         if (content["waitingForInput"]?.jsonPrimitive?.contentOrNull == "true") {
@@ -428,24 +440,28 @@ class GeminiLiveSession(
             if (rotatePending && !turnOpen) rotate()
         }
 
-        content["inputTranscription"]?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull?.let { text ->
-            synchronized(transcriptLock) { if (tag == null) userBuffer.append(text) }
-            onEvent(RealtimeEvent.UserText(text, tag))
-        }
-        content["outputTranscription"]?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull?.let { text ->
-            synchronized(transcriptLock) { if (tag == null) replyBuffer.append(text) }
-            onEvent(RealtimeEvent.AssistantText(text, tag))
-        }
-        content["modelTurn"]?.jsonObject?.get("parts")?.jsonArray?.forEach { part ->
-            val inline = part.jsonObject["inlineData"]?.jsonObject ?: return@forEach
-            val data = inline["data"]?.jsonPrimitive?.contentOrNull ?: return@forEach
-            onEvent(RealtimeEvent.Audio(Base64.decode(data, Base64.NO_WRAP), tag))
+        if (!swallowing) {
+            content["inputTranscription"]?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull?.let { text ->
+                synchronized(transcriptLock) { if (tag == null) userBuffer.append(text) }
+                onEvent(RealtimeEvent.UserText(text, tag))
+            }
+            content["outputTranscription"]?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull?.let { text ->
+                synchronized(transcriptLock) { if (tag == null) replyBuffer.append(text) }
+                onEvent(RealtimeEvent.AssistantText(text, tag))
+            }
+            content["modelTurn"]?.jsonObject?.get("parts")?.jsonArray?.forEach { part ->
+                val inline = part.jsonObject["inlineData"]?.jsonObject ?: return@forEach
+                val data = inline["data"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                onEvent(RealtimeEvent.Audio(Base64.decode(data, Base64.NO_WRAP), tag))
+            }
         }
 
         if (content["turnComplete"]?.jsonPrimitive?.contentOrNull == "true") {
             awaitingTurn = false
             flushDialogue()
             cancels.boundary()
+            // 被打断那一轮的收尾：新的一句还没开始，界面不该当成说完。
+            if (interruptions.boundary()) return
             onEvent(RealtimeEvent.TurnComplete)
             if (rotatePending) rotate()
         }
@@ -533,6 +549,9 @@ class GeminiLiveSession(
 
         /** 取消之后的观察窗，够覆盖服务端一轮生成的往返时间。 */
         private const val CANCEL_WINDOW_MS = 1_500L
+
+        /** 打字打断之后等在跑那一轮收尾的窗口。实测打断在半秒内到齐，两秒足够宽。 */
+        private const val INTERRUPT_WINDOW_MS = 2_000L
 
         /** 握手看门狗：实测握手通常一秒内回 setupComplete，八秒还没回就是这条连接废了。 */
         private const val SetupTimeoutMs = 8_000L
