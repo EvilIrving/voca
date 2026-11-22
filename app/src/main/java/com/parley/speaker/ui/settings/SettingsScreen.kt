@@ -3,10 +3,10 @@ package com.parley.speaker.ui.settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -30,10 +31,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.toMutableStateList
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,7 +51,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.parley.speaker.data.analysis.AnalysisProbe
 import com.parley.speaker.data.analysis.TextEngineConfig
 import com.parley.speaker.data.analysis.TextModel
@@ -57,10 +61,15 @@ import com.parley.speaker.data.analysis.TextProvider
 import com.parley.speaker.data.analysis.TextProviderCatalog
 import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AppSettings
+import com.parley.speaker.domain.AssessorProvider
+import com.parley.speaker.domain.AssessorSettings
 import com.parley.speaker.domain.AuthKind
 import com.parley.speaker.domain.LinkStatus
+import com.parley.speaker.domain.LiveSettings
+import com.parley.speaker.domain.LiveVendor
 import com.parley.speaker.domain.ProviderLine
 import com.parley.speaker.ui.component.ParleyIconButton
+import com.parley.speaker.ui.component.Pressable
 import com.parley.speaker.ui.icon.FluentIcons
 import com.parley.speaker.ui.theme.Palette
 import com.parley.speaker.ui.theme.Radius
@@ -84,18 +93,22 @@ private val BackArrow: ImageVector = ImageVector.Builder(
     )
 }.build()
 
+/** 对话框是一张三百二十宽的纸面卡片，左右各留二十，与配置行的宽度对齐。 */
+private val DialogWidth = 320.dp
+
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
     providers: List<ProviderLine>,
+    textProviders: List<TextProvider>,
     report: String?,
     onDismiss: () -> Unit,
     onProbe: () -> Unit,
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+    onLoadModels: (String) -> Unit,
 ) {
     var editing by remember { mutableStateOf<String?>(null) }
-    var openMenu by remember { mutableStateOf<String?>(null) }
-    var openProvider by remember { mutableStateOf<String?>(settings.analysis.provider) }
+    var openModels by remember { mutableStateOf<String?>(null) }
     var probeStart by remember { mutableStateOf(0L) }
     var probeElapsed by remember { mutableStateOf<Long?>(null) }
     var probeVerdict by remember { mutableStateOf<String?>(null) }
@@ -140,39 +153,27 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             GroupCard(
                 label = "实时对话",
-                lines = providers.filter { it.group == "realtime" },
-                openMenu = openMenu,
-                settings = settings,
+                lines = providers.filter { it.group == RealtimeGroup },
                 onEdit = { editing = it },
-                onToggleMenu = { openMenu = if (openMenu == it) null else it },
-                onPickModel = { key, id ->
-                    onUpdate { it.withModel(key, id) }
-                    openMenu = null
-                },
             )
             Spacer(Modifier.height(18.dp))
             GroupCard(
                 label = "发音评测",
-                lines = providers.filter { it.group == "assessor" },
-                openMenu = openMenu,
-                settings = settings,
+                lines = providers.filter { it.group == AssessorGroup },
                 onEdit = { editing = it },
-                onToggleMenu = { openMenu = if (openMenu == it) null else it },
-                onPickModel = { key, id ->
-                    onUpdate { it.withModel(key, id) }
-                    openMenu = null
-                },
             )
             Spacer(Modifier.height(18.dp))
             AnalysisGroup(
-                settings = settings.analysis,
-                lines = providers.filter { it.group == "analysis" },
-                expanded = openProvider,
-                onExpand = { openProvider = if (openProvider == it) null else it },
-                onEdit = { editing = it },
-                onPickModel = { provider, model ->
-                    onUpdate { it.withAnalysisModel(provider, model.id) }
-                    openProvider = provider.id
+                analysis = settings.analysis,
+                providers = textProviders,
+                lines = providers.filter { it.group == AnalysisGroupKey },
+                open = openModels,
+                onOpen = { openModels = if (openModels == it) null else it },
+                onEdit = { editing = "$ProviderPrefix$it" },
+                onLoadModels = onLoadModels,
+                onPick = { provider, id ->
+                    onUpdate { current -> current.withAnalysisModel(provider, id) ?: current }
+                    openModels = null
                 },
             )
             Spacer(Modifier.height(18.dp))
@@ -195,101 +196,35 @@ fun SettingsScreen(
     }
 
     when (editing) {
-        "live" -> EditDialog(
-            title = "Gemini Live",
-            specs = listOf(
-                FieldSpec("密钥", settings.live.apiKey, secret = true),
-                FieldSpec("音色", settings.live.voice),
-            ),
-            onSave = { values ->
-                onUpdate {
-                    it.copy(live = it.live.copy(apiKey = values[0], voice = values[1]))
-                }
-                editing = null
-            },
-            onDismiss = { editing = null },
-        )
-
-        "azure" -> EditDialog(
-            title = "微软 Azure 语音评测",
-            specs = listOf(
-                FieldSpec("密钥", settings.assessor.azureKey, secret = true),
-                FieldSpec("区域", settings.assessor.azureRegion),
-            ),
-            onSave = { values ->
-                onUpdate {
-                    it.copy(assessor = it.assessor.copy(azureKey = values[0], azureRegion = values[1]))
-                }
-                editing = null
-            },
-            onDismiss = { editing = null },
-        )
-
-        "prompt" -> EditDialog(
-            title = "角色提示词",
-            specs = listOf(FieldSpec("提示词", settings.prompt, singleLine = false)),
-            onSave = { values ->
-                onUpdate { it.copy(prompt = values[0]) }
-                editing = null
-            },
-            onDismiss = { editing = null },
-        )
-
-        else -> {
-            val provider = editing
-                ?.takeIf { it.startsWith(ProviderPrefix) }
-                ?.removePrefix(ProviderPrefix)
-                ?.let { TextProviderCatalog.of(it) }
-            if (provider != null) {
-                val active = settings.analysis
-                // 密钥只存一份，给未启用的供应商开对话框时不能把当前那家的密钥预填进去。
-                val seed = if (active.provider == provider.id) {
-                    active
-                } else {
-                    active.copy(
-                        apiKey = "",
-                        endpoint = "",
-                        authKind = null,
-                        authName = "",
-                        authPrefix = "",
-                        model = provider.models.firstOrNull()?.id.orEmpty(),
-                    )
-                }
-                ProviderDialog(
-                    provider = provider,
-                    settings = seed,
-                    onSave = { values ->
-                        onUpdate {
-                            it.withAnalysisCredentials(
-                                provider = provider,
-                                apiKey = values.getValue("apiKey"),
-                                model = values["model"],
-                                endpoint = values.getValue("endpoint"),
-                                authKind = values["authKind"]?.let { name ->
-                                    AuthKind.entries.firstOrNull { it.name == name }
-                                },
-                                authName = values.getValue("name"),
-                                authPrefix = values.getValue("prefix"),
-                            )
-                        }
-                        openProvider = provider.id
-                        editing = null
-                    },
-                    onDismiss = { editing = null },
-                )
+        "gemini" -> LiveDialog(LiveVendor.Gemini, settings.live, onUpdate) { editing = null }
+        "openai" -> LiveDialog(LiveVendor.OpenAi, settings.live, onUpdate) { editing = null }
+        "doubao" -> LiveDialog(LiveVendor.Doubao, settings.live, onUpdate) { editing = null }
+        "azure" -> AzureDialog(settings.assessor, onUpdate) { editing = null }
+        "xfyun" -> XfyunDialog(settings.assessor, onUpdate) { editing = null }
+        "prompt" -> PromptDialog(settings.prompt, onUpdate) { editing = null }
+        else -> editing
+            ?.takeIf { it.startsWith(ProviderPrefix) }
+            ?.removePrefix(ProviderPrefix)
+            ?.let { TextProviderCatalog.of(it) }
+            ?.let { provider ->
+                ProviderDialog(provider, settings.analysis, onUpdate) { editing = null }
             }
-        }
     }
 }
 
 // 与 ChatViewModel 里探针在途时的 report 文案对齐，用来判定这一次自检何时落地。
 private const val ProbePending = "正在自检"
 
+/** ChatViewModel 给三组行填的 group 名，界面按同一份名字分组。 */
+private const val RealtimeGroup = "realtime"
+private const val AssessorGroup = "assessor"
+private const val AnalysisGroupKey = "analysis"
+
 @Composable
 private fun GroupLabel(text: String) {
     Text(
         text = text,
-        style = Type.caption.copy(color = Palette.ink3),
+        style = Type.captionInk3,
         modifier = Modifier.padding(bottom = 8.dp),
     )
 }
@@ -306,15 +241,7 @@ private fun GroupDivider() {
 }
 
 @Composable
-private fun GroupCard(
-    label: String,
-    lines: List<ProviderLine>,
-    openMenu: String?,
-    settings: AppSettings,
-    onEdit: (String) -> Unit,
-    onToggleMenu: (String) -> Unit,
-    onPickModel: (String, String) -> Unit,
-) {
+private fun GroupCard(label: String, lines: List<ProviderLine>, onEdit: (String) -> Unit) {
     GroupLabel(label)
     Surface(
         color = Palette.card,
@@ -325,35 +252,24 @@ private fun GroupCard(
         Column {
             lines.forEachIndexed { index, line ->
                 if (index > 0) GroupDivider()
-                ProviderRow(
-                    line = line,
-                    menu = modelMenu(line.key, settings),
-                    menuOpen = openMenu == line.key,
-                    onEdit = { onEdit(line.key) },
-                    onToggleMenu = { onToggleMenu(line.key) },
-                    onPick = { onPickModel(line.key, it) },
-                )
+                ProviderRow(line) { onEdit(line.key) }
             }
         }
     }
 }
 
+/** 一行一家：姓名、第二行读数、状态与状态点。整行都能点开去填凭据。 */
 @Composable
-private fun ProviderRow(
-    line: ProviderLine,
-    menu: ModelMenuSpec?,
-    menuOpen: Boolean,
-    onEdit: () -> Unit,
-    onToggleMenu: () -> Unit,
-    onPick: (String) -> Unit,
-) {
-    val linked = line.status == LinkStatus.Connected || line.status == LinkStatus.Configured
-    Box {
+private fun ProviderRow(line: ProviderLine, onClick: () -> Unit) {
+    Pressable(
+        modifier = Modifier.fillMaxWidth(),
+        enabled = line.editable,
+        onClick = onClick,
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(54.dp)
-                .clickable(enabled = line.editable, onClick = onEdit)
+                .height(ConfigRowHeight)
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -364,58 +280,39 @@ private fun ProviderRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = line.detail,
-                    style = Type.mono.copy(color = if (menuOpen) Palette.clayDeep else Palette.ink3),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (line.detail.isNotBlank()) {
+                    Text(
+                        text = line.detail,
+                        style = Type.mono,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Spacer(Modifier.width(Spacing.block))
             Text(line.status.label(), style = Type.caption.copy(color = line.status.tint()))
             Spacer(Modifier.width(10.dp))
-            StatusDot(linked)
-            if (menu != null) {
-                Spacer(Modifier.width(6.dp))
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onToggleMenu),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        FluentIcons.ChevRight,
-                        contentDescription = if (menuOpen) "收起模型" else "选择模型",
-                        modifier = Modifier
-                            .size(14.dp)
-                            .rotate(if (menuOpen) -90f else 90f),
-                        tint = if (menuOpen) Palette.clayDeep else Palette.ink4,
-                    )
-                }
-            }
-        }
-        if (menu != null && menuOpen) {
-            ModelMenu(menu = menu, onPick = onPick, onDismiss = onToggleMenu)
+            StatusDot(line.status.linked())
         }
     }
 }
 
+/** 已经没有行会产出未接入，显示分支只留实际会出现的四种。 */
 private fun LinkStatus.label(): String = when (this) {
     LinkStatus.Connected -> "已连通"
     LinkStatus.Configured -> "已配置"
-    LinkStatus.Unconfigured -> "未配置"
     LinkStatus.Failed -> "连接失败"
-    LinkStatus.NotSupported -> "未接入"
+    else -> "未配置"
 }
 
 private fun LinkStatus.tint(): Color = when (this) {
     LinkStatus.Connected -> Palette.olive
     LinkStatus.Configured -> Palette.ink2
-    LinkStatus.Unconfigured -> Palette.ink4
     LinkStatus.Failed -> Palette.danger
-    LinkStatus.NotSupported -> Palette.ink4
+    else -> Palette.ink4
 }
+
+private fun LinkStatus.linked(): Boolean = this == LinkStatus.Connected || this == LinkStatus.Configured
 
 @Composable
 private fun StatusDot(linked: Boolean) {
@@ -445,23 +342,23 @@ private fun PromptCard(prompt: String, onEdit: () -> Unit) {
         color = Palette.card,
         shape = RoundedCornerShape(Radius.card),
         border = BorderStroke(1.dp, Palette.hair),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onEdit),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Box(Modifier.padding(14.dp)) {
-            Text(
-                text = prompt,
-                style = Type.proseItalic,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(end = 76.dp),
-            )
-            Text(
-                text = "编辑提示词",
-                style = Type.uiStrong.copy(color = Palette.clayDeep),
-                modifier = Modifier.align(Alignment.TopEnd),
-            )
+        Pressable(modifier = Modifier.fillMaxWidth(), onClick = onEdit) {
+            Box(Modifier.padding(14.dp)) {
+                Text(
+                    text = prompt,
+                    style = Type.proseItalic,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(end = 76.dp),
+                )
+                Text(
+                    text = "编辑提示词",
+                    style = Type.uiStrongClay,
+                    modifier = Modifier.align(Alignment.TopEnd),
+                )
+            }
         }
     }
 }
@@ -480,18 +377,16 @@ private fun ProbeCard(
         color = Palette.card,
         shape = RoundedCornerShape(Radius.card),
         border = BorderStroke(1.dp, Palette.hair),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onProbe),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 54.dp)
-                .padding(horizontal = 14.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Pressable(modifier = Modifier.fillMaxWidth(), onClick = onProbe) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ConfigRowHeight)
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Icon(
                     FluentIcons.Plug,
                     contentDescription = null,
@@ -499,32 +394,27 @@ private fun ProbeCard(
                     tint = Palette.ink3,
                 )
                 Spacer(Modifier.width(Spacing.iconText))
-                Text("连接自检", style = Type.uiStrong, modifier = Modifier.weight(1f))
-                elapsed?.let {
-                    Text(formatElapsed(it), style = Type.mono)
-                    Spacer(Modifier.width(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("连接自检", style = Type.uiStrong, modifier = Modifier.weight(1f))
+                        elapsed?.let { Text(formatElapsed(it), style = Type.mono) }
+                    }
+                    shown?.let {
+                        Text(
+                            text = it,
+                            style = Type.captionInk3,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
+                Spacer(Modifier.width(6.dp))
                 Icon(
                     FluentIcons.ChevRight,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint = Palette.ink4,
                 )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(16.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                shown?.let {
-                    Text(
-                        text = it,
-                        style = Type.caption.copy(color = Palette.ink3),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
         }
     }
@@ -534,22 +424,12 @@ private fun formatElapsed(ms: Long): String = "%.1f 秒".format(ms / 1000f)
 
 private const val ProviderPrefix = "provider:"
 
-/** ChatViewModel 注入的两行沿用旧 key，把它对到目录 id 上。 */
+/** ChatViewModel 给文本分析那几行用的 key，Gemini 那条沿用旧名。 */
 private fun injectedKey(providerId: String): String =
     if (providerId == TextProviderCatalog.GeminiId) "analysis" else providerId
 
 private fun hostOf(provider: TextProvider): String =
     provider.endpoint.substringAfter("://").substringBefore('/').ifBlank { "未填写" }
-
-private fun statusOf(
-    provider: TextProvider,
-    settings: AnalysisSettings,
-    probe: Map<String, LinkStatus>,
-): LinkStatus = when {
-    settings.apiKey.isBlank() -> LinkStatus.Unconfigured
-    probe[injectedKey(provider.id)] == LinkStatus.Connected -> LinkStatus.Connected
-    else -> LinkStatus.Configured
-}
 
 /** 本地探针的结论：参数能不能拼成一次最小请求，一个字节都不发。 */
 private fun analysisVerdict(settings: AnalysisSettings): String {
@@ -586,52 +466,86 @@ private fun AuthKind.label(): String = when (this) {
 }
 
 /**
- * 文本分析组：供应商一级，模型一级。行内只留姓名、状态与真实参数。
+ * 文本分析的一行：第二行读数与状态。当前那家读模型，模型空着或不在清单里就写未选择；
+ * 其余几家读端点域名，密钥只存一份，它们本来就没清单可列。
  */
+internal data class AnalysisRow(val provider: TextProvider, val detail: String, val status: LinkStatus)
+
+/** 当前模型不在清单里时行内就这么写，点开挑一个才落定。 */
+internal const val Unpicked = "未选择，点开挑一个"
+
+internal fun analysisRow(
+    analysis: AnalysisSettings,
+    provider: TextProvider,
+    lines: List<ProviderLine>,
+): AnalysisRow {
+    val active = provider.id == analysis.provider
+    val detail = when {
+        !active -> hostOf(provider)
+        analysis.model.isBlank() || provider.models.none { it.id == analysis.model } -> Unpicked
+        else -> analysis.model
+    }
+    val status = lines.firstOrNull { it.key == injectedKey(provider.id) }?.status ?: LinkStatus.Unconfigured
+    return AnalysisRow(provider, detail, status)
+}
+
+/**
+ * 展开一行时该拉的清单。空表示这行不可展开：没有密钥，或者不是当前选中的那家。
+ * 界面按这一格决定要不要画箭头、要不要发请求，两处不各自判一次。
+ */
+internal fun modelsToLoad(analysis: AnalysisSettings, providerId: String): List<String> =
+    if (providerId == analysis.provider && analysis.apiKey.isNotBlank()) listOf(providerId) else emptyList()
+
+/** 模型下拉的候选只来自这一家拉到的清单，选中项不在清单里就一行都不勾。 */
+internal fun modelChoices(provider: TextProvider, analysis: AnalysisSettings): MenuSpec = MenuSpec(
+    options = provider.models.map { MenuOption(it.id, metaLine(it).ifBlank { null }) },
+    selected = if (provider.id == analysis.provider) analysis.model else "",
+)
+
 @Composable
 private fun AnalysisGroup(
-    settings: AnalysisSettings,
+    analysis: AnalysisSettings,
+    providers: List<TextProvider>,
     lines: List<ProviderLine>,
-    expanded: String?,
-    onExpand: (String) -> Unit,
+    open: String?,
+    onOpen: (String) -> Unit,
     onEdit: (String) -> Unit,
-    onPickModel: (TextProvider, TextModel) -> Unit,
+    onLoadModels: (String) -> Unit,
+    onPick: (TextProvider, String) -> Unit,
 ) {
-    val probe = lines.associate { it.key to it.status }
     GroupLabel("文本分析")
     Surface(
         color = Palette.card,
         shape = RoundedCornerShape(Radius.card),
         border = BorderStroke(1.dp, Palette.hair),
-        modifier = Modifier.fillMaxWidth(),
+        // 展开的模型清单要盖住后面的角色提示词与自检卡，靠 zIndex 把它整体抬到同层兄弟之上。
+        modifier = Modifier
+            .fillMaxWidth()
+            .zIndex(if (open != null) 1f else 0f),
     ) {
         Column {
-            TextProviderCatalog.all.forEachIndexed { index, provider ->
+            providers.forEachIndexed { index, provider ->
                 if (index > 0) GroupDivider()
-                val active = provider.id == settings.provider
-                Box {
+                val row = analysisRow(analysis, provider, lines)
+                val loadable = modelsToLoad(analysis, provider.id)
+                Box(Modifier.zIndex(if (open == provider.id) 1f else 0f)) {
                     SupplierRow(
-                        provider = provider,
-                        detail = if (active) settings.model.ifBlank { "未填模型" } else hostOf(provider),
-                        status = if (active) statusOf(provider, settings, probe) else null,
-                        expanded = expanded == provider.id,
-                        canExpand = provider.models.isNotEmpty(),
-                        onToggle = { onExpand(provider.id) },
-                        onEdit = { onEdit("$ProviderPrefix${provider.id}") },
+                        row = row,
+                        expanded = open == provider.id,
+                        expandable = loadable.isNotEmpty(),
+                        // 展开先拉一次清单，缓存命中的先上屏，再拿密钥刷一次。
+                        onToggle = {
+                            if (open != provider.id) loadable.forEach(onLoadModels)
+                            onOpen(provider.id)
+                        },
+                        onEdit = { onEdit(provider.id) },
                     )
-                    // 模型清单跟实时对话那组共用同一个 320 宽浮层，压在后续行之上，不把分组撑高。
-                    if (expanded == provider.id) {
+                    // 模型清单是压在行上的三百二十宽浮层，不把分组撑高。
+                    if (open == provider.id && loadable.isNotEmpty()) {
                         ModelMenu(
-                            menu = ModelMenuSpec(
-                                options = provider.models.map { model ->
-                                    ModelOption(model.id, metaLine(model).ifBlank { null })
-                                },
-                                selected = if (active) settings.model else "",
-                            ),
-                            onPick = { id ->
-                                provider.models.firstOrNull { it.id == id }?.let { onPickModel(provider, it) }
-                            },
-                            onDismiss = { onExpand(provider.id) },
+                            spec = modelChoices(provider, analysis),
+                            onPick = { onPick(provider, it) },
+                            onDismiss = { onOpen(provider.id) },
                         )
                     }
                 }
@@ -642,121 +556,108 @@ private fun AnalysisGroup(
 
 @Composable
 private fun SupplierRow(
-    provider: TextProvider,
-    detail: String,
-    status: LinkStatus?,
+    row: AnalysisRow,
     expanded: Boolean,
-    canExpand: Boolean,
+    expandable: Boolean,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .clickable(onClick = onEdit)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = provider.label,
-                style = Type.uiStrong,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = detail,
-                style = Type.mono.copy(color = if (expanded) Palette.clayDeep else Palette.ink3),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        status?.let {
-            Spacer(Modifier.width(Spacing.block))
-            Text(it.label(), style = Type.caption.copy(color = it.tint()))
-            Spacer(Modifier.width(10.dp))
-            StatusDot(it == LinkStatus.Connected || it == LinkStatus.Configured)
-        }
-        if (canExpand) {
-            Spacer(Modifier.width(6.dp))
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onToggle),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    FluentIcons.ChevRight,
-                    contentDescription = if (expanded) "收起模型" else "选择模型",
-                    modifier = Modifier
-                        .size(14.dp)
-                        .rotate(if (expanded) -90f else 90f),
-                    tint = if (expanded) Palette.clayDeep else Palette.ink4,
+    Pressable(modifier = Modifier.fillMaxWidth(), onClick = onEdit) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(ConfigRowHeight)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = row.provider.label,
+                    style = Type.uiStrong,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    text = row.detail,
+                    style = Type.mono.copy(color = if (expanded) Palette.clayDeep else Palette.ink3),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(Spacing.block))
+            Text(row.status.label(), style = Type.caption.copy(color = row.status.tint()))
+            Spacer(Modifier.width(10.dp))
+            StatusDot(row.status.linked())
+            if (expandable) {
+                Spacer(Modifier.width(6.dp))
+                Pressable(
+                    modifier = Modifier.size(24.dp),
+                    shape = CircleShape,
+                    onClick = onToggle,
+                ) {
+                    Icon(
+                        FluentIcons.ChevRight,
+                        contentDescription = if (expanded) "收起模型" else "选择模型",
+                        modifier = Modifier
+                            .size(14.dp)
+                            .rotate(if (expanded) -90f else 90f),
+                        tint = if (expanded) Palette.clayDeep else Palette.ink4,
+                    )
+                }
             }
         }
     }
 }
 
+/** 对话框的统一外壳：纸白面板、标题、内容，底部一颗保存。 */
 @Composable
-private fun ProviderDialog(
-    provider: TextProvider,
-    settings: AnalysisSettings,
-    onSave: (Map<String, String>) -> Unit,
+private fun SettingsDialog(
+    title: String,
+    onSave: () -> Unit,
     onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
-    var kind by remember(provider.id) {
-        mutableStateOf(settings.authKind ?: provider.auth.kind)
-    }
-    val drafts = remember(provider.id) {
-        listOf(
-            "endpoint" to settings.endpoint,
-            "model" to settings.model,
-            "apiKey" to settings.apiKey,
-            "name" to settings.authName.ifBlank { provider.auth.name },
-            "prefix" to settings.authPrefix.ifBlank { provider.auth.prefix },
-        ).associate { (key, value) -> key to mutableStateOf(value) }
-    }
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            color = Palette.card,
-            shape = RoundedCornerShape(Radius.sheet),
-            modifier = Modifier.fillMaxWidth(),
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.screen),
+            contentAlignment = Alignment.Center,
         ) {
-            Column(Modifier.padding(20.dp)) {
-                Text(provider.label, style = Type.display)
-                Spacer(Modifier.height(16.dp))
-                if (provider.custom) {
-                    AuthKindChips(kind) { kind = it }
-                    Spacer(Modifier.height(12.dp))
-                }
-                fieldsOf(provider, kind).forEach { field ->
-                    val state = drafts.getValue(field.key)
-                    EditField(
-                        label = field.label,
-                        value = state.value,
-                        secret = field.secret,
-                        singleLine = true,
-                        onChange = { state.value = it },
-                    )
-                    Spacer(Modifier.height(12.dp))
-                }
-                Spacer(Modifier.height(8.dp))
-                Surface(
-                    color = Palette.clay,
-                    shape = RoundedCornerShape(Radius.pill),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onSave(
-                                drafts.mapValues { (_, state) -> state.value } + ("authKind" to kind.name),
-                            )
-                        },
+            Surface(
+                color = Palette.card,
+                shape = RoundedCornerShape(Radius.sheet),
+                modifier = Modifier
+                    .widthIn(max = DialogWidth)
+                    .fillMaxWidth(),
+            ) {
+                Column(
+                    Modifier
+                        .heightIn(max = 560.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp),
                 ) {
-                    Box(Modifier.padding(vertical = 13.dp), contentAlignment = Alignment.Center) {
-                        Text("保存", style = Type.uiStrong.copy(color = Color.White))
+                    Text(title, style = Type.display)
+                    Spacer(Modifier.height(16.dp))
+                    content()
+                    Spacer(Modifier.height(8.dp))
+                    Pressable(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(Radius.pill),
+                        resting = Palette.clay,
+                        onClick = onSave,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(OptionRowHeight),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("保存", style = Type.uiStrongOnDark)
+                        }
                     }
                 }
             }
@@ -764,19 +665,243 @@ private fun ProviderDialog(
     }
 }
 
-private data class DialogField(val key: String, val label: String, val secret: Boolean = false)
+@Composable
+private fun rememberDrafts(seed: Map<String, String>): SnapshotStateMap<String, String> =
+    remember(seed) { mutableStateMapOf<String, String>().apply { putAll(seed) } }
 
-private fun fieldsOf(provider: TextProvider, kind: AuthKind): List<DialogField> = buildList {
-    if (provider.custom) {
-        add(DialogField("endpoint", "端点"))
-        add(DialogField("model", "模型"))
+/**
+ * 实时对话一家一个对话框：只摆这一家的凭据，音色从这一家的静态目录里挑，
+ * 不接受手打。模型与音色换家后落到那家的默认值，由存储器归位。
+ */
+@Composable
+private fun LiveDialog(
+    vendor: LiveVendor,
+    live: LiveSettings,
+    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val fields = remember(vendor, live) { liveFields(live, vendor) }
+    val drafts = rememberDrafts(fields.associate { it.key to it.value })
+    var voice by remember(vendor, live) { mutableStateOf(currentVoice(live, vendor)) }
+    var voiceOpen by remember { mutableStateOf(false) }
+    SettingsDialog(
+        title = vendor.label,
+        onSave = {
+            onUpdate { it.liveSaved(vendor, drafts, voice) }
+            onDismiss()
+        },
+        onDismiss = onDismiss,
+    ) {
+        fields.forEach { field ->
+            EditField(
+                label = field.label,
+                value = drafts[field.key].orEmpty(),
+                secret = field.secret,
+                singleLine = true,
+            ) { drafts[field.key] = it }
+            Spacer(Modifier.height(12.dp))
+        }
+        Text("音色", style = Type.captionInk3)
+        Spacer(Modifier.height(6.dp))
+        Box {
+            Pressable(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(Radius.control),
+                resting = Palette.tint,
+                onClick = { voiceOpen = !voiceOpen },
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(OptionRowHeight)
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                        Text(
+                            text = voice,
+                            style = Type.uiStrong,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        voiceStyle(vendor, voice)?.let {
+                            Text(
+                                text = it,
+                                style = Type.clock,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Icon(
+                        FluentIcons.ChevRight,
+                        contentDescription = if (voiceOpen) "收起音色" else "选择音色",
+                        modifier = Modifier
+                            .size(14.dp)
+                            .rotate(if (voiceOpen) -90f else 90f),
+                        tint = if (voiceOpen) Palette.clayDeep else Palette.ink4,
+                    )
+                }
+            }
+            if (voiceOpen) {
+                ModelMenu(
+                    spec = voiceMenu(vendor, voice),
+                    onPick = {
+                        voice = it
+                        voiceOpen = false
+                    },
+                    onDismiss = { voiceOpen = false },
+                )
+            }
+        }
     }
-    add(DialogField("apiKey", "密钥", secret = true))
-    if (provider.custom && kind != AuthKind.Bearer) {
-        add(DialogField("name", if (kind == AuthKind.Header) "请求头" else "查询参数"))
+}
+
+@Composable
+private fun AzureDialog(
+    assessor: AssessorSettings,
+    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val drafts = rememberDrafts(mapOf("key" to assessor.azureKey, "region" to assessor.azureRegion))
+    SettingsDialog(
+        title = AssessorProvider.Azure.label,
+        onSave = {
+            onUpdate {
+                it.copy(assessor = it.assessor.withAzure(drafts.getValue("key"), drafts.getValue("region")))
+            }
+            onDismiss()
+        },
+        onDismiss = onDismiss,
+    ) {
+        EditField("密钥", drafts.getValue("key"), secret = true, singleLine = true) { drafts["key"] = it }
+        Spacer(Modifier.height(12.dp))
+        EditField("区域", drafts.getValue("region"), secret = false, singleLine = true) { drafts["region"] = it }
+        Spacer(Modifier.height(12.dp))
     }
-    if (provider.custom && kind == AuthKind.Header) {
-        add(DialogField("prefix", "前缀"))
+}
+
+@Composable
+private fun XfyunDialog(
+    assessor: AssessorSettings,
+    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val drafts = rememberDrafts(
+        mapOf(
+            "appId" to assessor.xfyunAppId,
+            "apiKey" to assessor.xfyunApiKey,
+            "apiSecret" to assessor.xfyunApiSecret,
+        ),
+    )
+    SettingsDialog(
+        title = AssessorProvider.Xfyun.label,
+        onSave = {
+            onUpdate {
+                it.copy(
+                    assessor = it.assessor.withXfyun(
+                        appId = drafts.getValue("appId"),
+                        apiKey = drafts.getValue("apiKey"),
+                        apiSecret = drafts.getValue("apiSecret"),
+                    ),
+                )
+            }
+            onDismiss()
+        },
+        onDismiss = onDismiss,
+    ) {
+        EditField("AppID", drafts.getValue("appId"), secret = false, singleLine = true) { drafts["appId"] = it }
+        Spacer(Modifier.height(12.dp))
+        EditField("APIKey", drafts.getValue("apiKey"), secret = true, singleLine = true) { drafts["apiKey"] = it }
+        Spacer(Modifier.height(12.dp))
+        EditField("APISecret", drafts.getValue("apiSecret"), secret = true, singleLine = true) { drafts["apiSecret"] = it }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun PromptDialog(
+    prompt: String,
+    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember(prompt) { mutableStateOf(prompt) }
+    SettingsDialog(
+        title = "角色提示词",
+        onSave = {
+            onUpdate { it.copy(prompt = text) }
+            onDismiss()
+        },
+        onDismiss = onDismiss,
+    ) {
+        EditField("提示词", text, secret = false, singleLine = false) { text = it }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+/** 目录里的供应商只填密钥，自定义端点还要填端点、模型与鉴权落点。 */
+@Composable
+private fun ProviderDialog(
+    provider: TextProvider,
+    analysis: AnalysisSettings,
+    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val active = analysis.provider == provider.id
+    // 密钥只存一份，给未启用的供应商开对话框时不能把当前那家的密钥预填进去。
+    val drafts = rememberDrafts(
+        remember(provider.id, analysis) {
+            mapOf(
+                "apiKey" to if (active) analysis.apiKey else "",
+                "endpoint" to if (active) analysis.endpoint else "",
+                "model" to if (active) analysis.model else "",
+                "name" to (if (active) analysis.authName else "").ifBlank { provider.auth.name },
+                "prefix" to (if (active) analysis.authPrefix else "").ifBlank { provider.auth.prefix },
+            )
+        },
+    )
+    var kind by remember(provider.id) { mutableStateOf((if (active) analysis.authKind else null) ?: provider.auth.kind) }
+    SettingsDialog(
+        title = provider.label,
+        onSave = {
+            onUpdate {
+                it.withAnalysisCredentials(
+                    provider = provider,
+                    apiKey = drafts.getValue("apiKey"),
+                    model = drafts.getValue("model"),
+                    endpoint = drafts.getValue("endpoint"),
+                    authKind = kind,
+                    authName = drafts.getValue("name"),
+                    authPrefix = drafts.getValue("prefix"),
+                )
+            }
+            onDismiss()
+        },
+        onDismiss = onDismiss,
+    ) {
+        if (provider.custom) {
+            EditField("端点", drafts.getValue("endpoint"), secret = false, singleLine = true) { drafts["endpoint"] = it }
+            Spacer(Modifier.height(12.dp))
+            EditField("模型", drafts.getValue("model"), secret = false, singleLine = true) { drafts["model"] = it }
+            Spacer(Modifier.height(12.dp))
+            AuthKindChips(kind) { kind = it }
+            Spacer(Modifier.height(12.dp))
+        }
+        EditField("密钥", drafts.getValue("apiKey"), secret = true, singleLine = true) { drafts["apiKey"] = it }
+        Spacer(Modifier.height(12.dp))
+        if (provider.custom && kind != AuthKind.Bearer) {
+            EditField(
+                label = if (kind == AuthKind.Header) "请求头" else "查询参数",
+                value = drafts.getValue("name"),
+                secret = false,
+                singleLine = true,
+            ) { drafts["name"] = it }
+            Spacer(Modifier.height(12.dp))
+        }
+        if (provider.custom && kind == AuthKind.Header) {
+            EditField("前缀", drafts.getValue("prefix"), secret = false, singleLine = true) { drafts["prefix"] = it }
+            Spacer(Modifier.height(12.dp))
+        }
     }
 }
 
@@ -785,67 +910,16 @@ private fun AuthKindChips(selected: AuthKind, onPick: (AuthKind) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         AuthKind.entries.forEach { kind ->
             val on = kind == selected
-            Surface(
-                color = if (on) Palette.clayTint else Palette.tint,
+            Pressable(
                 shape = RoundedCornerShape(Radius.chip),
-                modifier = Modifier.clickable { onPick(kind) },
+                resting = if (on) Palette.clayTint else Palette.tint,
+                onClick = { onPick(kind) },
             ) {
                 Box(Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
                     Text(
                         text = kind.label(),
                         style = Type.caption.copy(color = if (on) Palette.clayDeep else Palette.ink3),
                     )
-                }
-            }
-        }
-    }
-}
-
-private data class FieldSpec(
-    val label: String,
-    val value: String,
-    val secret: Boolean = false,
-    val singleLine: Boolean = true,
-)
-
-@Composable
-private fun EditDialog(
-    title: String,
-    specs: List<FieldSpec>,
-    onSave: (List<String>) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val drafts = remember(specs) { specs.map { it.value }.toMutableStateList() }
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            color = Palette.card,
-            shape = RoundedCornerShape(Radius.sheet),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(20.dp)) {
-                Text(title, style = Type.display)
-                Spacer(Modifier.height(16.dp))
-                specs.forEachIndexed { index, spec ->
-                    EditField(
-                        label = spec.label,
-                        value = drafts[index],
-                        secret = spec.secret,
-                        singleLine = spec.singleLine,
-                        onChange = { drafts[index] = it },
-                    )
-                    Spacer(Modifier.height(12.dp))
-                }
-                Spacer(Modifier.height(8.dp))
-                Surface(
-                    color = Palette.clay,
-                    shape = RoundedCornerShape(Radius.pill),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSave(drafts.toList()) },
-                ) {
-                    Box(Modifier.padding(vertical = 13.dp), contentAlignment = Alignment.Center) {
-                        Text("保存", style = Type.uiStrong.copy(color = Color.White))
-                    }
                 }
             }
         }
@@ -861,7 +935,7 @@ private fun EditField(
     onChange: (String) -> Unit,
 ) {
     Column {
-        Text(label, style = Type.caption.copy(color = Palette.ink3))
+        Text(label, style = Type.captionInk3)
         Spacer(Modifier.height(6.dp))
         Surface(
             color = Palette.tint,
@@ -872,11 +946,11 @@ private fun EditField(
                 value = value,
                 onValueChange = onChange,
                 singleLine = singleLine,
-                textStyle = Type.ui.copy(color = Palette.ink),
+                textStyle = Type.uiInk,
                 visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = if (singleLine) 44.dp else 120.dp)
+                    .heightIn(min = if (singleLine) OptionRowHeight else 120.dp)
                     .padding(horizontal = 12.dp, vertical = 12.dp),
             )
         }

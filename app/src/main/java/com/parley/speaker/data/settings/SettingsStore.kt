@@ -11,7 +11,10 @@ import com.parley.speaker.domain.AppSettings
 import com.parley.speaker.domain.AssessorProvider
 import com.parley.speaker.domain.AssessorSettings
 import com.parley.speaker.domain.AuthKind
+import com.parley.speaker.domain.LiveDefaults
 import com.parley.speaker.domain.LiveSettings
+import com.parley.speaker.domain.LiveVendor
+import com.parley.speaker.domain.VoiceCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,10 +36,12 @@ class SettingsStore(context: Context) {
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     private fun defaults(): AppSettings = AppSettings(
-        live = LiveSettings(
-            apiKey = BuildConfig.DEV_GEMINI_API_KEY,
-            model = BuildConfig.DEV_GEMINI_LIVE_MODEL,
-            voice = BuildConfig.DEV_GEMINI_VOICE,
+        live = settled(
+            LiveSettings(
+                geminiKey = BuildConfig.DEV_GEMINI_API_KEY,
+                model = BuildConfig.DEV_GEMINI_LIVE_MODEL,
+                voice = BuildConfig.DEV_GEMINI_VOICE,
+            ),
         ),
         analysis = AnalysisSettings(
             apiKey = BuildConfig.DEV_GEMINI_API_KEY,
@@ -54,11 +59,7 @@ class SettingsStore(context: Context) {
             return initial
         }
         return AppSettings(
-            live = LiveSettings(
-                apiKey = prefs.getString(KEY_LIVE_KEY, "") ?: "",
-                model = prefs.getString(KEY_LIVE_MODEL, "") ?: BuildConfig.DEV_GEMINI_LIVE_MODEL,
-                voice = prefs.getString(KEY_LIVE_VOICE, "") ?: BuildConfig.DEV_GEMINI_VOICE,
-            ),
+            live = readLive(prefs),
             analysis = AnalysisSettings(
                 apiKey = prefs.getString(KEY_ANALYSIS_KEY, "") ?: "",
                 model = prefs.getString(KEY_ANALYSIS_MODEL, "") ?: BuildConfig.DEV_GEMINI_TEXT_MODEL,
@@ -70,22 +71,14 @@ class SettingsStore(context: Context) {
                 authPrefix = prefs.getString(KEY_ANALYSIS_AUTH_PREFIX, "") ?: "",
                 thinking = prefs.getBoolean(KEY_ANALYSIS_THINKING, false),
             ),
-            assessor = AssessorSettings(
-                provider = prefs.getString(KEY_ASSESSOR_PROVIDER, null)
-                    ?.let { name -> AssessorProvider.entries.firstOrNull { it.name == name } }
-                    ?: AssessorProvider.None,
-                azureKey = prefs.getString(KEY_AZURE_KEY, "") ?: "",
-                azureRegion = prefs.getString(KEY_AZURE_REGION, "") ?: "",
-            ),
+            assessor = readAssessor(prefs),
             prompt = prefs.getString(KEY_PROMPT, null) ?: SeedContent.DefaultPrompt,
         )
     }
 
     private fun write(settings: AppSettings) {
         prefs.edit()
-            .putString(KEY_LIVE_KEY, settings.live.apiKey)
-            .putString(KEY_LIVE_MODEL, settings.live.model)
-            .putString(KEY_LIVE_VOICE, settings.live.voice)
+            .putLive(settings.live)
             .putString(KEY_ANALYSIS_KEY, settings.analysis.apiKey)
             .putString(KEY_ANALYSIS_MODEL, settings.analysis.model)
             .putString(KEY_ANALYSIS_PROVIDER, settings.analysis.provider)
@@ -94,15 +87,18 @@ class SettingsStore(context: Context) {
             .putString(KEY_ANALYSIS_AUTH_NAME, settings.analysis.authName)
             .putString(KEY_ANALYSIS_AUTH_PREFIX, settings.analysis.authPrefix)
             .putBoolean(KEY_ANALYSIS_THINKING, settings.analysis.thinking)
-            .putString(KEY_ASSESSOR_PROVIDER, settings.assessor.provider.name)
-            .putString(KEY_AZURE_KEY, settings.assessor.azureKey)
-            .putString(KEY_AZURE_REGION, settings.assessor.azureRegion)
+            .putAssessor(settings.assessor)
             .putString(KEY_PROMPT, settings.prompt)
             .apply()
     }
 
+    // 存储器里的 provider 是推导后的值，内存里那份也按同一规则归位，免得重启前后看到两家不同的状态。
+    // 实时对话那组同规矩：换了供应商就落到那家的默认模型与音色，音色不在目录里拉回默认。
     fun update(transform: (AppSettings) -> AppSettings) {
-        val next = transform(_settings.value)
+        val before = _settings.value
+        val next = transform(before)
+            .let { it.copy(assessor = it.assessor.copy(provider = it.assessor.resolvedProvider)) }
+            .let { it.copy(live = normalizedLive(before.live, it.live)) }
         write(next)
         _settings.value = next
     }
@@ -110,9 +106,6 @@ class SettingsStore(context: Context) {
     private companion object {
         const val FILE_NAME = "parley_secure"
         const val KEY_SEEDED = "seeded"
-        const val KEY_LIVE_KEY = "live_api_key"
-        const val KEY_LIVE_MODEL = "live_model"
-        const val KEY_LIVE_VOICE = "live_voice"
         const val KEY_ANALYSIS_KEY = "analysis_api_key"
         const val KEY_ANALYSIS_MODEL = "analysis_model"
         const val KEY_ANALYSIS_PROVIDER = "analysis_provider"
@@ -121,9 +114,86 @@ class SettingsStore(context: Context) {
         const val KEY_ANALYSIS_AUTH_NAME = "analysis_auth_name"
         const val KEY_ANALYSIS_AUTH_PREFIX = "analysis_auth_prefix"
         const val KEY_ANALYSIS_THINKING = "analysis_thinking"
-        const val KEY_ASSESSOR_PROVIDER = "assessor_provider"
-        const val KEY_AZURE_KEY = "azure_key"
-        const val KEY_AZURE_REGION = "azure_region"
         const val KEY_PROMPT = "prompt"
     }
 }
+
+private const val KEY_ASSESSOR_PROVIDER = "assessor_provider"
+private const val KEY_AZURE_KEY = "azure_key"
+private const val KEY_AZURE_REGION = "azure_region"
+private const val KEY_XFYUN_APP_ID = "xfyun_app_id"
+private const val KEY_XFYUN_API_KEY = "xfyun_api_key"
+private const val KEY_XFYUN_API_SECRET = "xfyun_api_secret"
+
+/** 凭据齐备算启用，显式存下来的 provider 在参数齐备时优先。 */
+internal fun readAssessor(prefs: SharedPreferences): AssessorSettings {
+    val stored = prefs.getString(KEY_ASSESSOR_PROVIDER, null)
+        ?.let { name -> AssessorProvider.entries.firstOrNull { it.name == name } }
+    val settings = AssessorSettings(
+        provider = stored ?: AssessorProvider.None,
+        azureKey = prefs.getString(KEY_AZURE_KEY, "").orEmpty(),
+        azureRegion = prefs.getString(KEY_AZURE_REGION, "").orEmpty(),
+        xfyunAppId = prefs.getString(KEY_XFYUN_APP_ID, "").orEmpty(),
+        xfyunApiKey = prefs.getString(KEY_XFYUN_API_KEY, "").orEmpty(),
+        xfyunApiSecret = prefs.getString(KEY_XFYUN_API_SECRET, "").orEmpty(),
+    )
+    return settings.copy(provider = settings.resolvedProvider)
+}
+
+internal fun SharedPreferences.Editor.putAssessor(settings: AssessorSettings): SharedPreferences.Editor =
+    putString(KEY_ASSESSOR_PROVIDER, settings.resolvedProvider.name)
+        .putString(KEY_AZURE_KEY, settings.azureKey)
+        .putString(KEY_AZURE_REGION, settings.azureRegion)
+        .putString(KEY_XFYUN_APP_ID, settings.xfyunAppId)
+        .putString(KEY_XFYUN_API_KEY, settings.xfyunApiKey)
+        .putString(KEY_XFYUN_API_SECRET, settings.xfyunApiSecret)
+
+private const val KEY_LIVE_PROVIDER = "live_provider"
+
+/** 旧版本只有这一把密钥，读出来当 Gemini 的密钥，已经填过的人不必重填。 */
+private const val KEY_LIVE_KEY = "live_api_key"
+private const val KEY_LIVE_OPENAI_KEY = "live_openai_key"
+private const val KEY_LIVE_DOUBAO_APP_ID = "live_doubao_app_id"
+private const val KEY_LIVE_DOUBAO_APP_KEY = "live_doubao_app_key"
+private const val KEY_LIVE_DOUBAO_ACCESS_KEY = "live_doubao_access_key"
+private const val KEY_LIVE_MODEL = "live_model"
+private const val KEY_LIVE_VOICE = "live_voice"
+
+internal fun readLive(prefs: SharedPreferences): LiveSettings {
+    val provider = prefs.getString(KEY_LIVE_PROVIDER, null)
+        ?.let { name -> LiveVendor.entries.firstOrNull { it.name == name } }
+        ?: LiveVendor.Gemini
+    return settled(
+        LiveSettings(
+            provider = provider,
+            geminiKey = prefs.getString(KEY_LIVE_KEY, "").orEmpty(),
+            openAiKey = prefs.getString(KEY_LIVE_OPENAI_KEY, "").orEmpty(),
+            doubaoAppId = prefs.getString(KEY_LIVE_DOUBAO_APP_ID, "").orEmpty(),
+            doubaoAppKey = prefs.getString(KEY_LIVE_DOUBAO_APP_KEY, "").orEmpty(),
+            doubaoAccessKey = prefs.getString(KEY_LIVE_DOUBAO_ACCESS_KEY, "").orEmpty(),
+            model = prefs.getString(KEY_LIVE_MODEL, "").orEmpty(),
+            voice = prefs.getString(KEY_LIVE_VOICE, "").orEmpty(),
+        ),
+    )
+}
+
+internal fun SharedPreferences.Editor.putLive(live: LiveSettings): SharedPreferences.Editor =
+    putString(KEY_LIVE_PROVIDER, live.provider.name)
+        .putString(KEY_LIVE_KEY, live.geminiKey)
+        .putString(KEY_LIVE_OPENAI_KEY, live.openAiKey)
+        .putString(KEY_LIVE_DOUBAO_APP_ID, live.doubaoAppId)
+        .putString(KEY_LIVE_DOUBAO_APP_KEY, live.doubaoAppKey)
+        .putString(KEY_LIVE_DOUBAO_ACCESS_KEY, live.doubaoAccessKey)
+        .putString(KEY_LIVE_MODEL, live.model)
+        .putString(KEY_LIVE_VOICE, live.voice)
+
+/** 音色必须落在这一家的目录里，不在就拉回默认；模型空着取该家的默认值。 */
+internal fun settled(live: LiveSettings): LiveSettings = live.copy(
+    model = live.model.ifBlank { LiveDefaults.model(live.provider) },
+    voice = live.voice.takeIf { VoiceCatalog.isKnown(live.provider, it) }
+        ?: LiveDefaults.voice(live.provider),
+)
+
+/** 换到另一家时模型与音色整体落到那家的默认值，再按目录归位。 */
+internal fun normalizedLive(before: LiveSettings, after: LiveSettings): LiveSettings =
+    settled(if (before.provider == after.provider) after else after.copy(model = "", voice = ""))
