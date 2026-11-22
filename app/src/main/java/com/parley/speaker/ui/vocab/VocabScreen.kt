@@ -179,33 +179,44 @@ private fun VocabRow(card: VocabCard, onSpeak: (VocabCard) -> Unit) {
         border = BorderStroke(1.dp, Palette.hairSoft),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = card.word,
-                    style = Type.prose.copy(fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.Medium),
-                    modifier = Modifier.weight(1f),
-                )
+                Row(Modifier.weight(1f)) {
+                    Text(
+                        text = card.word,
+                        style = Type.prose.copy(fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.Medium),
+                        modifier = Modifier.alignByBaseline(),
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        text = card.phonetic,
+                        style = Type.mono.copy(fontSize = 10.5.sp, lineHeight = 14.sp),
+                        modifier = Modifier.alignByBaseline(),
+                    )
+                }
                 SpeakButton { onSpeak(card) }
             }
-            Spacer(Modifier.height(2.dp))
-            Text(card.phonetic, style = Type.mono.copy(fontSize = 10.5.sp, lineHeight = 14.sp))
+            Spacer(Modifier.height(3.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = card.meaning,
+                    style = Type.ui.copy(fontSize = 11.5.sp, lineHeight = 16.sp),
+                    modifier = Modifier.weight(1f),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    card.tags().forEach { tag ->
+                        when (tag.kind) {
+                            VocabTagKind.Type -> Tag(tag.text, Palette.clayTint, Palette.clayDeep)
+                            VocabTagKind.Repeats -> Tag(tag.text, Palette.oliveTint, Palette.olive)
+                        }
+                    }
+                }
+            }
             Spacer(Modifier.height(6.dp))
-            Text(card.meaning, style = Type.ui.copy(fontSize = 11.5.sp, lineHeight = 16.sp))
-            Spacer(Modifier.height(8.dp))
             Text(
                 text = highlighted(card.example, card.highlight),
                 style = Type.prose.copy(fontSize = 13.5.sp, lineHeight = 20.sp, fontStyle = FontStyle.Italic),
             )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                card.tags().forEach { tag ->
-                    when (tag.kind) {
-                        VocabTagKind.Type -> Tag(tag.text, Palette.clayTint, Palette.clayDeep)
-                        VocabTagKind.Repeats -> Tag(tag.text, Palette.oliveTint, Palette.olive)
-                    }
-                }
-            }
         }
     }
 }
@@ -215,7 +226,6 @@ private fun SpeakButton(onClick: () -> Unit) {
     Pressable(
         modifier = Modifier.size(32.dp),
         shape = RoundedCornerShape(Radius.chip),
-        resting = Palette.tint,
         onClick = onClick,
     ) {
         Icon(FluentIcons.Speaker, "朗读", modifier = Modifier.size(16.dp), tint = Palette.ink2)
