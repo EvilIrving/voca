@@ -203,6 +203,7 @@ press() {
 # 长按手势必须拆成 DOWN/UP 两次事件，中间才能真正停留。
 mic_down() { A shell input motionevent DOWN 540 2256 >/dev/null; }
 mic_up() { A shell input motionevent UP 540 2256 >/dev/null; }
+mic_move() { A shell input motionevent MOVE "$1" "$2" >/dev/null; }
 mic_cancel() { A shell input swipe 540 2256 540 1900 "${1:-400}" >/dev/null; }
 
 # 探针：读应用自己写的采集状态，绕开被 ROM 屏蔽的 logcat
@@ -356,6 +357,7 @@ case "${1:-state}" in
   record)         simulate_record "${2:-2500}" ;;
   mic-down)       mic_down; echo "已按下录音" ;;
   mic-up)         mic_up; wait_ready 1.0; echo "已松手"; state ;;
+  mic-move)       mic_move "$2" "$3"; echo "已移动到 ($2, $3)" ;;
   mic-cancel)     mic_cancel "${2:-400}"; wait_ready 1.2; state ;;
   capture)        capture_state ;;
   record-cancel)  simulate_record_cancel ;;
