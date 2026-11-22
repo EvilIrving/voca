@@ -100,7 +100,10 @@ struct RootView<VM: ParleySession>: View {
                 VocabScreen(
                     cards: vm.vocab,
                     onDismiss: { panel = .none },
-                    onSpeak: vm.speakCard)
+                    onSpeak: vm.speakCard,
+                    onDelete: vm.deleteVocab,
+                    onRestore: vm.restoreVocab
+                )
                 .transition(.move(edge: .bottom))
             }
 
