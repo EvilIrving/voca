@@ -10,6 +10,7 @@ struct SettingsScreen: View {
     var settings: AppSettings
     var providers: [ProviderLine]
     var textProviders: [TextProvider]
+    var checkIn: CheckInWeeks
     var report: String?
     var defaultPrompt: String
     var onDismiss: @MainActor () -> Void
@@ -39,6 +40,7 @@ struct SettingsScreen: View {
                     groupCard(label: "实时对话", lines: providers.filter { $0.group == realtimeGroup })
                     groupCard(label: "发音评测", lines: providers.filter { $0.group == assessorGroup })
                     analysisGroup
+                    checkInGroup
                     groupLabel("系统提示词")
                     promptCard
                     probeCard
@@ -218,6 +220,16 @@ struct SettingsScreen: View {
             }
             .padding(.horizontal, 14)
             .frame(height: configRowHeight)
+        }
+    }
+
+    /// 打卡热力图：一列一周、一行一个日子，行首是周一；左边十个宽的周标只标一三五，
+    /// 上面一行月份只在跨月那一列起字。格宽由可用宽度除出来，点中某一格就把底下那行
+    /// 换成那天的日期与分钟，并在格上套一圈墨色细边。
+    private var checkInGroup: some View {
+        VStack(alignment: .leading) {
+            groupLabel("打卡统计")
+            CheckInCard(stats: checkIn)
         }
     }
 
@@ -469,5 +481,76 @@ private func editField(label: String, text: Binding<String>, secret: Bool) -> so
         .padding(.vertical, 12)
         .frame(minHeight: optionRowHeight)
         .background(Palette.tint, in: RoundedRectangle(cornerRadius: Radius.control))
+    }
+}
+/// 打卡卡片：月份行、周标列与格区走同一张 LazyVGrid，格宽随可用宽度走，不再自己算高度。
+private struct CheckInCard: View {
+    var stats: CheckInWeeks
+
+    @State private var picked: [Int]?
+
+    private let axisWidth: CGFloat = 10
+    private let gap: CGFloat = 3
+    private let weekdays: [Int: String] = [0: "一", 2: "三", 4: "五"]
+
+    private var columns: [GridItem] {
+        [GridItem(.fixed(axisWidth), spacing: gap, alignment: .trailing)]
+            + Array(repeating: GridItem(.flexible(), spacing: gap, alignment: .leading), count: CheckInWeeks.columns)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: columns, spacing: gap) {
+                ForEach(0...(CheckInWeeks.rows), id: \.self) { line in
+                    ForEach(0...(CheckInWeeks.columns), id: \.self) { slot in
+                        if slot == 0 {
+                            Text(weekdays[line - 1] ?? "")
+                                .font(Type.mono(8.5))
+                                .foregroundStyle(Palette.ink4)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        } else if line == 0 {
+                            Text(monthLabel(column: slot - 1))
+                                .font(Type.mono(8.5))
+                                .foregroundStyle(Palette.ink4)
+                                .fixedSize()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            cellShape(column: slot - 1, row: line - 1)
+                        }
+                    }
+                }
+            }
+            Text(pickedText)
+                .font(Type.clock)
+                .foregroundStyle(picked == nil ? Palette.ink4 : Palette.ink2)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Palette.hairSoft, lineWidth: 1))
+    }
+
+    private func monthLabel(column: Int) -> String {
+        stats.monthLabels().first(where: { $0.column == column })?.label ?? ""
+    }
+
+    private func cellShape(column: Int, row: Int) -> some View {
+        let day = stats.weeks[column][row]
+        let on = picked == [column, row]
+        return RoundedRectangle(cornerRadius: 2)
+            .fill(Palette.heat[day.level.rawValue])
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                if on {
+                    RoundedRectangle(cornerRadius: 3).stroke(Palette.ink, lineWidth: 1).padding(-1)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { picked = on ? nil : [column, row] }
+    }
+
+    private var pickedText: String {
+        guard let picked else { return stats.summary }
+        return stats.weeks[picked[0]][picked[1]].readout
     }
 }

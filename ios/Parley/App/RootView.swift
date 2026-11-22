@@ -106,6 +106,7 @@ struct RootView<VM: ParleySession>: View {
                     settings: vm.settings,
                     providers: vm.providers,
                     textProviders: vm.textProviders,
+                    checkIn: vm.checkIn,
                     report: vm.report,
                     defaultPrompt: vm.defaultPrompt,
                     onDismiss: { panel = .none },
@@ -121,6 +122,10 @@ struct RootView<VM: ParleySession>: View {
         .background(Palette.paper)
         .onChange(of: drawerShown) { _, shown in
             if shown { vm.dismissNotice(); vm.loadSessions() }
+        }
+        .onChange(of: panel) { _, shown in
+            // 设置页里的打卡热力图读收段记录，和抽屉用的是同一份加载。
+            if shown == .settings { vm.loadSessions() }
         }
         .onChange(of: vm.state.notice) { _, notice in
             guard notice != nil else { return }

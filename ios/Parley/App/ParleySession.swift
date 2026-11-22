@@ -7,6 +7,7 @@ protocol ParleySession: AnyObject, ObservableObject {
     var meter: VoiceMeter { get }
     var vocab: [VocabCard] { get }
     var sessions: [SessionRecord] { get }
+    var checkIn: CheckInWeeks { get }
     var settings: AppSettings { get }
     var providers: [ProviderLine] { get }
     var textProviders: [TextProvider] { get }
@@ -47,6 +48,7 @@ final class PreviewParleySession: ParleySession {
     let meter = VoiceMeter()
     @Published var vocab: [VocabCard] = []
     @Published var sessions: [SessionRecord] = []
+    @Published var checkIn = checkInWeeks(sessions: [], now: 0)
     @Published var settings = AppSettings()
     @Published var providers: [ProviderLine] = []
     @Published var textProviders: [TextProvider] = TextProviderCatalog.all

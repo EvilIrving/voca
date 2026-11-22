@@ -21,6 +21,15 @@ enum Palette {
     static let olive = Color(hex: 0x75855A)
     static let oliveTint = Color(hex: 0xEEF1E5)
 
+    /// 打卡热力五档，按 CheckInLevel 的序取：空、一到四分钟、五到十四分钟、十五到二十九分钟、三十分钟以上。
+    static let heat: [Color] = [
+        Color(hex: 0xF0EEE6),
+        Color(hex: 0xF8E7E1),
+        Color(hex: 0xF0C9BC),
+        Color(hex: 0xE6A792),
+        Color(hex: 0xD97757),
+    ]
+
     static let danger = Color(hex: 0xA8503C)
     static let shade = Color(red: 58 / 255, green: 47 / 255, blue: 38 / 255, opacity: 0.13)
 }

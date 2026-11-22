@@ -13,6 +13,8 @@ struct TurnRow {
     var saved: Bool
     var translation: String?
     var sessionId: String?
+    /// 这一轮话筒录了多久：打卡按真实录音长度算，老库没有这一列时补零。
+    var durationMs: Int64
 }
 
 struct VocabRow {
@@ -84,6 +86,7 @@ enum ParleyMigrations {
             case 4: try migrate4to5(db)
             case 5: try migrate5to6(db)
             case 6: try migrate6to7(db)
+            case 7: try migrate7to8(db)
             default:
                 throw NSError(domain: "ParleyDatabase", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unknown version \(version)"])
             }
@@ -186,6 +189,11 @@ enum ParleyMigrations {
         try execSQL(db, "ALTER TABLE vocab_new RENAME TO vocab")
     }
 
+    /// 七到八：每一轮记下录音长度。老库补零，等于那几轮没有可测的音频，不计进打卡。
+    private static func migrate7to8(_ db: OpaquePointer) throws {
+        try execSQL(db, "ALTER TABLE turn ADD COLUMN durationMs INTEGER NOT NULL DEFAULT 0")
+    }
+
     private static func migrate6to7(_ db: OpaquePointer) throws {
         try execSQL(
             db,
@@ -204,7 +212,7 @@ enum ParleyMigrations {
 
 actor ParleyDatabase {
     static let fileName = "parley.db"
-    static let schemaVersion = 7
+    static let schemaVersion = 8
 
     nonisolated(unsafe) private var db: OpaquePointer?
 
@@ -273,7 +281,7 @@ actor ParleyDatabase {
         try run(
             sql,
             row.id, row.speaker, row.text, row.reviewJson, row.createdAt,
-            row.audioPath, row.saved ? 1 : 0, row.translation, row.sessionId
+            row.audioPath, row.saved ? 1 : 0, row.translation, row.sessionId, row.durationMs
         )
         return sqlite3_total_changes(db) > changesBefore
     }
@@ -285,15 +293,17 @@ actor ParleyDatabase {
         reviewJson: String?,
         audioPath: String?,
         translation: String?,
-        sessionId: String?
+        sessionId: String?,
+        durationMs: Int64
     ) throws {
         try run(
             """
             UPDATE turn SET speaker = ?, text = ?, reviewJson = ?,
             audioPath = COALESCE(?, audioPath), translation = COALESCE(?, translation),
-            sessionId = COALESCE(?, sessionId) WHERE id = ?
+            sessionId = COALESCE(?, sessionId),
+            durationMs = CASE WHEN ? > 0 THEN ? ELSE durationMs END WHERE id = ?
             """,
-            speaker, text, reviewJson, audioPath, translation, sessionId, id
+            speaker, text, reviewJson, audioPath, translation, sessionId, durationMs, durationMs, id
         )
     }
 
@@ -320,7 +330,8 @@ actor ParleyDatabase {
                 audioPath: columnOptionalText(stmt, 5),
                 saved: sqlite3_column_int(stmt, 6) != 0,
                 translation: columnOptionalText(stmt, 7),
-                sessionId: columnOptionalText(stmt, 8)
+                sessionId: columnOptionalText(stmt, 8),
+                durationMs: columnInt64(stmt, 9)
             )
         }
     }

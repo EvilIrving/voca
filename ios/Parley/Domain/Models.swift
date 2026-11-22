@@ -73,6 +73,8 @@ struct Turn: Codable, Hashable, Identifiable {
     var saved: Bool = false
     var translation: String? = nil
     var sessionId: String? = nil
+    /// 这一轮话筒录了多久。打卡按录音本身算，3 秒的录音就是 3 秒。
+    var durationMs: Int64 = 0
 }
 
 struct VocabCard: Codable, Hashable, Identifiable {

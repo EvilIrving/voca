@@ -81,6 +81,7 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
         vocabPage(vocab, startOfLocalDay(System.currentTimeMillis()), VocabFilter.Today).counts.today
     }
     val sessions by vm.sessions.collectAsStateWithLifecycle()
+    val checkIn by vm.checkIn.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val providers by vm.providers.collectAsStateWithLifecycle()
     val textProviders by vm.textProviders.collectAsStateWithLifecycle()
@@ -102,6 +103,11 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
             vm.dismissNotice()
             vm.loadSessions()
         }
+    }
+
+    LaunchedEffect(panel) {
+        // 设置页里的打卡热力图读收段记录，和抽屉用的是同一份加载。
+        if (panel == Panel.Settings) vm.loadSessions()
     }
 
     // 授权弹窗会吃掉当前这次按压，手指抬起事件不会回来。授权后只提示，等下一次真实按压再收音。
@@ -224,6 +230,7 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
                 settings = settings,
                 providers = providers,
                 textProviders = textProviders,
+                checkIn = checkIn,
                 report = report,
                 defaultPrompt = vm.defaultPrompt,
                 onDismiss = { panel = Panel.None },

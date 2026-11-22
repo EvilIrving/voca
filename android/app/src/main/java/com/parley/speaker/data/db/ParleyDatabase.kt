@@ -23,6 +23,8 @@ data class TurnRow(
     @ColumnInfo(defaultValue = "0") val saved: Boolean = false,
     val translation: String? = null,
     val sessionId: String? = null,
+    // 这一轮话筒录了多久：打卡按真实录音长度算，老库没有这一列时补零。
+    @ColumnInfo(defaultValue = "0") val durationMs: Long = 0,
 )
 
 @Entity(tableName = "vocab")
@@ -70,6 +72,9 @@ data class MemoryRow(
     val updatedAt: Long,
 )
 
+/** 打卡热力图要的三个字段：这一轮属于哪段会话、落在什么时刻、那段录音有多长。 */
+data class TurnPractice(val sessionId: String, val createdAt: Long, val durationMs: Long)
+
 @Dao
 interface TurnDao {
     @Query("SELECT * FROM turn ORDER BY createdAt ASC")
@@ -80,6 +85,14 @@ interface TurnDao {
 
     @Query("SELECT * FROM turn WHERE sessionId = :sessionId ORDER BY createdAt ASC")
     suspend fun bySession(sessionId: String): List<TurnRow>
+
+    // 打卡只认自己说过的那些轮次：助手的下行音频不算，打字的那一轮没有录音，长度记零。
+    @Query(
+        "SELECT sessionId, createdAt, durationMs FROM turn " +
+            "WHERE speaker = 'User' AND sessionId IS NOT NULL AND sessionId != '' AND createdAt >= :since " +
+            "ORDER BY createdAt ASC",
+    )
+    suspend fun practiceTurnsSince(since: Long): List<TurnPractice>
 
     @Query(
         "UPDATE turn SET sessionId = :sessionId " +
@@ -94,7 +107,8 @@ interface TurnDao {
     @Query(
         "UPDATE turn SET speaker = :speaker, text = :text, reviewJson = :reviewJson, " +
             "audioPath = COALESCE(:audioPath, audioPath), translation = COALESCE(:translation, translation), " +
-            "sessionId = COALESCE(:sessionId, sessionId) " +
+            "sessionId = COALESCE(:sessionId, sessionId), " +
+            "durationMs = CASE WHEN :durationMs > 0 THEN :durationMs ELSE durationMs END " +
             "WHERE id = :id",
     )
     suspend fun update(
@@ -105,6 +119,7 @@ interface TurnDao {
         audioPath: String?,
         translation: String?,
         sessionId: String?,
+        durationMs: Long,
     )
 
     @Query("UPDATE turn SET saved = :saved WHERE id = :id")
@@ -293,6 +308,13 @@ interface MemoryDao {
     suspend fun put(row: MemoryRow)
 }
 
+/** 七到八：每一轮记下录音长度。老库补零，等于那几轮没有可测的音频，不计进打卡。 */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE turn ADD COLUMN durationMs INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 /** 六到七：全局记忆单独一张表，旧库只补一张空表，会话与生词原样带过来。 */
 val MIGRATION_6_7 = object : Migration(6, 7) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -315,7 +337,7 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
  */
 @Database(
     entities = [TurnRow::class, VocabRow::class, SessionRow::class, ModelCatalogRow::class, MemoryRow::class],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class ParleyDatabase : RoomDatabase() {

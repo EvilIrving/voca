@@ -1,10 +1,13 @@
 package com.parley.speaker.ui.settings
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -14,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -40,13 +44,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,10 +74,14 @@ import com.parley.speaker.domain.AppSettings
 import com.parley.speaker.domain.AssessorProvider
 import com.parley.speaker.domain.AssessorSettings
 import com.parley.speaker.domain.AuthKind
+import com.parley.speaker.domain.CheckInWeeks
 import com.parley.speaker.domain.LinkStatus
 import com.parley.speaker.domain.LiveSettings
 import com.parley.speaker.domain.LiveVendor
 import com.parley.speaker.domain.ProviderLine
+import com.parley.speaker.domain.monthLabels
+import com.parley.speaker.domain.readout
+import com.parley.speaker.domain.summary
 import com.parley.speaker.ui.component.ParleyIconButton
 import com.parley.speaker.ui.component.Pressable
 import com.parley.speaker.ui.icon.FluentIcons
@@ -101,6 +115,7 @@ fun SettingsScreen(
     settings: AppSettings,
     providers: List<ProviderLine>,
     textProviders: List<TextProvider>,
+    checkIn: CheckInWeeks,
     report: String?,
     defaultPrompt: String,
     onDismiss: () -> Unit,
@@ -177,6 +192,9 @@ fun SettingsScreen(
                     openModels = null
                 },
             )
+            Spacer(Modifier.height(18.dp))
+            GroupLabel("打卡统计")
+            CheckInCard(checkIn)
             Spacer(Modifier.height(18.dp))
             GroupLabel("系统提示词")
             PromptCard(prompt = settings.prompt, onEdit = { editing = "prompt" })
@@ -258,6 +276,105 @@ private fun GroupCard(label: String, lines: List<ProviderLine>, onEdit: (String)
         }
     }
 }
+
+/**
+ * 打卡热力图：一列一周、一行一个日子，行首是周一；左边一列十个宽的周标只标一三五，
+ * 上面一行月份只在跨月那一列起字。格宽由卡片可用宽度除出来，182 个方块在一个 Canvas 里画完；
+ * 点中某一格就把底下那行换成那天的日期与分钟，并在格上套一圈墨色细边。
+ */
+@Composable
+private fun CheckInCard(stats: CheckInWeeks) {
+    var picked by remember(stats) { mutableStateOf<Pair<Int, Int>?>(null) }
+    Surface(
+        color = Palette.card,
+        shape = RoundedCornerShape(Radius.card),
+        border = BorderStroke(1.dp, Palette.hairSoft),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val axisWidth = 10.dp
+                val gap = 3.dp
+                val cell = (maxWidth - axisWidth - gap * CheckInWeeks.Columns) / CheckInWeeks.Columns
+                val pitch = cell + gap
+                Column {
+                    Box(Modifier.fillMaxWidth().height(12.dp)) {
+                        stats.monthLabels().forEach { entry ->
+                            Text(
+                                text = entry.label,
+                                style = Type.heatAxis,
+                                maxLines = 1,
+                                modifier = Modifier.offset(x = axisWidth + gap + pitch * entry.column),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    Row {
+                        Box(Modifier.width(axisWidth).height(cell * CheckInWeeks.Rows + gap * (CheckInWeeks.Rows - 1))) {
+                            CheckInWeekdays.forEach { (row, label) ->
+                                Text(
+                                    text = label,
+                                    style = Type.heatAxis,
+                                    maxLines = 1,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.width(axisWidth).offset(y = pitch * row - 1.dp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(gap))
+                        Canvas(
+                            Modifier
+                                .width(cell * CheckInWeeks.Columns + gap * (CheckInWeeks.Columns - 1))
+                                .height(cell * CheckInWeeks.Rows + gap * (CheckInWeeks.Rows - 1))
+                                .pointerInput(stats) {
+                                    detectTapGestures { at ->
+                                        val step = (cell + gap).toPx()
+                                        val column = (at.x / step).toInt()
+                                        val row = (at.y / step).toInt()
+                                        if (column in 0 until CheckInWeeks.Columns && row in 0 until CheckInWeeks.Rows) {
+                                            picked = if (picked == column to row) null else column to row
+                                        }
+                                    }
+                                },
+                        ) {
+                            val step = (cell + gap).toPx()
+                            val side = cell.toPx()
+                            val corner = CornerRadius(2.dp.toPx())
+                            stats.weeks.forEachIndexed { column, days ->
+                                days.forEachIndexed { row, day ->
+                                    drawRoundRect(
+                                        color = Palette.heat[day.level.ordinal],
+                                        topLeft = Offset(column * step, row * step),
+                                        size = Size(side, side),
+                                        cornerRadius = corner,
+                                    )
+                                }
+                            }
+                            picked?.let { (column, row) ->
+                                val ring = 1.dp.toPx()
+                                drawRoundRect(
+                                    color = Palette.ink,
+                                    topLeft = Offset(column * step - ring, row * step - ring),
+                                    size = Size(side + ring * 2, side + ring * 2),
+                                    cornerRadius = CornerRadius(3.dp.toPx()),
+                                    style = Stroke(width = ring),
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = picked?.let { (column, row) -> stats.weeks[column][row].readout() } ?: stats.summary(),
+                        style = Type.clock.copy(color = if (picked != null) Palette.ink2 else Palette.ink4),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 周标只标一、三、五三行，七行都写反而更读不出来。 */
+private val CheckInWeekdays = listOf(0 to "一", 2 to "三", 4 to "五")
 
 /** 一行一家：姓名、第二行读数、状态与状态点。整行都能点开去填凭据。 */
 @Composable

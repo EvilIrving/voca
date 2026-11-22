@@ -7,12 +7,15 @@ import com.parley.speaker.data.db.MIGRATION_3_4
 import com.parley.speaker.data.db.MIGRATION_4_5
 import com.parley.speaker.data.db.MIGRATION_5_6
 import com.parley.speaker.data.db.MIGRATION_6_7
+import com.parley.speaker.data.db.MIGRATION_7_8
 import com.parley.speaker.data.db.MemoryRow
 import com.parley.speaker.data.db.ParleyDatabase
 import com.parley.speaker.data.db.SessionRow
 import com.parley.speaker.data.db.TurnRow
 import com.parley.speaker.data.db.VocabRow
 import com.parley.speaker.domain.AnalysisStatus
+import com.parley.speaker.domain.PracticeSession
+import com.parley.speaker.domain.SpokenTurn
 import com.parley.speaker.domain.Review
 import com.parley.speaker.domain.Speaker
 import com.parley.speaker.domain.Turn
@@ -28,7 +31,7 @@ import kotlinx.serialization.json.Json
 class SessionStore(context: Context) {
 
     private val db = Room.databaseBuilder(context, ParleyDatabase::class.java, "parley.db")
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
         .build()
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -53,6 +56,7 @@ class SessionStore(context: Context) {
             audioPath = turn.audioPath,
             translation = turn.translation,
             sessionId = turn.sessionId,
+            durationMs = turn.durationMs,
         )
         db.turns().insertIfAbsent(row)
         db.turns().update(
@@ -63,6 +67,7 @@ class SessionStore(context: Context) {
             row.audioPath,
             row.translation,
             row.sessionId,
+            row.durationMs,
         )
     }
 
@@ -82,6 +87,7 @@ class SessionStore(context: Context) {
             audioPath = row.audioPath,
             translation = row.translation,
             sessionId = row.sessionId,
+            durationMs = row.durationMs,
         )
         return true
     }
@@ -169,6 +175,15 @@ class SessionStore(context: Context) {
         return db.sessions().byId(id)?.toRecord() ?: row.toRecord()
     }
 
+    /**
+     * 打卡热力图读的那份流水：窗口内的每段会话，连同其中每一轮自己说过的录音长度。
+     * 间隔怎么并成块在 domain 的 practiceBlocks 里，存储层只把料备齐。
+     */
+    suspend fun practiceSessions(since: Long): List<PracticeSession> =
+        db.turns().practiceTurnsSince(since)
+            .groupBy({ it.sessionId }, { SpokenTurn(it.createdAt, it.durationMs) })
+            .map { (_, turns) -> PracticeSession(turns) }
+
     suspend fun loadSessions(now: Long = System.currentTimeMillis()): List<SessionGroup> =
         db.sessions().all().map { it.toRecord() }.groupedByDay(now)
 
@@ -205,6 +220,7 @@ class SessionStore(context: Context) {
             saved = saved,
             translation = translation,
             sessionId = sessionId,
+            durationMs = durationMs,
         )
     }
 

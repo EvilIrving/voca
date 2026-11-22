@@ -38,7 +38,8 @@ actor SessionStore {
             audioPath: turn.audioPath,
             saved: turn.saved,
             translation: turn.translation,
-            sessionId: turn.sessionId
+            sessionId: turn.sessionId,
+            durationMs: turn.durationMs
         )
         _ = try await db.insertTurnIfAbsent(row)
         try await db.updateTurn(
@@ -48,7 +49,8 @@ actor SessionStore {
             reviewJson: row.reviewJson,
             audioPath: row.audioPath,
             translation: row.translation,
-            sessionId: row.sessionId
+            sessionId: row.sessionId,
+            durationMs: row.durationMs
         )
     }
 
@@ -67,7 +69,8 @@ actor SessionStore {
             reviewJson: reviewJson,
             audioPath: row.audioPath,
             translation: row.translation,
-            sessionId: row.sessionId
+            sessionId: row.sessionId,
+            durationMs: row.durationMs
         )
         return true
     }
@@ -168,6 +171,18 @@ actor SessionStore {
             return toRecord(saved)
         }
         return toRecord(row)
+    }
+
+    /// 打卡热力图读的那份流水：窗口内的每一轮自己说过的录音，按会话分好组。
+    /// 间隔怎么算在 domain 的 practiceBlocks 里，存储层只把料备齐。
+    func practiceSessions(since: Int64) async throws -> [PracticeSession] {
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        var bySession: [String: [SpokenTurn]] = [:]
+        for row in try await db.turnsBetween(since: since, until: now) {
+            guard row.speaker == Speaker.user.dbName, let id = row.sessionId, !id.isEmpty else { continue }
+            bySession[id, default: []].append(SpokenTurn(endedAt: row.createdAt, durationMs: row.durationMs))
+        }
+        return bySession.map { PracticeSession(turns: $0.value) }
     }
 
     func loadSessions(now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) async throws -> [SessionGroup] {

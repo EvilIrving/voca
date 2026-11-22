@@ -27,6 +27,15 @@ object Palette {
     val olive = Color(0xFF75855A)
     val oliveTint = Color(0xFFEEF1E5)
 
+    /** 打卡热力五档，按 [CheckInLevel] 的序取：空、一到四分钟、五到十四分钟、十五到二十九分钟、三十分钟以上。 */
+    val heat = listOf(
+        Color(0xFFF0EEE6),
+        Color(0xFFF8E7E1),
+        Color(0xFFF0C9BC),
+        Color(0xFFE6A792),
+        Color(0xFFD97757),
+    )
+
     val danger = Color(0xFFA8503C)
 
     /** 浮层唯一那层暖影：陶土偏褐的低透明度，纯黑会在羊皮纸上压出一道灰边。 */
