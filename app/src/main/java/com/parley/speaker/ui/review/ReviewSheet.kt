@@ -2,8 +2,6 @@ package com.parley.speaker.ui.review
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +18,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,7 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.parley.speaker.domain.Register
 import com.parley.speaker.domain.Turn
+import com.parley.speaker.ui.component.FloatingPanel
 import com.parley.speaker.ui.component.ParleyIconButton
+import com.parley.speaker.ui.component.Pressable
 import com.parley.speaker.ui.component.SectionLabel
 import com.parley.speaker.ui.component.SheetHandle
 import com.parley.speaker.ui.component.SoftCard
@@ -44,6 +43,9 @@ import com.parley.speaker.ui.theme.Palette
 import com.parley.speaker.ui.theme.Radius
 import com.parley.speaker.ui.theme.Spacing
 import com.parley.speaker.ui.theme.Type
+
+/** 抽屉外面那层遮罩：十八百分比的黑，压暗纸面但不吞掉下面的字。 */
+private val Scrim = Color(0x2E141413)
 
 @Composable
 fun ReviewSheet(
@@ -59,14 +61,14 @@ fun ReviewSheet(
     val rewrite = review.rewrites.firstOrNull { it.register == register } ?: review.rewrites.firstOrNull()
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0x2E141413))
-                .clickable(onClick = onDismiss),
-        )
-        Surface(
-            color = Palette.card,
+        // 遮罩只接住划过纸面外的点击，底色保持不变，也没有按压反馈。
+        Pressable(
+            modifier = Modifier.fillMaxSize(),
+            resting = Scrim,
+            pressing = Scrim,
+            onClick = onDismiss,
+        ) {}
+        FloatingPanel(
             shape = RoundedCornerShape(topStart = Radius.sheet, topEnd = Radius.sheet),
             modifier = Modifier
                 .fillMaxWidth()
@@ -142,14 +144,19 @@ fun ReviewSheet(
                             Text(rewrite.gloss, style = Type.caption)
                             Spacer(Modifier.height(10.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.block)) {
-                                Icon(
-                                    FluentIcons.Speaker,
-                                    contentDescription = "朗读改写",
-                                    modifier = Modifier
-                                        .size(18.dp)
-                                        .clickable { onSpeak(rewrite.text) },
-                                    tint = Palette.ink3,
-                                )
+                                // 朗读键压在 tint 的改写卡上，底色的台阶在这里落到 hair，按下才看得出来。
+                                Pressable(
+                                    modifier = Modifier.size(18.dp),
+                                    pressing = Palette.hair,
+                                    onClick = { onSpeak(rewrite.text) },
+                                ) {
+                                    Icon(
+                                        FluentIcons.Speaker,
+                                        contentDescription = "朗读改写",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = Palette.ink3,
+                                    )
+                                }
                             }
                         }
                     }
@@ -179,12 +186,11 @@ fun ReviewSheet(
 
 @Composable
 private fun PlayDot(onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .border(1.dp, Palette.hairStrong, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+    Pressable(
+        modifier = Modifier.size(32.dp),
+        shape = CircleShape,
+        border = BorderStroke(1.dp, Palette.hairStrong),
+        onClick = onClick,
     ) {
         Icon(
             FluentIcons.Play,
@@ -246,11 +252,11 @@ private fun ScoreColumn(
 
 @Composable
 private fun RegisterTab(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        color = if (selected) Palette.clay else Palette.card,
+    Pressable(
         shape = RoundedCornerShape(Radius.pill),
+        resting = if (selected) Palette.clay else Palette.card,
         border = if (selected) null else BorderStroke(1.dp, Palette.hair),
-        modifier = Modifier.clickable { onClick() },
+        onClick = onClick,
     ) {
         Text(
             text = label,
@@ -267,11 +273,12 @@ private fun OutlinedAction(
     modifier: Modifier = Modifier,
     primary: Boolean = false,
 ) {
-    Surface(
-        color = if (primary) Palette.clay else Palette.card,
+    Pressable(
+        modifier = modifier,
         shape = RoundedCornerShape(Radius.pill),
+        resting = if (primary) Palette.clay else Palette.card,
         border = if (primary) null else BorderStroke(1.dp, Palette.hair),
-        modifier = modifier.clickable { onClick() },
+        onClick = onClick,
     ) {
         Row(
             modifier = Modifier

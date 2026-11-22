@@ -19,10 +19,19 @@ object Palette {
     val clayDeep = Color(0xFFB85B3C)
     val clayTint = Color(0xFFF7ECE5)
 
+    /** 陶土浅底再深一档：已选中的那格按下去用它，与 tint 转 hair 是同一段台阶。 */
+    val clayTintPressed = Color(0xFFF2E1D6)
+
     val olive = Color(0xFF75855A)
     val oliveTint = Color(0xFFEEF1E5)
 
     val danger = Color(0xFFA8503C)
+
+    /** 连接中：顶栏状态点做透明度呼吸，只剩这一处用得上。 */
+    val amber = Color(0xFFC08A2E)
+
+    /** 浮层唯一那层暖影：陶土偏褐的低透明度，纯黑会在羊皮纸上压出一道灰边。 */
+    val shade = Color(0x223A2F26)
 }
 
 object Radius {
@@ -34,6 +43,7 @@ object Radius {
     val bubble = 18.dp
     val sheet = 26.dp
     val pill = 999.dp
+    val drawerRow = 10.dp
 }
 
 object Spacing {
@@ -45,5 +55,6 @@ object Spacing {
     val block = 12.dp
     val bubble = 18.dp
     val screen = 20.dp
+    val drawer = 18.dp
     val sheet = 24.dp
 }

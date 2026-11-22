@@ -1,6 +1,7 @@
 package com.parley.speaker.data
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /**
@@ -25,20 +26,28 @@ data class SessionGroup(
 )
 
 const val TodayLabel = "今天"
+const val WeekLabel = "7天内"
 const val EarlierLabel = "更早"
 
 /** 用本地时区的当日零点切分，而不是回溯固定小时数，换时区或跨夏令时都能分进正确的分组。 */
-internal fun startOfLocalDay(now: Long): Long {
+internal fun startOfLocalDay(now: Long): Long = atStartOfDay(Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate())
+
+private fun atStartOfDay(date: LocalDate): Long {
     val zone = ZoneId.systemDefault()
-    return Instant.ofEpochMilli(now).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+    return date.atStartOfDay(zone).toInstant().toEpochMilli()
 }
 
+/** 三段切分：今天、前六天、更早。同段内保持传进来的顺序，排序由存储层决定，这里不再动。 */
 internal fun List<SessionRecord>.groupedByDay(now: Long): List<SessionGroup> {
-    val today = startOfLocalDay(now)
-    val fresh = filter { it.startedAt >= today }
-    val older = filter { it.startedAt < today }
+    val today = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate()
+    val todayStart = atStartOfDay(today)
+    val weekStart = atStartOfDay(today.minusDays(6))
+    val fresh = filter { it.startedAt >= todayStart }
+    val week = filter { it.startedAt >= weekStart && it.startedAt < todayStart }
+    val older = filter { it.startedAt < weekStart }
     return buildList {
         if (fresh.isNotEmpty()) add(SessionGroup(TodayLabel, fresh))
+        if (week.isNotEmpty()) add(SessionGroup(WeekLabel, week))
         if (older.isNotEmpty()) add(SessionGroup(EarlierLabel, older))
     }
 }

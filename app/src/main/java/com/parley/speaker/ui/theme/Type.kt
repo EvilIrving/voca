@@ -1,6 +1,7 @@
 package com.parley.speaker.ui.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -73,6 +74,22 @@ object Type {
     )
     val monoLarge = mono.copy(fontSize = 26.sp, lineHeight = 30.sp, color = Palette.ink)
     val monoScore = mono.copy(fontSize = 15.sp, lineHeight = 18.sp, color = Palette.ink2)
+
+    // 界面上反复出现的颜色与字号组合在这里定成常量：组合期不再逐处 copy 新建 TextStyle。
+    val captionInk3 = caption.copy(color = Palette.ink3)
+    val captionInk4 = caption.copy(color = Palette.ink4)
+    val captionClay = caption.copy(color = Palette.clayDeep)
+    val uiInk = ui.copy(color = Palette.ink)
+    val uiInk3 = ui.copy(color = Palette.ink3)
+    val uiInk4 = ui.copy(color = Palette.ink4)
+    val uiStrongClay = uiStrong.copy(color = Palette.clayDeep)
+    val uiStrongInk2 = uiStrong.copy(color = Palette.ink2)
+    val uiStrongDanger = uiStrong.copy(color = Palette.danger)
+    val uiStrongOnDark = uiStrong.copy(color = Color.White)
+    val clock = mono.copy(fontSize = 10.5.sp, lineHeight = 14.sp)
+    val translation = ui.copy(fontSize = 12.5.sp, lineHeight = 19.sp, color = Palette.ink3)
+    val translationTight = ui.copy(fontSize = 12.5.sp, lineHeight = 18.sp, color = Palette.ink3)
+    val badge = ui.copy(fontSize = 11.5.sp, lineHeight = 16.sp)
 }
 
 val ParleyTypography = Typography(

@@ -203,7 +203,7 @@ object TurnFlow {
                     effects += TurnEffect.StopCapture
                     effects += TurnEffect.CancelTurn(phase.userTurnId)
                     effects += TurnEffect.Delete(phase.userTurnId)
-                    effects += TurnEffect.Notify("麦克风不可用")
+                    effects += TurnEffect.Notify("麦克风不可用，请检查权限")
                     state.copy(
                         phase = TurnPhase.Idle,
                         turns = state.turns.filterNot { it.id == phase.userTurnId },
@@ -285,7 +285,7 @@ object TurnFlow {
             is TurnPhase.Recording -> {
                 effects += TurnEffect.StopCapture
                 effects += TurnEffect.Delete(phase.userTurnId)
-                effects += TurnEffect.Notify("连接断了，这一轮作废，重新按一次")
+                effects += TurnEffect.Notify("连接失败，请重试")
                 state.copy(
                     phase = TurnPhase.Offline,
                     turns = state.turns.filterNot { it.id == phase.userTurnId },
@@ -296,7 +296,7 @@ object TurnFlow {
             is TurnPhase.Awaiting -> {
                 val dropped = setOfNotNull(phase.userTurnId, phase.echoTurnId)
                 dropped.forEach { effects += TurnEffect.Delete(it) }
-                effects += TurnEffect.Notify("连接断了，这一轮作废，重新按一次")
+                effects += TurnEffect.Notify("连接失败，请重试")
                 state.copy(
                     phase = TurnPhase.Offline,
                     turns = state.turns.filterNot { it.id in dropped },
@@ -361,7 +361,7 @@ object TurnFlow {
         if (userTurn == null || userTurn.text.isBlank()) {
             phase.userTurnId?.let { dropped += it }
             phase.echoTurnId?.let { dropped += it }
-            if (notify) effects += TurnEffect.Notify("没有听清，再来一次")
+            if (notify) effects += TurnEffect.Notify("没有听清，请重说")
         } else if (userTurn.analysis == AnalysisStatus.None) {
             effects += TurnEffect.Analyze(userTurn.id, userTurn.text)
             turns = turns.map {

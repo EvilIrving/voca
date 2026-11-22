@@ -1,14 +1,15 @@
 package com.parley.speaker.ui.chat
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.DragInteraction
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -40,29 +42,29 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.parley.speaker.domain.Speaker
 import com.parley.speaker.domain.Turn
+import com.parley.speaker.ui.component.EchoTurn
 import com.parley.speaker.ui.component.HintCard
 import com.parley.speaker.ui.component.ParleyIconButton
+import com.parley.speaker.ui.component.Pressable
 import com.parley.speaker.ui.component.UserBubble
 import com.parley.speaker.ui.icon.FluentIcons
-import com.parley.speaker.ui.session.ActionSheet
-import com.parley.speaker.ui.session.TypingBar
+import com.parley.speaker.ui.session.BackButton
 import com.parley.speaker.ui.theme.Palette
 import com.parley.speaker.ui.theme.Radius
 import com.parley.speaker.ui.theme.Spacing
@@ -70,41 +72,43 @@ import com.parley.speaker.ui.theme.Type
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
-// 列表底部只留这一道 18，底栏 48 之外不再叠白，末条气泡才不会被压住。
+// 列表底部只留这一道 18。底栏让位的高度由输入条自己的 InputBarSpec.Height 决定，
+// 这条 18 是气泡之间的呼吸，不是底栏的占位。
 private val ListBottomPadding = 18.dp
-
-private val BubbleWidth = 258.dp
 
 @Composable
 fun ChatScreen(
     state: ChatState,
+    turns: List<Turn>,
     onScenarioClick: () -> Unit,
     onVocabClick: () -> Unit,
-    onSettingsClick: () -> Unit,
     onReviewClick: (Turn) -> Unit,
     onRetryAnalysis: (String) -> Unit,
     vocabToday: Int,
-    onRecordPressStart: () -> Unit,
+    elapsedMs: Long,
+    levels: FloatArray,
+    levelFrame: Long,
+    onRecordPressStart: () -> Boolean,
     onRecordArmed: (Boolean) -> Unit,
     onRecordPressEnd: (cancelled: Boolean) -> Unit,
-    onHangup: () -> Unit,
     onRetry: () -> Unit,
+    sessionName: String = "",
+    reviewing: Boolean = false,
+    onExitReview: () -> Unit = {},
     onSendText: (String) -> Unit = {},
     onSaveTurn: (String, Boolean) -> Unit = { _, _ -> },
-    onSummaryClick: () -> Unit = {},
-    onSessionsClick: () -> Unit = {},
     onPlayTurn: (String) -> Unit = {},
     onTranslateTurn: (suspend (String) -> String?) = { null },
+    onCopyTurn: (String) -> Unit = {},
+    onDeleteTurn: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
-    var typing by rememberSaveable { mutableStateOf(false) }
-    var actionsOpen by rememberSaveable { mutableStateOf(false) }
-    var draft by rememberSaveable { mutableStateOf("") }
 
     // 译文按轮留在组合里，收起只改可见性，同一条再点不会重发请求。
     val translations = remember { mutableStateMapOf<String, String>() }
     val expanded = remember { mutableStateMapOf<String, Boolean>() }
-    val asking = remember { mutableSetOf<String>() }
+    // 快照集合而不是普通 Set：翻译在飞时 translating 要跟着变，否则整行不会重组。
+    val asking = remember { mutableStateSetOf<String>() }
     val scope = rememberCoroutineScope()
 
     val translate: (Turn) -> Unit = { turn ->
@@ -147,7 +151,8 @@ fun ChatScreen(
         }
             .distinctUntilChanged()
             .collect { (count, index, _) ->
-                if (!follow || count == 0) return@collect
+                // 回看是从头读，不跟着末尾跑。
+                if (!follow || reviewing || count == 0) return@collect
                 // 末尾已经在屏内就顺着增长补动画，隔着一屏的距离直接落到位置。
                 if (index == count - 1) {
                     listState.animateScrollToItem(index)
@@ -155,11 +160,6 @@ fun ChatScreen(
                     listState.scrollToItem(count - 1)
                 }
             }
-    }
-
-    // 收音面板从底部盖上来时动作面板留在下面会挡着，按下去的瞬间就收掉。
-    LaunchedEffect(state.recording) {
-        if (state.recording) actionsOpen = false
     }
 
     Column(
@@ -172,178 +172,137 @@ fun ChatScreen(
     ) {
         TopBar(
             state = state,
+            sessionName = sessionName,
+            reviewing = reviewing,
             vocabToday = vocabToday,
             onScenarioClick = onScenarioClick,
+            onExitReview = onExitReview,
             onVocabClick = onVocabClick,
-            onSettingsClick = onSettingsClick,
             onRetry = onRetry,
         )
 
-        Box(
+        // 列表让位给输入条：底栏自己报多高，列表就拿剩下的多高，草稿输入与录音态同样高。
+        LazyColumn(
+            state = listState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
+            contentPadding = PaddingValues(
+                start = Spacing.screen,
+                end = Spacing.screen,
+                top = Spacing.bubble,
+                bottom = ListBottomPadding,
+            ),
+            verticalArrangement = Arrangement.spacedBy(Spacing.bubble),
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = Spacing.screen,
-                    end = Spacing.screen,
-                    top = Spacing.bubble,
-                    bottom = ListBottomPadding,
-                ),
-                verticalArrangement = Arrangement.spacedBy(Spacing.bubble),
-            ) {
-                items(state.turns, key = { it.id }) { turn ->
-                    when (turn.speaker) {
-                        Speaker.Echo -> EchoTurn(
-                            turn = turn,
-                            translation = translations[turn.id],
-                            expanded = expanded[turn.id] == true,
-                            onPlay = { onPlayTurn(turn.id) },
-                            onTranslate = { translate(turn) },
-                            onSave = { onSaveTurn(turn.id, !turn.saved) },
-                        )
+            items(turns, key = { it.id }) { turn ->
+                when (turn.speaker) {
+                    Speaker.Echo -> EchoRow(
+                        turn = turn,
+                        turns = turns,
+                        translation = translations[turn.id] ?: turn.translation,
+                        expanded = expanded[turn.id] == true,
+                        translating = turn.id in asking,
+                        reviewing = reviewing,
+                        onPlay = { onPlayTurn(turn.id) },
+                        onTranslate = { translate(turn) },
+                        onSave = { onSaveTurn(turn.id, !turn.saved) },
+                        onCopy = { onCopyTurn(turn.id) },
+                        onRetry = onRetryAnalysis,
+                        onDelete = { onDeleteTurn(turn.id) },
+                    )
 
-                        Speaker.User -> UserBubble(turn, { onReviewClick(turn) }, { onRetryAnalysis(turn.id) })
-                    }
+                    Speaker.User -> UserBubble(
+                        turn = turn,
+                        onOpenReview = { onReviewClick(turn) },
+                        onRetryAnalysis = if (reviewing) ({}) else ({ onRetryAnalysis(turn.id) }),
+                    )
                 }
+            }
+            if (!reviewing) {
                 state.hint?.let { hint ->
                     item(key = "hint") { HintCard(hint) }
                 }
             }
-
-            ActionSheet(
-                visible = actionsOpen,
-                onDismiss = { actionsOpen = false },
-                onTyping = {
-                    actionsOpen = false
-                    typing = true
-                },
-                onSummary = {
-                    actionsOpen = false
-                    onSummaryClick()
-                },
-                onSessions = {
-                    actionsOpen = false
-                    onSessionsClick()
-                },
-            )
         }
 
-        if (typing) {
-            TypingBar(
-                text = draft,
-                onTextChange = { draft = it },
-                onSend = {
-                    val text = draft.trim()
-                    if (text.isNotEmpty()) {
-                        draft = ""
-                        onSendText(text)
-                    }
-                },
-                onBackToVoice = { typing = false },
-            )
-        } else {
-            BottomBar(
-                plusActive = actionsOpen,
-                onPlusClick = { actionsOpen = !actionsOpen },
-                onRecordPressStart = onRecordPressStart,
-                onRecordArmed = onRecordArmed,
-                onRecordPressEnd = onRecordPressEnd,
-                onHangup = onHangup,
-            )
-        }
+        // 一条输入条顶掉原来那三段式底栏：挂断、加号、动作面板、整屏收音面板都不在了。
+        VoiceInputBar(
+            elapsedMs = elapsedMs,
+            levels = levels,
+            levelFrame = levelFrame,
+            recording = state.recording,
+            enabled = recordingAllowed(reviewing),
+            onPressStart = onRecordPressStart,
+            onArmed = onRecordArmed,
+            onPressEnd = onRecordPressEnd,
+            onSendText = onSendText,
+        )
     }
 }
 
 @Composable
-private fun EchoTurn(
+private fun EchoRow(
     turn: Turn,
+    turns: List<Turn>,
     translation: String?,
     expanded: Boolean,
+    translating: Boolean,
+    reviewing: Boolean,
     onPlay: () -> Unit,
     onTranslate: () -> Unit,
     onSave: () -> Unit,
+    onCopy: () -> Unit,
+    onRetry: (String) -> Unit,
+    onDelete: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Surface(
-            color = Palette.card,
-            shape = RoundedCornerShape(
-                topStart = Radius.bubbleTail,
-                topEnd = Radius.bubble,
-                bottomEnd = Radius.bubble,
-                bottomStart = Radius.bubble,
-            ),
-            border = BorderStroke(1.dp, Palette.hair),
-            modifier = Modifier.width(BubbleWidth),
-        ) {
-            Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 13.dp, bottom = 11.dp)) {
-                Text(turn.text, style = Type.prose)
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    BubbleAction(FluentIcons.Speaker, "播放这一轮的录音", onPlay)
-                    Spacer(Modifier.width(Spacing.iconText))
-                    BubbleAction(
-                        icon = FluentIcons.Translate,
-                        label = "翻译",
-                        onClick = onTranslate,
-                        active = translation != null && expanded,
-                    )
-                    Spacer(Modifier.width(Spacing.iconText))
-                    BubbleAction(
-                        icon = if (turn.saved) FluentIcons.BookmarkFilled else FluentIcons.Bookmark,
-                        label = "收藏",
-                        onClick = onSave,
-                        active = turn.saved,
-                    )
-                }
-            }
-        }
-        if (expanded && translation != null) {
-            Spacer(Modifier.height(Spacing.iconText))
-            Surface(
-                color = Palette.tint,
-                shape = RoundedCornerShape(Radius.chip),
-                modifier = Modifier.width(BubbleWidth),
-            ) {
-                Text(
-                    translation,
-                    style = Type.ui.copy(fontSize = 12.5.sp, lineHeight = 19.sp, color = Palette.ink3),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                )
-            }
-        }
-    }
-}
-
-// 十六像素的图标太小，接不住指肚，拆一圈二十四的点击区，中心距与原先的十六加十六一致。
-@Composable
-private fun BubbleAction(icon: ImageVector, label: String, onClick: () -> Unit, active: Boolean = false) {
-    Box(
-        modifier = Modifier
-            .size(24.dp)
-            .clip(CircleShape)
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            modifier = Modifier.size(16.dp),
-            tint = if (active) Palette.clayDeep else Palette.ink4,
+    // 菜单开在气泡自己这一条上：锚点就是这一条的实际位置，滚出屏幕就跟着消失。
+    var menuOpen by remember(turn.id) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        EchoTurn(
+            turn = turn,
+            translation = translation,
+            expanded = expanded,
+            onLongPress = { menuOpen = true },
         )
+        if (menuOpen) {
+            val retryAt = if (reviewing) null else retryTargetOf(turns, turn.id)
+            MessageMenu(
+                actions = messageMenu(
+                    MessageMenuState(
+                        text = turn.text,
+                        saved = turn.saved,
+                        expanded = expanded,
+                        translating = translating,
+                        retryable = retryAt != null,
+                    ),
+                ),
+                onDismiss = { menuOpen = false },
+                onPick = { command ->
+                    menuOpen = false
+                    when (command) {
+                        MessageCommand.Speak -> onPlay()
+                        MessageCommand.Translate -> onTranslate()
+                        MessageCommand.Save -> onSave()
+                        MessageCommand.Copy -> onCopy()
+                        MessageCommand.Retry -> retryAt?.let(onRetry)
+                        MessageCommand.Delete -> onDelete()
+                    }
+                },
+            )
+        }
     }
 }
 
 @Composable
 private fun TopBar(
     state: ChatState,
+    sessionName: String,
+    reviewing: Boolean,
     vocabToday: Int,
     onScenarioClick: () -> Unit,
+    onExitReview: () -> Unit,
     onVocabClick: () -> Unit,
-    onSettingsClick: () -> Unit,
     onRetry: () -> Unit,
 ) {
     Row(
@@ -353,41 +312,70 @@ private fun TopBar(
             .height(44.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
-            color = Palette.card,
-            shape = RoundedCornerShape(Radius.pill),
-            border = BorderStroke(1.dp, Palette.hair),
-            modifier = Modifier.clickable { onScenarioClick() },
-        ) {
-            Row(
-                modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        // 回看时原来场景胶囊的位置换成返回箭头，防止对着旧记录切场景。
+        if (reviewing) {
+            BackButton(onExitReview)
+        } else {
+            Pressable(
+                shape = RoundedCornerShape(Radius.pill),
+                resting = Palette.card,
+                border = BorderStroke(1.dp, Palette.hair),
+                onClick = onScenarioClick,
             ) {
-                Text(state.scenario, style = Type.uiStrong)
-                Spacer(Modifier.width(4.dp))
-                Icon(
-                    FluentIcons.ChevDown,
-                    contentDescription = "切换场景",
-                    modifier = Modifier.size(14.dp),
-                    tint = Palette.ink4,
-                )
+                Row(
+                    modifier = Modifier
+                        .widthIn(max = TopBarSpec.ScenarioMax)
+                        .padding(start = 12.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        state.scenario,
+                        style = Type.uiStrong,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        FluentIcons.ChevDown,
+                        contentDescription = "切换场景",
+                        modifier = Modifier.size(14.dp),
+                        tint = Palette.ink4,
+                    )
+                }
             }
         }
+        Spacer(Modifier.width(4.dp))
+        StatusDot(
+            connection = state.connection,
+            onRetry = if (reviewing) null else onRetry,
+        )
+        // 会话名只是一段只读文字：切会话走屏幕左沿往右滑，这里不再承担入口。
+        Text(
+            text = sessionName.ifBlank { UntitledSession },
+            style = Type.uiStrong,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .widthIn(min = TopBarSpec.NameMin, max = TopBarSpec.NameMax)
+                .padding(start = 2.dp, end = 2.dp),
+        )
         Spacer(Modifier.weight(1f))
-        StatusLabel(state = state, onRetry = onRetry)
-        Spacer(Modifier.weight(1f))
+        // 顶栏只剩生词本一枚，靠最右；配置中心收在左侧抽屉右下角。
         Box {
             ParleyIconButton(
                 icon = FluentIcons.Book,
                 contentDescription = "生词库",
                 onClick = onVocabClick,
-                tint = Palette.ink3,
+                size = TopBarSpec.IconButton,
+                iconSize = TopBarSpec.Icon,
+                tint = Palette.ink2,
             )
             if (vocabToday > 0) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .size(16.dp)
+                        .size(TopBarSpec.Badge)
                         .background(Palette.clay, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -402,155 +390,75 @@ private fun TopBar(
                 }
             }
         }
-        ParleyIconButton(
-            icon = FluentIcons.Settings,
-            contentDescription = "配置中心",
-            onClick = onSettingsClick,
-            tint = Palette.ink3,
-        )
     }
 }
 
-@Composable
-private fun StatusLabel(state: ChatState, onRetry: () -> Unit) {
-    when (state.connection) {
-        Connection.Ready -> Text("已连接", style = Type.caption.copy(color = Palette.ink4))
-        Connection.Connecting -> Text("连接中", style = Type.caption.copy(color = Palette.ink4))
-        Connection.Failed -> Text(
-            text = "未连接 · 重试",
-            style = Type.caption.copy(color = Palette.clayDeep),
-            modifier = Modifier.clickable { onRetry() },
-        )
-        Connection.Unconfigured -> Text(
-            text = "未配置",
-            style = Type.caption.copy(color = Palette.ink4),
-            modifier = Modifier.clickable { onRetry() },
-        )
-    }
+/** 顶栏这一排的尺寸：生词本一枚图标占三十二，会话名单行省略、宽度上限一百零八。 */
+object TopBarSpec {
+    val IconButton = 32.dp
+    val Icon = 20.dp
+    val NameMax = 108.dp
+    // 场景胶囊让位：会话名有下限，长场景名宁可自己截断，也不能把会话名挤成「设…」。
+    val NameMin = 76.dp
+    val ScenarioMax = 108.dp
+    val DotTouch = 44.dp
+    val Dot = 8.dp
+    val Badge = 16.dp
 }
 
+private const val UntitledSession = "本次会话"
+
+/**
+ * 连接状态只剩一枚八像素圆点：已连接鼠尾草绿、未连接取消态深红、未配置四级灰，
+ * 连接中做透明度呼吸。退避等待期仍算未连接，所以圆点不会先黄后红来回跳。
+ * 触控区按 44dp 计，状态文案全交给无障碍标签，不只靠颜色分辨。
+ */
 @Composable
-private fun BottomBar(
-    plusActive: Boolean,
-    onPlusClick: () -> Unit,
-    onRecordPressStart: () -> Unit,
-    onRecordArmed: (Boolean) -> Unit,
-    onRecordPressEnd: (cancelled: Boolean) -> Unit,
-    onHangup: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Spacing.screen)
-            .height(48.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.iconText),
+private fun StatusDot(connection: Connection, onRetry: (() -> Unit)?) {
+    val dot = connection.dot()
+    val clickable = onRetry != null && (dot == ConnectionDot.Waiting || dot == ConnectionDot.Unconfigured)
+    val alpha = if (dot == ConnectionDot.Handshaking) breathingAlpha() else 1f
+    val color = when (dot) {
+        ConnectionDot.Connected -> Palette.olive
+        ConnectionDot.Handshaking -> Palette.amber
+        ConnectionDot.Waiting -> Palette.danger
+        ConnectionDot.Unconfigured -> Palette.ink4
+    }
+    Pressable(
+        modifier = Modifier.size(TopBarSpec.DotTouch),
+        shape = CircleShape,
+        enabled = clickable,
+        contentDescription = dot.label(),
+        onClick = { onRetry?.invoke() },
     ) {
-        PlusButton(open = plusActive, onClick = onPlusClick)
-        Box(modifier = Modifier.weight(1f)) {
-            RecordButton(
-                onPressStart = onRecordPressStart,
-                onArmed = onRecordArmed,
-                onPressEnd = onRecordPressEnd,
-            )
-        }
-        ParleyIconButton(
-            icon = FluentIcons.CallEnd,
-            contentDescription = "结束会话",
-            onClick = onHangup,
-            size = 48.dp,
-            iconSize = 20.dp,
-            tint = Palette.ink3,
-            container = Palette.card,
-            borderColor = Palette.hair,
+        Box(
+            modifier = Modifier
+                .size(TopBarSpec.Dot)
+                .background(color.copy(alpha = alpha), CircleShape),
         )
     }
 }
 
+// 0.35 到 1.0 往返一次 1.2 秒，呼吸不抢气泡与波形的注意力。
 @Composable
-private fun PlusButton(open: Boolean, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val active = pressed || open
-    Box(
-        modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .background(if (active) Palette.clayTint else Palette.card)
-            .border(1.dp, Palette.hair, CircleShape)
-            .clickable(
-                interactionSource = interaction,
-                indication = null,
-                onClick = onClick,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            FluentIcons.Add,
-            contentDescription = "更多",
-            modifier = Modifier.size(20.dp),
-            tint = Palette.ink2,
-        )
-    }
+private fun breathingAlpha(): Float {
+    val transition = rememberInfiniteTransition(label = "statusDot")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 600, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "statusDotAlpha",
+    )
+    return alpha
 }
 
-@Composable
-private fun RecordButton(
-    onPressStart: () -> Unit,
-    onArmed: (Boolean) -> Unit,
-    onPressEnd: (cancelled: Boolean) -> Unit,
-) {
-    val cancelDistance = with(LocalDensity.current) { 64.dp.toPx() }
-    Surface(
-        color = Palette.clay,
-        shape = RoundedCornerShape(Radius.pill),
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    onPressStart()
-                    var travel = 0f
-                    var armed = false
-                    var finished = false
-                    try {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull() ?: break
-                            travel += change.positionChange().y
-                            val nowArmed = travel < -cancelDistance
-                            if (nowArmed != armed) {
-                                armed = nowArmed
-                                onArmed(nowArmed)
-                            }
-                            if (!change.pressed) {
-                                finished = true
-                                onPressEnd(armed)
-                                break
-                            }
-                            change.consume()
-                        }
-                    } finally {
-                        // 手势被系统打断（下拉通知栏、来电、多指）时也要收尾，否则麦克风一直开着。
-                        if (!finished) onPressEnd(armed)
-                    }
-                }
-            },
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                FluentIcons.Mic,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = Color.White,
-            )
-            Spacer(Modifier.width(Spacing.iconText))
-            Text("按住说话", style = Type.uiStrong.copy(color = Color.White))
-        }
-    }
+private fun ConnectionDot.label(): String = when (this) {
+    ConnectionDot.Connected -> "已连接"
+    ConnectionDot.Handshaking -> "连接中"
+    ConnectionDot.Waiting -> "重连中"
+    ConnectionDot.Unconfigured -> "未配置，请在设置中填写"
 }
+
