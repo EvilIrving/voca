@@ -22,11 +22,13 @@ data class TurnRow(
     val audioPath: String? = null,
     @ColumnInfo(defaultValue = "0") val saved: Boolean = false,
     val translation: String? = null,
+    val sessionId: String? = null,
 )
 
 @Entity(tableName = "vocab")
 data class VocabRow(
-    @PrimaryKey val word: String,
+    // 同一个词的 Coffee 与 coffee 是同一条：键按 NOCASE 比较，写入方不用自己折大小写。
+    @PrimaryKey @ColumnInfo(collate = ColumnInfo.NOCASE) val word: String,
     val phonetic: String,
     val meaning: String,
     val example: String,
@@ -49,6 +51,18 @@ data class SessionRow(
     val manualName: Boolean,
 )
 
+/**
+ * 一家供应商的模型清单缓存。modelsJson 是整份清单的序列化结果，fetchedAt 是拉取成功的时间，
+ * keyTag 是密钥指纹，换过密钥就不再拿旧清单顶上。
+ */
+@Entity(tableName = "model_catalog")
+data class ModelCatalogRow(
+    @PrimaryKey val providerId: String,
+    val modelsJson: String,
+    val fetchedAt: Long,
+    val keyTag: String,
+)
+
 @Dao
 interface TurnDao {
     @Query("SELECT * FROM turn ORDER BY createdAt ASC")
@@ -57,13 +71,23 @@ interface TurnDao {
     @Query("SELECT * FROM turn WHERE createdAt BETWEEN :since AND :until ORDER BY createdAt ASC")
     suspend fun between(since: Long, until: Long): List<TurnRow>
 
+    @Query("SELECT * FROM turn WHERE sessionId = :sessionId ORDER BY createdAt ASC")
+    suspend fun bySession(sessionId: String): List<TurnRow>
+
+    @Query(
+        "UPDATE turn SET sessionId = :sessionId " +
+            "WHERE (sessionId IS NULL OR sessionId = '') AND createdAt BETWEEN :startedAt AND :endedAt",
+    )
+    suspend fun bindSession(sessionId: String, startedAt: Long, endedAt: Long)
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIfAbsent(row: TurnRow)
 
     // audioPath 与 translation 都晚于文本到达，重复保存时不能把已经存下的内容抹成空。
     @Query(
         "UPDATE turn SET speaker = :speaker, text = :text, reviewJson = :reviewJson, " +
-            "audioPath = COALESCE(:audioPath, audioPath), translation = COALESCE(:translation, translation) " +
+            "audioPath = COALESCE(:audioPath, audioPath), translation = COALESCE(:translation, translation), " +
+            "sessionId = COALESCE(:sessionId, sessionId) " +
             "WHERE id = :id",
     )
     suspend fun update(
@@ -73,6 +97,7 @@ interface TurnDao {
         reviewJson: String?,
         audioPath: String?,
         translation: String?,
+        sessionId: String?,
     )
 
     @Query("UPDATE turn SET saved = :saved WHERE id = :id")
@@ -91,11 +116,12 @@ interface VocabDao {
     suspend fun all(): List<VocabRow>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertIfAbsent(row: VocabRow)
+    suspend fun insertIfAbsent(row: VocabRow): Long
 
+    // 再次出现的词是复现，不是重录：内容刷新，复现次数在库里自己加一，调用方不传这个数。
     @Query(
         "UPDATE vocab SET phonetic = :phonetic, meaning = :meaning, example = :example, " +
-            "highlight = :highlight, repeats = :repeats, lastSeenAt = :now WHERE word = :word",
+            "highlight = :highlight, repeats = repeats + 1, lastSeenAt = :now WHERE word = :word",
     )
     suspend fun refresh(
         word: String,
@@ -103,7 +129,6 @@ interface VocabDao {
         meaning: String,
         example: String,
         highlight: String,
-        repeats: Int,
         now: Long,
     )
 
@@ -116,7 +141,7 @@ interface VocabDao {
     @Query("SELECT COUNT(*) FROM vocab WHERE firstSeenAt >= :since")
     suspend fun countFirstSeenSince(since: Long): Int
 
-    @Query("UPDATE vocab SET repeats = repeats + 1, lastSeenAt = :now WHERE word = :word COLLATE NOCASE")
+    @Query("UPDATE vocab SET repeats = repeats + 1, lastSeenAt = :now WHERE word = :word")
     suspend fun bump(word: String, now: Long)
 }
 
@@ -140,6 +165,19 @@ interface SessionDao {
             "WHERE id = :id AND (manualName = 0 OR :manual = 1)",
     )
     suspend fun rename(id: String, name: String, manual: Boolean)
+}
+
+/** 模型清单缓存按供应商一条，重复拉取整条盖掉。 */
+@Dao
+interface ModelCatalogDao {
+    @Query("SELECT * FROM model_catalog WHERE providerId = :providerId")
+    suspend fun byProvider(providerId: String): ModelCatalogRow?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(row: ModelCatalogRow)
+
+    @Query("DELETE FROM model_catalog WHERE providerId = :providerId")
+    suspend fun clear(providerId: String)
 }
 
 /**
@@ -172,6 +210,57 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `turn` ADD COLUMN `sessionId` TEXT")
+        db.execSQL(
+            "UPDATE `turn` SET `sessionId` = (" +
+                "SELECT `id` FROM `session` " +
+                "WHERE `turn`.`createdAt` >= `session`.`startedAt` " +
+                "AND `turn`.`createdAt` <= `session`.`endedAt` " +
+                "ORDER BY `session`.`startedAt` DESC LIMIT 1" +
+            ") WHERE `sessionId` IS NULL",
+        )
+    }
+}
+
+/** 模型清单缓存是新表，旧库只补一张空表，已有会话与词条原样带过来。 */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `model_catalog` (" +
+                "`providerId` TEXT NOT NULL, " +
+                "`modelsJson` TEXT NOT NULL, " +
+                "`fetchedAt` INTEGER NOT NULL, " +
+                "`keyTag` TEXT NOT NULL, " +
+                "PRIMARY KEY(`providerId`))",
+        )
+    }
+}
+
+/**
+ * 五到六：`vocab` 的主键改成大小写不敏感。SQLite 不能原地改列的比较规则，只能重建表再搬数据，
+ * 搬的时候顺带把只差大小写的行合成一条——复现次数求和，首次取最早、最近出现取最晚。
+ */
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `vocab_new` (" +
+                "`word` TEXT NOT NULL COLLATE NOCASE, `phonetic` TEXT NOT NULL, " +
+                "`meaning` TEXT NOT NULL, `example` TEXT NOT NULL, `highlight` TEXT NOT NULL, " +
+                "`repeats` INTEGER NOT NULL, `firstSeenAt` INTEGER NOT NULL, " +
+                "`lastSeenAt` INTEGER NOT NULL, PRIMARY KEY(`word`))",
+        )
+        db.execSQL(
+            "INSERT INTO `vocab_new` SELECT `word`, `phonetic`, `meaning`, `example`, `highlight`, " +
+                "SUM(`repeats`), MIN(`firstSeenAt`), MAX(`lastSeenAt`) FROM `vocab` " +
+                "GROUP BY `word` COLLATE NOCASE",
+        )
+        db.execSQL("DROP TABLE `vocab`")
+        db.execSQL("ALTER TABLE `vocab_new` RENAME TO `vocab`")
+    }
+}
+
 /**
  * 表结构变更规约：改实体就把 version 加一，同一次改动里写好 [androidx.room.migration.Migration]，
  * 并在建库的地方用 addMigrations 注册，旧版本数据原样带过来；禁止 fallbackToDestructiveMigration，
@@ -179,9 +268,14 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
  * 否则老库补齐该列时无值可填。每次改完把 exportSchema 导出的 app/schemas 一并提交，
  * 它就是历史版本的唯一凭据。
  */
-@Database(entities = [TurnRow::class, VocabRow::class, SessionRow::class], version = 3, exportSchema = true)
+@Database(
+    entities = [TurnRow::class, VocabRow::class, SessionRow::class, ModelCatalogRow::class],
+    version = 6,
+    exportSchema = true,
+)
 abstract class ParleyDatabase : RoomDatabase() {
     abstract fun turns(): TurnDao
     abstract fun vocab(): VocabDao
     abstract fun sessions(): SessionDao
+    abstract fun modelCatalogs(): ModelCatalogDao
 }

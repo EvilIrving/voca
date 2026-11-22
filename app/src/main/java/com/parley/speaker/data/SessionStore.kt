@@ -3,6 +3,9 @@ package com.parley.speaker.data
 import androidx.room.Room
 import com.parley.speaker.data.db.MIGRATION_1_2
 import com.parley.speaker.data.db.MIGRATION_2_3
+import com.parley.speaker.data.db.MIGRATION_3_4
+import com.parley.speaker.data.db.MIGRATION_4_5
+import com.parley.speaker.data.db.MIGRATION_5_6
 import com.parley.speaker.data.db.ParleyDatabase
 import com.parley.speaker.data.db.SessionRow
 import com.parley.speaker.data.db.TurnRow
@@ -12,7 +15,6 @@ import com.parley.speaker.domain.Review
 import com.parley.speaker.domain.Speaker
 import com.parley.speaker.domain.Turn
 import com.parley.speaker.domain.VocabCard
-import com.parley.speaker.domain.VocabGroup
 import android.content.Context
 import kotlin.math.roundToInt
 import kotlinx.serialization.json.Json
@@ -23,7 +25,7 @@ import kotlinx.serialization.json.Json
 class SessionStore(context: Context) {
 
     private val db = Room.databaseBuilder(context, ParleyDatabase::class.java, "parley.db")
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
         .build()
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -39,28 +41,46 @@ class SessionStore(context: Context) {
             createdAt = System.currentTimeMillis(),
             audioPath = turn.audioPath,
             translation = turn.translation,
+            sessionId = turn.sessionId,
         )
         db.turns().insertIfAbsent(row)
-        db.turns().update(row.id, row.speaker, row.text, row.reviewJson, row.audioPath, row.translation)
+        db.turns().update(
+            row.id,
+            row.speaker,
+            row.text,
+            row.reviewJson,
+            row.audioPath,
+            row.translation,
+            row.sessionId,
+        )
     }
 
     suspend fun setSaved(turnId: String, saved: Boolean) = db.turns().setSaved(turnId, saved)
+
+    /**
+     * 只写这一轮的评测结果：收段之后才回来的分析走这条路，不改表也不重新插行。
+     * 这一轮已经被删掉就不写，返回假表示没有落到任何一行上。
+     */
+    suspend fun saveReview(turnId: String, review: Review): Boolean {
+        val row = db.turns().all().firstOrNull { it.id == turnId } ?: return false
+        db.turns().update(
+            id = row.id,
+            speaker = row.speaker,
+            text = row.text,
+            reviewJson = json.encodeToString(review),
+            audioPath = row.audioPath,
+            translation = row.translation,
+            sessionId = row.sessionId,
+        )
+        return true
+    }
 
     suspend fun deleteTurn(turnId: String) = db.turns().delete(turnId)
 
     suspend fun clearTurns() = db.turns().clear()
 
-    suspend fun loadVocab(now: Long = System.currentTimeMillis()): List<VocabGroup> {
-        val rows = db.vocab().all()
-        if (rows.isEmpty()) return emptyList()
-        val today = startOfLocalDay(now)
-        val fresh = rows.filter { it.lastSeenAt >= today }.map { it.toCard() }
-        val earlier = rows.filter { it.lastSeenAt < today }.map { it.toCard() }
-        return buildList {
-            if (fresh.isNotEmpty()) add(VocabGroup(TodayLabel, fresh))
-            if (earlier.isNotEmpty()) add(VocabGroup(EarlierLabel, earlier))
-        }
-    }
+    /** 全部词条按最近出现时间倒序；分组与筛选由 domain 的 vocabPage 统一算，存储层不再自己分天。 */
+    suspend fun loadVocab(): List<VocabCard> = db.vocab().all().map { it.toCard() }
 
     /** 待复习：今天没有露面、复现次数少的先排，同次数里最近一次出现早的在前。 */
     suspend fun due(now: Long = System.currentTimeMillis()): List<VocabCard> =
@@ -69,7 +89,7 @@ class SessionStore(context: Context) {
     suspend fun recordVocab(cards: List<VocabCard>) {
         val now = System.currentTimeMillis()
         cards.forEach { card ->
-            db.vocab().insertIfAbsent(
+            val inserted = db.vocab().insertIfAbsent(
                 VocabRow(
                     word = card.word,
                     phonetic = card.phonetic,
@@ -81,16 +101,17 @@ class SessionStore(context: Context) {
                     lastSeenAt = now,
                 ),
             )
-            // 已有的词只推进 lastSeenAt 与释义内容，firstSeenAt 保持首次收录的时间。
-            db.vocab().refresh(
-                word = card.word,
-                phonetic = card.phonetic,
-                meaning = card.meaning,
-                example = card.example,
-                highlight = card.highlight,
-                repeats = card.repeats,
-                now = now,
-            )
+            // 已在库里的词是又出现了一次：内容刷新、复现次数加一，firstSeenAt 保持首次收录的时间。
+            if (inserted == -1L) {
+                db.vocab().refresh(
+                    word = card.word,
+                    phonetic = card.phonetic,
+                    meaning = card.meaning,
+                    example = card.example,
+                    highlight = card.highlight,
+                    now = now,
+                )
+            }
         }
     }
 
@@ -105,7 +126,8 @@ class SessionStore(context: Context) {
         startedAt: Long,
         endedAt: Long = System.currentTimeMillis(),
     ): SessionRecord {
-        val turnsInSession = db.turns().between(startedAt, endedAt)
+        db.turns().bindSession(id, startedAt, endedAt)
+        val turnsInSession = db.turns().bySession(id).ifEmpty { db.turns().between(startedAt, endedAt) }
         val reviews = turnsInSession.mapNotNull { it.toTurn()?.review }
         val row = SessionRow(
             id = id,
@@ -129,8 +151,10 @@ class SessionStore(context: Context) {
     suspend fun takeUnnamed(limit: Int = 3, now: Long = System.currentTimeMillis()): List<SessionRecord> =
         db.sessions().unnamedSince(now - UnnamedWindow, limit).map { it.toRecord() }
 
-    /** 自动命名要看整段对话，取这一条会话时间窗内的全部轮次。 */
+    /** 自动命名与回看要看整段对话，优先按 sessionId 取，找不到时退回时间窗圈词条。 */
     suspend fun transcript(sessionId: String): List<Turn> {
+        val bySession = db.turns().bySession(sessionId).mapNotNull { it.toTurn() }
+        if (bySession.isNotEmpty()) return bySession
         val session = db.sessions().byId(sessionId) ?: return emptyList()
         return db.turns().between(session.startedAt, session.endedAt).mapNotNull { it.toTurn() }
     }
@@ -155,6 +179,7 @@ class SessionStore(context: Context) {
             analysis = if (review != null) AnalysisStatus.Ready else AnalysisStatus.None,
             saved = saved,
             translation = translation,
+            sessionId = sessionId,
         )
     }
 

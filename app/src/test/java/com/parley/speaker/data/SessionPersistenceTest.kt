@@ -92,6 +92,108 @@ class SessionPersistenceTest {
     }
 
     @Test
+    fun `同一个词的两种大小写在库里是一条`() = runBlocking {
+        val store = SessionStore(app)
+        store.recordVocab(listOf(card("Coffee", repeats = 1)))
+        store.recordVocab(listOf(card("coffee", repeats = 1)))
+
+        val stored = store.loadVocab().filter { it.word.equals("coffee", ignoreCase = true) }
+        assertEquals("Coffee 与 coffee 应当合成一条，实际 ${stored.map { it.word }}", 1, stored.size)
+        assertEquals("再出现一次要算复现", 2, stored.single().repeats)
+    }
+
+    @Test
+    fun `升到六版时把只差大小写的词条合成一条`() {
+        withDatabaseFile("parley.db", version = 5) { legacy ->
+            legacy.execSQL(TURN_TABLE_V5)
+            legacy.execSQL(VOCAB_TABLE)
+            legacy.execSQL(SESSION_TABLE)
+            legacy.execSQL(MODEL_CATALOG_TABLE)
+            legacy.execSQL(VOCAB_V5)
+            legacy.execSQL(row("Coffee", repeats = 1, firstSeenAt = 100, lastSeenAt = 200))
+            legacy.execSQL(row("coffee", repeats = 2, firstSeenAt = 50, lastSeenAt = 300))
+        }
+
+        runBlocking { SessionStore(app).loadVocab() }
+
+        // 卡片不带 firstSeenAt，直接读库确认合成时取了最早的首次与最晚的出现。
+        withDatabaseFile("parley.db") { migrated ->
+            migrated.rawQuery("SELECT `word`, `repeats`, `firstSeenAt`, `lastSeenAt` FROM `vocab`", null).use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals(1, c.count)
+                assertEquals(3, c.getInt(1))
+                assertEquals(50L, c.getLong(2))
+                assertEquals(300L, c.getLong(3))
+            }
+        }
+    }
+
+    @Test
+    fun `同一个词再出现一次算复现，次数在库里加一`() = runBlocking {
+        val store = SessionStore(app)
+        val card = com.parley.speaker.domain.VocabCard(
+            id = "grab a bite",
+            word = "grab a bite",
+            phonetic = "/ɡræb ə baɪt/",
+            meaning = "随便吃点",
+            example = "Let's grab a bite before the movie.",
+            highlight = "grab a bite",
+            repeats = 1,
+        )
+
+        store.recordVocab(listOf(card))
+        store.recordVocab(listOf(card))
+
+        val stored = store.loadVocab().single { it.word == card.word }
+        assertEquals("再次出现要累加，不是回写成一", 2, stored.repeats)
+    }
+
+    @Test
+    fun `同一分钟开的两段会话各自只看到自己的词条`() = runBlocking {
+        val store = SessionStore(app)
+        val firstBegin = System.currentTimeMillis()
+        store.saveTurn(Turn(id = "s1-u1", speaker = Speaker.User, text = "第一段", sessionId = "s1"))
+        store.closeSession("s1", firstBegin, System.currentTimeMillis())
+
+        val secondBegin = System.currentTimeMillis()
+        store.saveTurn(Turn(id = "s2-u1", speaker = Speaker.User, text = "第二段", sessionId = "s2"))
+        store.closeSession("s2", secondBegin, System.currentTimeMillis())
+
+        assertEquals(listOf("第一段"), store.transcript("s1").map { it.text })
+        assertEquals(listOf("第二段"), store.transcript("s2").map { it.text })
+    }
+
+    @Test
+    fun `升级到四版时把旧词条按时间窗补进会话`() {
+        withDatabaseFile("parley.db", version = 3) { legacy ->
+            legacy.execSQL(TURN_TABLE_V3)
+            legacy.execSQL(VOCAB_TABLE)
+            legacy.execSQL(SESSION_TABLE)
+            legacy.execSQL(
+                "INSERT INTO `session` VALUES ('morning', '早间', 100, 200, 1, NULL, NULL, 0, 0)",
+            )
+            legacy.execSQL(
+                "INSERT INTO `turn` (`id`, `speaker`, `text`, `createdAt`) VALUES ('in', 'User', '窗内', 150)",
+            )
+            legacy.execSQL(
+                "INSERT INTO `turn` (`id`, `speaker`, `text`, `createdAt`) VALUES ('out', 'User', '窗外', 250)",
+            )
+        }
+
+        // 开一次库就会跑 3 到 4 的迁移。
+        runBlocking { SessionStore(app).transcript("morning") }
+
+        val bound = mutableMapOf<String, String?>()
+        withDatabaseFile("parley.db") { migrated ->
+            migrated.rawQuery("SELECT `id`, `sessionId` FROM `turn`", null).use { cursor ->
+                while (cursor.moveToNext()) bound[cursor.getString(0)] = cursor.getString(1)
+            }
+        }
+        assertEquals("morning", bound["in"])
+        assertEquals(null, bound["out"])
+    }
+
+    @Test
     fun `老版本留下的库还能按时间读出会话`() {
         withDatabaseFile("parley.db", version = 1) { legacy ->
             legacy.execSQL(TURN_TABLE)
@@ -138,10 +240,47 @@ class SessionPersistenceTest {
         }
     }
 
+    private fun card(word: String, repeats: Int) = com.parley.speaker.domain.VocabCard(
+        id = word,
+        word = word,
+        phonetic = "/test/",
+        meaning = "测试",
+        example = "A $word example.",
+        highlight = word,
+        repeats = repeats,
+    )
+
+    private fun row(word: String, repeats: Int, firstSeenAt: Long, lastSeenAt: Long) =
+        "INSERT INTO `vocab` VALUES ('$word', '/test/', '测试', 'A $word example.', '$word', " +
+            "$repeats, $firstSeenAt, $lastSeenAt)"
+
     private companion object {
+        const val TURN_TABLE_V5 = "CREATE TABLE IF NOT EXISTS `turn` (`id` TEXT NOT NULL, " +
+            "`speaker` TEXT NOT NULL, `text` TEXT NOT NULL, `reviewJson` TEXT, `createdAt` INTEGER NOT NULL, " +
+            "`audioPath` TEXT, `saved` INTEGER NOT NULL DEFAULT 0, `translation` TEXT, `sessionId` TEXT, " +
+            "PRIMARY KEY(`id`))"
+
+        const val VOCAB_V5 = "CREATE TABLE IF NOT EXISTS `vocab` (`word` TEXT NOT NULL, " +
+            "`phonetic` TEXT NOT NULL, `meaning` TEXT NOT NULL, `example` TEXT NOT NULL, " +
+            "`highlight` TEXT NOT NULL, `repeats` INTEGER NOT NULL, `firstSeenAt` INTEGER NOT NULL, " +
+            "`lastSeenAt` INTEGER NOT NULL, PRIMARY KEY(`word`))"
+
+        const val MODEL_CATALOG_TABLE = "CREATE TABLE IF NOT EXISTS `model_catalog` (" +
+            "`providerId` TEXT NOT NULL, `modelsJson` TEXT NOT NULL, `fetchedAt` INTEGER NOT NULL, " +
+            "`keyTag` TEXT NOT NULL, PRIMARY KEY(`providerId`))"
+
         const val TURN_TABLE = "CREATE TABLE IF NOT EXISTS `turn` (`id` TEXT NOT NULL, " +
             "`speaker` TEXT NOT NULL, `text` TEXT NOT NULL, `reviewJson` TEXT, " +
             "`createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+
+        const val TURN_TABLE_V3 = "CREATE TABLE IF NOT EXISTS `turn` (`id` TEXT NOT NULL, " +
+            "`speaker` TEXT NOT NULL, `text` TEXT NOT NULL, `reviewJson` TEXT, `createdAt` INTEGER NOT NULL, " +
+            "`audioPath` TEXT, `saved` INTEGER NOT NULL DEFAULT 0, `translation` TEXT, PRIMARY KEY(`id`))"
+
+        const val SESSION_TABLE = "CREATE TABLE IF NOT EXISTS `session` (`id` TEXT NOT NULL, " +
+            "`name` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, `endedAt` INTEGER NOT NULL, " +
+            "`rounds` INTEGER NOT NULL, `pronunciationAvg` INTEGER, `grammarAvg` INTEGER, " +
+            "`newWordCount` INTEGER NOT NULL, `manualName` INTEGER NOT NULL, PRIMARY KEY(`id`))"
 
         const val VOCAB_TABLE = "CREATE TABLE IF NOT EXISTS `vocab` (`word` TEXT NOT NULL, " +
             "`phonetic` TEXT NOT NULL, `meaning` TEXT NOT NULL, `example` TEXT NOT NULL, " +

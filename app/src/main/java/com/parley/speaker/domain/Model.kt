@@ -60,6 +60,7 @@ data class Turn(
     val saved: Boolean = false,
     /** 气泡译文的落库位。非空表示这一轮已经译过，重开对话不再请求文本模型。 */
     val translation: String? = null,
+    val sessionId: String? = null,
 )
 
 @Serializable
