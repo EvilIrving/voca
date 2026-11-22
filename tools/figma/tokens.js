@@ -19,7 +19,7 @@ const colors = [
   ['paper', C.paper, '页面基底 · 羊皮纸'],
   ['card', C.card, '气泡 / 卡片 / 抽屉'],
   ['tint', C.tint, '用户气泡'],
-  ['hair', C.hair, '纸感细边线'],
+  ['hair', C.hair, '纸感细边线 · 页内描边半透明'],
   ['hairStrong', C.hairStrong, '拖拽把手 / 分隔'],
   ['ink', C.ink, '主文字 · 暖近黑'],
   ['ink2', C.ink2, '正文'],
@@ -30,7 +30,6 @@ const colors = [
   ['clayTint', C.clayTint, '陶土浅底'],
   ['olive', C.olive, '鼠尾草 · 语法分 / 提示'],
   ['oliveTint', C.oliveTint, '提示卡底色'],
-  ['amber', C.amber, '连接中 · 呼吸点'],
   ['danger', C.danger, '取消 / 破坏性']
 ];
 const swatchRow = frame(root, 'colors', { dir: 'HORIZONTAL', w: 820, gap: 10, main: 'MIN' });
@@ -104,7 +103,8 @@ for (const [label, fill, stroke, ink, glyph, alpha] of states) {
   t(sample, '咖啡点单', { font: F.cnMd, size: 12.5, color: ink, lh: 18, grow: 1, colorA: alpha });
   if (glyph === 'checkMark') icon(sample, 'checkMark', 12, C.clayDeep);
   if (glyph === 'dot') {
-    const d = frame(sample, 'breath', { w: 8, h: 8, fill: C.amber, radius: 999 });
+    // 加载态用一枚呼吸的四级灰点，连接状态不再上界面，这一枚只表示「在等」。
+    const d = frame(sample, 'breath', { w: 8, h: 8, fill: C.ink4, radius: 999 });
     d.opacity = 0.55;
   }
   t(card, label, { font: F.monoMd, size: 10.5, color: C.ink2, lh: 14 });
@@ -140,11 +140,11 @@ map.layoutWrap = 'WRAP';
 const groups = [
   ['原子层 atoms', [
     'IconButton/30/checkMark', 'IconButton/30/dismiss', 'IconButton/30/edit', 'IconButton/30/speaker',
-    'IconButton/32/arrowLeft', 'IconButton/32/book', 'IconButton/36/search', 'IconButton/44/settings',
-    'Mic/44', 'Mic/60', 'Send/44', 'Pause/40', 'Resume/40', 'Trash/44',
+    'IconButton/32/arrowLeft', 'IconButton/32/chatAdd', 'IconButton/32/book', 'IconButton/36/search', 'IconButton/44/settings',
+    'Mic/48', 'Mic/82', 'Send/48', 'Pause/40', 'Resume/36', 'Trash/22', 'LockChip', 'Tooltip', 'Timeline/236',
     'Button/Primary/Label', 'Button/Ghost', 'Chip/Filter/On', 'Chip/Filter/Off',
     'Chip/Tag/Olive', 'Chip/Tag/Neutral', 'Chip/Word', 'Score/Value',
-    'Select/Option/On', 'Select/Option/Off', 'Select/Option/Single/On-Off', 'Toast'
+    'Select/Option/On', 'Select/Option/Off', 'Toast'
   ]],
   ['复合层 molecules', [
     'Bubble/Echo', 'Bubble/Echo/Translated', 'Bubble/User', 'ScorePill', 'HintCard',
@@ -152,20 +152,19 @@ const groups = [
     'Row/Provider', 'Row/Provider/Open', 'Row/Provider/Off', 'Row/Voice', 'Row/Voice/Open',
     'Row/DrawerSession', 'Row/DrawerSession/Current', 'Button/NewSession',
     'Row/Menu/Speak', 'Row/Menu/Translate', 'Row/Menu/Save', 'Row/Menu/Copy', 'Row/Menu/Retry', 'Row/Menu/Delete',
-    'Select/Menu', 'Select/Menu/Scene', 'Select/Menu/Voice', 'Menu/Message',
+    'Select/Menu', 'Select/Menu/Voice', 'Menu/Message',
     'VocabCard/Collocation', 'VocabCard/Word', 'VocabCard/New',
     'Panel/Original', 'Panel/Rewrite', 'Tab/On', 'Tab/Off'
   ]],
   ['组织层 organisms', [
-    'TopBar', 'TopBar/Named', 'TopBar/Open', 'TopBar/Connecting',
-    'TopBar/Offline', 'TopBar/Unconfigured', 'TopBar/Review',
+    'TopBar', 'TopBar/Chat', 'TopBar/Named', 'TopBar/Review',
     'InputBar', 'InputBar/Text', 'InputBar/Recording', 'InputBar/Cancel', 'InputBar/Locked', 'InputBar/Preview',
     'LockBar'
   ]],
   ['界面 screens', [
     '01 对话', '02 有草稿', '03 按住录音', '04 左滑取消', '05 锁定录音', '06 暂停预览',
-    '07 消息菜单', '08 评测抽屉', '09 生词库', '10 配置中心', '11 模型下拉', '12 场景下拉',
-    '13 侧边抽屉', '14 译文展开', '15 轻提示', '16 未连接'
+    '07 消息菜单', '08 评测抽屉', '09 生词库', '10 设置', '11 模型下拉',
+    '12 侧边抽屉', '13 译文展开', '14 轻提示', '15 系统提示词'
   ]]
 ];
 for (const [title, lines] of groups) {

@@ -13,17 +13,17 @@ await figma.setCurrentPageAsync(lib);
 const C_ = {};
 for (const n of lib.children) { if (n.type === 'COMPONENT') C_[String(n.name)] = n; }
 await figma.setCurrentPageAsync(page);
-const need = ['Speaker/TopBar', 'Speaker/InputBar', 'Speaker/Bubble/Echo', 'Speaker/Bubble/User', 'Speaker/ScorePill', 'Speaker/HintCard', 'Speaker/Button/NewSession', 'Speaker/Row/DrawerSession', 'Speaker/Row/DrawerSession/Current', 'Speaker/IconButton/36/search', 'Speaker/IconButton/44/settings'];
+const need = ['Speaker/TopBar/Chat', 'Speaker/InputBar', 'Speaker/Bubble/Echo', 'Speaker/Bubble/User', 'Speaker/ScorePill', 'Speaker/HintCard', 'Speaker/Button/NewSession', 'Speaker/Row/DrawerSession', 'Speaker/Row/DrawerSession/Current', 'Speaker/IconButton/36/search', 'Speaker/IconButton/44/settings'];
 const missing = need.filter(n => !C_[n]);
 if (missing.length) return { error: 'missing components', missing };
 
-const W = 360, H = 792, TOP = 44, BAR_Y = 681, LIST_H = H - 96 - TOP;
+const W = 360, H = 792, TOP = 44, BAR_Y = 653, LIST_H = BAR_Y - TOP;
 const PANEL = 295, INSET = 18, CONTENT = 259;
 
 /* 页面抬头 */
 const banner = frame(page, 'Header_Banner', { w: 1560, h: 120, dir: 'VERTICAL', gap: 6, pt: 24, pl: 36, x: 0, y: 0 });
 t(banner, '侧边抽屉交互原型', { font: F.serifCnMd, size: 22, color: C.ink, lh: 30 });
-t(banner, 'Drawer Prototype · 会话、新会话与配置中心 · 拖动 295 与卡片 0.94 的同一串进度', { font: F.mono, size: 11, color: C.ink4, lh: 16 });
+t(banner, 'Drawer Prototype · 会话、新会话与设置页 · 拖动 295 与卡片 0.94 的同一串进度', { font: F.mono, size: 11, color: C.ink4, lh: 16 });
 
 /* 屏幕骨架 */
 function screen(name, x) {
@@ -36,7 +36,7 @@ function screen(name, x) {
   return f;
 }
 
-/* 抽屉正文：标题与检索一行、新会话胶囊、三段会话、右下角配置中心 */
+/* 抽屉正文：标题与检索一行、新会话胶囊、三段会话、右下角设置页 */
 function drawerPanel(root, x) {
   const panel = frame(root, 'drawer', { w: PANEL, h: H, dir: 'VERTICAL', pl: INSET, pr: INSET, pt: 20, pb: 20, fill: C.paper, x: x, y: 0, absolute: true });
   const head = frame(panel, 'head', { w: CONTENT, h: 44, dir: 'HORIZONTAL', cross: 'CENTER' });
@@ -81,7 +81,7 @@ function card(root, p) {
   const c = frame(root, 'card', { w: w, h: h, fill: C.paper, radius: cardRadius(p), clip: true, x: x, y: y, absolute: true });
   if (p > 0) c.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#3A2F26'), a: 0.16 }, offset: { x: -8, y: 0 }, radius: 24, spread: 0, blendMode: 'NORMAL', visible: true }];
   const view = frame(c, 'card view', { w: W, h: H, dir: 'VERTICAL', x: 0, y: 0, absolute: true });
-  inst(view, C_['Speaker/TopBar']);
+  inst(view, C_['Speaker/TopBar/Chat']);
   const list = frame(view, 'transcript', { w: W, h: LIST_H, dir: 'VERTICAL', main: 'MAX', pl: 20, pr: 20, pt: 6, pb: 10, gap: 16, clip: true });
   inst(list, C_['Speaker/Bubble/Echo'], { text: 'Good morning! How did you start your day? Are you craving an Americano or something else?' });
   const u = frame(list, 'msg user', { w: 320, dir: 'VERTICAL', cross: 'MAX', gap: 9 });
