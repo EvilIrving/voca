@@ -199,6 +199,20 @@ press() {
   A shell input swipe "$1" "$2" "$1" "$2" "${3:-80}" >/dev/null
 }
 
+# 长按按住说话：零距离 input swipe 在 Android 16 上会被当成瞬时点按，
+# 长按手势必须拆成 DOWN/UP 两次事件，中间才能真正停留。
+mic_down() { A shell input motionevent DOWN 540 2256 >/dev/null; }
+mic_up() { A shell input motionevent UP 540 2256 >/dev/null; }
+mic_cancel() { A shell input swipe 540 2256 540 1900 "${1:-400}" >/dev/null; }
+
+# 探针：读应用自己写的采集状态，绕开被 ROM 屏蔽的 logcat
+capture_state() {
+  # vivo 的 Android 16 上隐式广播不会送到清单里的接收器，必须显式指定组件
+  A shell am broadcast -n com.parley.speaker/.debug.CaptureProbeReceiver -a com.parley.speaker.CAPTURE_PROBE >/dev/null 2>&1
+  sleep 0.3
+  A exec-out run-as com.parley.speaker cat files/capture_state.txt 2>/dev/null | tr -d '\r'
+}
+
 tap_name() {
   local want="$1" xy before after
   dump || return 1
@@ -235,22 +249,10 @@ PY
 # 模拟长按「按住说话」录音指定毫秒数后松手
 simulate_record() {
   local duration="${1:-2500}"
-  dump || return 1
-  nodes > "$NODES_TSV"
-  local xy
-  xy=$(python3 - "按住说话" "$NODES_TSV" <<'PY'
-import sys, re
-rows = [l.rstrip("\n").split("\t") for l in open(sys.argv[2], encoding='utf-8', errors='ignore') if l.strip()]
-pick = [r for r in rows if len(r) > 3 and "按住说话" in (r[2], r[3])]
-if pick:
-    n = [int(v) for v in re.findall(r'-?\d+', pick[0][0])]
-    print((n[0] + n[2]) // 2, (n[1] + n[3]) // 2)
-else:
-    print(540, 2256)
-PY
-)
   echo "开始模拟长按录音（持续 ${duration}ms）..."
-  A shell input swipe ${xy% *} ${xy#* } ${xy% *} ${xy#* } "$duration" >/dev/null
+  mic_down
+  sleep "$(python3 -c "print($duration/1000)")"
+  mic_up
   wait_ready 1.5
   state
 }
@@ -352,6 +354,10 @@ case "${1:-state}" in
   tap)            tap_name "${2:?请输入要点击的元素名称}" ;;
   press)          press "$2" "$3" "${4:-80}"; wait_ready 1.0; echo "完成坐标点击 ($2, $3)" ;;
   record)         simulate_record "${2:-2500}" ;;
+  mic-down)       mic_down; echo "已按下录音" ;;
+  mic-up)         mic_up; wait_ready 1.0; echo "已松手"; state ;;
+  mic-cancel)     mic_cancel "${2:-400}"; wait_ready 1.2; state ;;
+  capture)        capture_state ;;
   record-cancel)  simulate_record_cancel ;;
   scenario)       switch_scenario "${2:-}" ;;
   vocab)          tap_name "生词库" ;;

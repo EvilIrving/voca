@@ -73,3 +73,27 @@
 - **现象描述**：生词库或配置中心滚动后，原先记录的坐标点击失效。
 - **原因机理**：列表组件按需渲染，滚动后元素物理坐标发生位移，部分项目甚至移出视窗。
 - **应对方案**：一律先滚动后执行 `el` 重新捕获当前可视区域节点，避免复用过时的绝对坐标。
+
+---
+
+## 10. 零距离 swipe 打不出长按
+
+- **现象描述**：`adb shell input swipe x y x y 3000` 在 Android 16 上被当成瞬时点按，「按住说话」的录音面板根本不出现；同一命令点击普通按钮却正常。
+- **原因机理**：起止坐标相同时系统把手势折叠成一次 tap，按下与抬起之间没有停留，Compose 的 `pointerInput` 收到 DOWN 后立刻收到 UP。
+- **应对方案**：长按一律拆成 `input motionevent DOWN` 与 `input motionevent UP` 两条命令，中间停顿即可控制按压时长；驱动脚本的 `mic-down` / `mic-up` / `mic-cancel` 就是这样实现的。
+
+---
+
+## 11. 隐式广播到不了清单接收器
+
+- **现象描述**：`am broadcast -a com.parley.speaker.CAPTURE_PROBE` 返回 `Broadcast completed: result=0`，但接收器没有执行，探针文件仍是旧内容。
+- **原因机理**：这台 vivo 的 Android 16 上，自定义 action 的隐式广播不会投递给清单里注册的接收器。
+- **应对方案**：广播必须显式指定组件，例如 `am broadcast -n com.parley.speaker/.debug.CaptureProbeReceiver -a com.parley.speaker.CAPTURE_PROBE`。
+
+---
+
+## 12. 探针文件写外部目录会失效
+
+- **现象描述**：探针接收器把状态写进 `/sdcard/Android/data/<包名>/files/` 后，重装一次应用，脚本读到的永远是旧值。
+- **原因机理**：重装后外部私有目录的写入可能静默失败，`getExternalFilesDir` 返回可用但写入不落地。
+- **应对方案**：探针改写到应用内部目录 `context.filesDir`，脚本用 `adb exec-out run-as <包名> cat files/<名字>` 读取。
