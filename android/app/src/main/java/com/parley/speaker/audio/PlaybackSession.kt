@@ -19,7 +19,7 @@ internal class PlaybackSession(
 
     fun start() {
         if (worker != null) return
-        worker = thread(name = "parley-audio-out") { loop() }
+        worker = thread(isDaemon = true, name = "parley-audio-out") { loop() }
     }
 
     fun offer(pcm: ByteArray) {
