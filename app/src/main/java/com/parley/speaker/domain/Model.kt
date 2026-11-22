@@ -1,10 +1,12 @@
 package com.parley.speaker.domain
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
 @Serializable
 enum class Speaker { Echo, User }
 
+@Immutable
 @Serializable
 data class PhonemeIssue(
     val word: String,
@@ -12,6 +14,7 @@ data class PhonemeIssue(
     val note: String,
 )
 
+@Immutable
 @Serializable
 data class PronunciationReview(
     val score: Int,
@@ -19,6 +22,7 @@ data class PronunciationReview(
     val phonemes: List<PhonemeIssue> = emptyList(),
 )
 
+@Immutable
 @Serializable
 data class GrammarReview(
     val score: Int,
@@ -31,6 +35,7 @@ enum class Register(val label: String) {
     Advanced("高级表达"),
 }
 
+@Immutable
 @Serializable
 data class Rewrite(
     val register: Register,
@@ -38,6 +43,7 @@ data class Rewrite(
     val gloss: String,
 )
 
+@Immutable
 @Serializable
 data class Review(
     val original: String,
@@ -49,6 +55,7 @@ data class Review(
 @Serializable
 enum class AnalysisStatus { None, Pending, Ready, Failed }
 
+@Immutable
 @Serializable
 data class Turn(
     val id: String,
@@ -63,6 +70,7 @@ data class Turn(
     val sessionId: String? = null,
 )
 
+@Immutable
 @Serializable
 data class VocabCard(
     val id: String,

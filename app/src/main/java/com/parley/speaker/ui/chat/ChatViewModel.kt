@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.SystemClock
 import android.util.Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
@@ -91,6 +92,7 @@ import kotlin.random.Random
 /** 连接状态只在内部流转，界面上不呈现：连不上就按退避重连，失败原文进日志。 */
 enum class Connection { Unconfigured, Connecting, Ready, Failed }
 
+@Immutable
 data class ChatState(
     val turns: List<Turn>,
     val hint: String? = null,

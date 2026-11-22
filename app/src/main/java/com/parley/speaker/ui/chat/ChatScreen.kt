@@ -149,23 +149,21 @@ fun ChatScreen(
             if (!scrolling && !listState.canScrollForward) follow = true
         }
     }
-    LaunchedEffect(listState) {
-        snapshotFlow {
-            val info = listState.layoutInfo
-            val tail = info.visibleItemsInfo.lastOrNull()
-            Triple(info.totalItemsCount, tail?.index ?: -1, tail?.size ?: 0)
-        }
-            .distinctUntilChanged()
-            .collect { (count, index, _) ->
-                // 回看是从头读，不跟着末尾跑。
-                if (!follow || reviewing || count == 0) return@collect
-                // 末尾已经在屏内就顺着增长补动画，隔着一屏的距离直接落到位置。
-                if (index == count - 1) {
-                    listState.animateScrollToItem(index)
-                } else {
-                    listState.scrollToItem(count - 1)
-                }
+    val tailTurn = turns.lastOrNull()
+    val scrollSignature = remember(turns.size, tailTurn?.id, tailTurn?.text?.length, state.hint) {
+        "${turns.size}_${tailTurn?.id.orEmpty()}_${tailTurn?.text?.length ?: 0}_${state.hint != null}"
+    }
+    LaunchedEffect(scrollSignature, follow, reviewing) {
+        if (!follow || reviewing || turns.isEmpty()) return@LaunchedEffect
+        val count = listState.layoutInfo.totalItemsCount
+        if (count > 0) {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            if (lastVisible >= count - 2) {
+                listState.animateScrollToItem(count - 1)
+            } else {
+                listState.scrollToItem(count - 1)
             }
+        }
     }
 
     Column(
@@ -209,7 +207,11 @@ fun ChatScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(Spacing.bubble),
             ) {
-                items(turns, key = { it.id }) { turn ->
+                items(
+                    items = turns,
+                    key = { it.id },
+                    contentType = { it.speaker },
+                ) { turn ->
                     when (turn.speaker) {
                         Speaker.Echo -> EchoRow(
                             turn = turn,
@@ -235,7 +237,7 @@ fun ChatScreen(
                 }
                 if (!reviewing) {
                     state.hint?.let { hint ->
-                        item(key = "hint") { HintCard(hint) }
+                        item(key = "hint", contentType = "hint") { HintCard(hint) }
                     }
                 }
             }
