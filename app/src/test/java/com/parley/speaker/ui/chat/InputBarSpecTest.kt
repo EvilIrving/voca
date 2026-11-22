@@ -6,44 +6,53 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 画板上的几组数在这里钉住：改尺寸时先看这几条会不会红，再去真机上量。
- * 参照的是 docs/design 规范页的输入条一节，屏幕按 360×792、左右各留 7 算。
+ * 画板定稿的几组数在这里钉住：改尺寸时先看这几条会不会红，再去真机上量。
+ * 参照 Figma「Parley 语音输入条」那一页，屏幕按 360 宽、左右各留 7 算。
  */
 class InputBarSpecTest {
 
     @Test
-    fun `胶囊三百四十六，右侧那颗四十四收在条内，读字区剩下三百零二`() {
-        assertEquals(346.dp, InputBarSpec.CapsuleWidth)
-        assertEquals(44.dp, InputBarSpec.ButtonSize)
-        assertEquals(302.dp, InputBarSpec.CapsuleWidth - InputBarSpec.ButtonSize)
+    fun `胶囊三百六的屏上二百八十八，容器一百二十高，行从六十四起`() {
+        assertEquals(288.dp, InputBarSpec.pillWidth(360.dp))
+        assertEquals(120.dp, InputBarSpec.Height)
+        assertEquals(64.dp, InputBarSpec.PillTop)
+        // 三段各自钉住：只把 PillTop 的定义拄一遍验不出东西，改哪一段都得让这里红。
+        assertEquals(8.dp, InputBarSpec.BaseBottom)
+        assertEquals(48.dp, InputBarSpec.PillHeight)
+        assertEquals(InputBarSpec.Height - InputBarSpec.BaseBottom, InputBarSpec.PillTop + InputBarSpec.PillHeight)
     }
 
     @Test
-    fun `圆钮与四十四同心，长大后右端溢出条外二十一`() {
-        assertEquals(0.dp, InputBarSpec.centerOnButton(InputBarSpec.ButtonSize))
-        assertEquals(21.5.dp, InputBarSpec.centerOnButton(InputBarSpec.CircleSize))
-        // 三百六的屏幕、左右各七，条右端落在三百五十三，八十七的圆心在三百三十一，
-        // 右边缘因此越过屏幕十四点五，与实机上右侧被切掉那一小块对得上。
-        val screen = 360.dp
-        val circleCentre = InputBarSpec.SideInset + InputBarSpec.CapsuleWidth - InputBarSpec.ButtonSize / 2
-        val overflow = circleCentre + InputBarSpec.CircleSize / 2 - screen
-        assertEquals(14.5.dp, overflow)
+    fun `圆钮与四十八同心，长到八十二右缘越过屏幕十四`() {
+        val band = 360.dp
+        val center = InputBarSpec.circleCenter(band)
+        assertEquals(329.dp, center)
+        assertEquals(center, band - InputBarSpec.SideInset - InputBarSpec.ActionSize / 2)
+        assertEquals(14.dp, center + InputBarSpec.RecordSize / 2 - band)
     }
 
     @Test
-    fun `暂停预览里垃圾桶加波形条还塞得进三百零二`() {
-        val used = InputBarSpec.TrashSize + InputBarSpec.PreviewWidth
-        assertEquals(296.dp, used)
-        assertTrue(used <= InputBarSpec.CapsuleWidth - InputBarSpec.ButtonSize)
+    fun `暂停预览里垃圾桶加时间轴还塞得进二百八十八`() {
+        val used = 44.dp + InputBarSpec.TimelineWidth
+        assertEquals(280.dp, used)
+        assertTrue(used <= InputBarSpec.pillWidth(360.dp))
+        assertEquals(InputBarSpec.PillHeight - 8.dp * 2, InputBarSpec.TimelineHeight)
     }
 
     @Test
-    fun `底栏高度由十二加四十四加二十算出，草稿输入同高`() {
-        assertEquals(76.dp, InputBarSpec.Height)
-        // 三段各自钉住：只把 Height 的定义拄一遍验不出东西，改哪一段都得让这里红。
-        assertEquals(12.dp, InputBarSpec.TopPad)
-        assertEquals(44.dp, InputBarSpec.CapsuleHeight)
-        assertEquals(20.dp, InputBarSpec.BottomPad)
-        assertEquals("胶囊与右端那颗按钮同高，底栏只有上下两道留白", InputBarSpec.ButtonSize, InputBarSpec.CapsuleHeight)
+    fun `悬浮件都从胶囊顶上让出来，锁条贴顶、暂停键留八`() {
+        // 锁条底边贴着胶囊顶，顶边落在容器里第八行。
+        assertEquals(8.dp, InputBarSpec.PillTop - InputBarSpec.LockHeight)
+        assertEquals(8.dp, InputBarSpec.PillTop - InputBarSpec.FloatGap - InputBarSpec.PauseSize)
+        assertEquals(16.dp, InputBarSpec.PillTop - InputBarSpec.FloatGap - InputBarSpec.ResumeSize)
+        assertEquals(36.dp, InputBarSpec.LockWidth)
+        assertEquals(96.dp, InputBarSpec.TooltipWidth)
+    }
+
+    @Test
+    fun `锁定态的十八根电平柱从一百六十二铺到二百六十七`() {
+        val width = InputBarSpec.LiveBarStep * (InputBarSpec.LiveBarCount - 1) + InputBarSpec.LiveBarWidth
+        assertEquals(105.dp, width)
+        assertTrue(162.dp + width <= InputBarSpec.pillWidth(360.dp))
     }
 }

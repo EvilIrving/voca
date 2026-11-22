@@ -281,12 +281,12 @@ class VoiceGestureTest {
     }
 
     @Test
-    fun `圆钮随进度从八十七收到七成下限`() {
+    fun `圆钮随进度从八十二收到七成下限`() {
         assertEquals(1f, VoiceGesture.circleScale(1f), 0f)
         assertEquals(0.85f, VoiceGesture.circleScale(0.5f), 0.0001f)
         assertEquals(0.7f, VoiceGesture.circleScale(0f), 0.0001f)
-        // 八十七乘零点七，作废那一刻停在六十一。
-        assertEquals(60.9f, InputBarSpec.CircleSize.value * VoiceGesture.circleScale(0f), 0.01f)
+        // 八十二乘零点七，作废那一刻停在五十七点四。
+        assertEquals(57.4f, InputBarSpec.RecordSize.value * VoiceGesture.circleScale(0f), 0.01f)
     }
 
     @Test

@@ -3,13 +3,8 @@ package com.parley.speaker.ui.chat
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -22,9 +17,9 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,7 +27,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -41,8 +35,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -50,7 +46,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
@@ -60,7 +55,10 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerInputScope
@@ -68,71 +66,157 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.airbnb.lottie.LottieComposition
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.animateLottieCompositionAsState
+import com.airbnb.lottie.compose.rememberLottieComposition
+import com.parley.speaker.R
 import com.parley.speaker.ui.component.Pressable
+import com.parley.speaker.ui.component.pressedTone
 import com.parley.speaker.ui.icon.FluentIcons
+import com.parley.speaker.ui.theme.InterFamily
 import com.parley.speaker.ui.theme.Palette
-import com.parley.speaker.ui.theme.Radius
-import com.parley.speaker.ui.theme.Type
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
+import kotlin.math.tan
+import kotlin.random.Random
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * 画板上的尺寸。底栏让位的高度也从这里算，切到草稿输入时还是 12 + 44 + 20，
- * 列表不会因为底栏换了形态塌一下。
+ * 画板定稿的几何，单位都是 dp、坐标相对各自的父层。
+ * 容器三百六乘一百二十，胶囊行从六十四起（底下留八），五档状态共用这一条基座：
+ * 圆钮长到八十二、锁条浮上来，胶囊的宽高与位置一格都不动。
  */
 object InputBarSpec {
+    val Height = 120.dp
     val SideInset = 7.dp
-    val CapsuleWidth = 346.dp
-    val CapsuleHeight = 44.dp
-    val TopPad = 12.dp
-    val BottomPad = 20.dp
+    val PillHeight = 48.dp
+    val PillRadius = 24.dp
+    val PillGap = 10.dp
+    val ActionSize = 48.dp
+    val BaseBottom = 8.dp
 
-    val TextInset = 14.dp
-    val ButtonSize = 44.dp
+    /** 胶囊行的顶边：一百二十减八再减四十八，悬浮件都以它为准往上让。 */
+    val PillTop = Height - BaseBottom - PillHeight
 
+    val RecordSize = 82.dp
+    val MicGlyph = 24.dp
+    val RecordMicGlyph = 34.dp
+    val SendGlyph = 22.dp
 
-    val CircleSize = 87.dp
+    val DotSize = 10.dp
+    val TrashGlyph = 22.dp
+    val TrashSlotTop = 13.dp
 
-    /**
-     * 圆钮与四十四同心：任何宽度的东西要压在按钮上，圆心都落在条的右端往里二十二的位置。
-     * 八十七长大之后就左右各自溢出，右边那半截落到屏幕外。
-     */
-    fun centerOnButton(width: Dp): Dp = width / 2 - ButtonSize / 2
+    val LockWidth = 36.dp
+    val LockHeight = 56.dp
+    val LockRadius = 18.dp
 
-    val DotSize = 28.dp
-    val DotInset = 13.dp
+    /** 悬浮键底边离胶囊顶的距离，锁条本身也贴着这一条。 */
+    val FloatGap = 8.dp
+    val TooltipWidth = 96.dp
+    val TooltipHeight = 32.dp
+    val TooltipGap = 10.dp
 
-    val TrashSize = 44.dp
-    val PreviewWidth = 252.dp
-    val PreviewHeight = 32.dp
+    val PauseSize = 40.dp
+    val ResumeSize = 36.dp
 
-    val LockChipWidth = 30.dp
-    val LockChipHeight = 66.dp
-    val LockChipNarrowHeight = 36.dp
-    val LockChipGap = 21.dp
+    val LiveBarCount = 18
+    val LiveBarStep = 6.dp
+    val LiveBarWidth = 3.dp
+    val LiveBarMin = 4.dp
+    val LiveBarMax = 20.dp
 
-    val KeySize = 36.dp
+    val TimelineWidth = 236.dp
+    val TimelineHeight = 32.dp
+    val TimelineRadius = 16.dp
+    val PlaySize = 24.dp
+    val PlayGlyph = 12.dp
+    val PreviewBarCount = 32
+    val PreviewBarWidth = 3.dp
+    val PreviewBarMin = 3.dp
+    val PreviewBarMax = 21.dp
 
-    /** 底栏高度：输入条自己这一条带子加上下留白。 */
-    val Height = TopPad + CapsuleHeight + BottomPad
+    /** 三百六的屏上正好二百八十八。 */
+    fun pillWidth(band: Dp): Dp = band - SideInset * 2 - PillGap - ActionSize
+
+    /** 圆钮圆心落在右侧那颗四十八的中心，长大与收缩都从这一点算。 */
+    fun circleCenter(band: Dp): Dp = band - SideInset - ActionSize / 2
 }
 
-/** 长到八十七用一百毫秒，其余收尾一律一百八十毫秒，只走透明度与位移。 */
+/** 圆钮四十八与八十二之间用一百毫秒，其余进出收在一百八十毫秒。 */
 private const val GrowMs = 100
 private const val SettleMs = 180
 
-/** 锁定后隔这么久浮出暂停键，留出抬手的时间，免得一巴掌拍在暂停上。 */
+/** 锁定后隔这么久浮出暂停键，留出抬手的时间。 */
 private const val PauseKeyDelayMs = 560L
 
 /** 收音在别处失败时先宽限这么久再收回输入条：刚开录那一帧 recording 还没翻真。 */
 private const val CaptureGraceMs = 250L
 
+/** 垃圾桶那支 json 是五十二帧六十帧每秒，读不到合成时长时按它收尾。 */
+private const val BinFallbackMs = 870L
+
+/** 未播的波形柱压到四成五。 */
+private const val UnplayedAlpha = 0.45f
+
+private val PillShape = RoundedCornerShape(InputBarSpec.PillRadius)
+private val ClockStyle = TextStyle(
+    fontFamily = InterFamily,
+    fontSize = 15.sp,
+    lineHeight = 18.sp,
+    fontWeight = FontWeight.SemiBold,
+    color = Palette.ink,
+)
+private val PlaceholderStyle = TextStyle(
+    fontFamily = InterFamily,
+    fontSize = 15.sp,
+    lineHeight = 20.sp,
+    color = Palette.ink3,
+)
+private val DraftStyle = PlaceholderStyle.copy(color = Palette.ink)
+private val SlideStyle = TextStyle(
+    fontFamily = InterFamily,
+    fontSize = 14.sp,
+    lineHeight = 18.sp,
+    color = Palette.ink3,
+)
+private val CancelStyle = SlideStyle.copy(fontWeight = FontWeight.SemiBold, color = Palette.clayDeep)
+private val TooltipStyle = TextStyle(
+    fontFamily = InterFamily,
+    fontSize = 12.sp,
+    lineHeight = 16.sp,
+    color = Color.White,
+)
+private val DurationStyle = TextStyle(
+    fontFamily = InterFamily,
+    fontSize = 11.sp,
+    lineHeight = 13.sp,
+    fontWeight = FontWeight.SemiBold,
+    color = Color.White.copy(alpha = 0.8f),
+)
+
+/** 垃圾桶动效播放期间冻结的那一帧：胶囊与圆钮停在作废当刻，播完才真去收这一轮。 */
+private data class DiscardVisual(val phase: VoicePhase, val scale: Float, val left: Float, val token: Long)
+
+/**
+ * 底部语音输入条。外面一只一百二十高的容器，里面三层：最底下是双层 blob 光晕，
+ * 中间是贴底的胶囊行与右侧圆钮，最上面是锁条、提示气泡与暂停恢复两枚悬浮键。
+ * 三层都按固定坐标摆，任何状态都不让胶囊基座重排。
+ */
 @Composable
 fun VoiceInputBar(
     elapsedMs: Long,
@@ -140,9 +224,12 @@ fun VoiceInputBar(
     levelFrame: Long,
     recording: Boolean,
     enabled: Boolean,
+    preview: VoicePreview? = null,
     onPressStart: () -> Boolean,
     onArmed: (Boolean) -> Unit,
     onPressEnd: (cancelled: Boolean) -> Unit,
+    onHold: (Boolean) -> Unit = {},
+    onPreviewToggle: () -> Unit = {},
     onSendText: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -151,18 +238,33 @@ fun VoiceInputBar(
     // 底下那层手势永远接不到指针，按住说话就变成弹选中菜单。
     var editing by rememberSaveable { mutableStateOf(false) }
     var gesture by remember { mutableStateOf(VoiceGestureState()) }
+    var discard by remember { mutableStateOf<DiscardVisual?>(null) }
+    var discardToken by remember { mutableLongStateOf(0L) }
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
 
-    // 指针循环只起一次，中途重建会把按到一半的手势掐断。三个回调借 rememberUpdatedState
+    // 指针循环只起一次，中途重建会把按到一半的手势掐断。四个回调借 rememberUpdatedState
     // 拿最新一份，状态本身放在同一个 MutableState 里，老闭包读写的也是它。
     val startRecording = rememberUpdatedState(onPressStart)
     val armed = rememberUpdatedState(onArmed)
     val ended = rememberUpdatedState(onPressEnd)
+    val holdChanged = rememberUpdatedState(onHold)
+
+    // 可走距离取整个会话窗口的宽度，与源码里 sizeNotifierLayout 的实测宽度同一个口径。
+    val span = VoiceGesture.cancelSpan(LocalConfiguration.current.screenWidthDp.toFloat())
 
     val dispatch: (VoiceInputEvent) -> Unit = { event ->
-        val reduction = gesture.reduce(event)
-        gesture = reduction.state
+        // 上一段作废还在播垃圾桶：新的按压一到就先把它收干净，免得两次作废叠在一起。
+        if (discard != null) {
+            discard = null
+            ended.value(true)
+        }
+        val before = gesture
+        val reduction = before.reduce(event)
+        val after = reduction.state
+        gesture = after
+        if (after.phase == VoicePhase.Paused && before.phase != VoicePhase.Paused) holdChanged.value(true)
+        if (before.phase == VoicePhase.Paused && after.phase != VoicePhase.Paused) holdChanged.value(false)
         reduction.effects.forEach { effect ->
             when (effect) {
                 VoiceEffect.StartRecording -> {
@@ -174,7 +276,21 @@ fun VoiceInputBar(
                 }
 
                 is VoiceEffect.StageCancel -> armed.value(effect.staged)
-                is VoiceEffect.Finish -> ended.value(effect.cancelled)
+
+                is VoiceEffect.Finish -> if (effect.cancelled) {
+                    val paused = before.phase == VoicePhase.Paused
+                    val progress = VoiceGesture.cancelProgress(before.shift.left, span)
+                    discardToken += 1
+                    discard = DiscardVisual(
+                        phase = if (paused) VoicePhase.Paused else VoicePhase.Cancelling,
+                        scale = if (paused) 1f else VoiceGesture.circleScale(progress),
+                        left = if (paused) 0f else before.shift.left,
+                        token = discardToken,
+                    )
+                } else {
+                    ended.value(false)
+                }
+
                 VoiceEffect.OpenDraft -> editing = true
             }
         }
@@ -190,6 +306,23 @@ fun VoiceInputBar(
         if (!recording && gesture.phase == open) dispatch(VoiceInputEvent.TurnEnded)
     }
 
+    // 垃圾桶跑一遍再真正作废：这一段是丢掉还是发出去，要等杯子把录音条吞下去才算数。
+    val binComposition by rememberLottieComposition(
+        LottieCompositionSpec.RawRes(R.raw.chat_audio_record_delete),
+    )
+    LaunchedEffect(discard?.token) {
+        if (discard == null) return@LaunchedEffect
+        delay(binComposition?.duration?.toLong() ?: BinFallbackMs)
+        discard = null
+        ended.value(true)
+    }
+
+    // 输入条被拿走（切回看、断线重连）时作废还挂在半空：这一轮当场收掉，别留着采集在跑。
+    val pendingDiscard = rememberUpdatedState(discard)
+    DisposableEffect(Unit) {
+        onDispose { if (pendingDiscard.value != null) ended.value(true) }
+    }
+
     LaunchedEffect(editing) {
         if (editing) focus.requestFocus()
     }
@@ -201,7 +334,7 @@ fun VoiceInputBar(
         focusManager.clearFocus()
     }
 
-    val send: () -> Unit = {
+    val sendDraft: () -> Unit = {
         val text = draft.trim()
         if (text.isNotEmpty()) {
             draft = ""
@@ -211,528 +344,727 @@ fun VoiceInputBar(
         }
     }
 
-    val phase = gesture.phase
-    val cancelling = gesture.cancelling
-    val gestureLive = enabled && (phase != VoicePhase.Idle || !editing)
+    // 作废动效播放期间界面读冻结的那一帧，手势机器本身已经回到 Idle。
+    val frozen = discard
+    val phase = frozen?.phase ?: gesture.phase
+    val gestureLive = enabled && (gesture.phase != VoicePhase.Idle || !editing)
     val dragging = phase == VoicePhase.Holding || phase == VoicePhase.Cancelling
 
-    // 手势挂在整条栏的最外层，它必须是胶囊与圆钮的祖先：Compose 的命中测试碰到圆钮自己那枚
-    // clickable 就停了，同一层下面的兄弟收不到事件，挂在栏里面那层时手指压在圆钮上等于什么都没按。
-    // 可走距离取整个会话窗口的宽度，与源码里 sizeNotifierLayout 的实测宽度同一个口径。
-    val span = VoiceGesture.cancelSpan(LocalConfiguration.current.screenWidthDp.toFloat())
+    // 圆钮左移每帧吃进目标的 0.3：图形始终落后手指一截，松手自己追上来。
+    val leftShift by animateFloatAsState(
+        targetValue = when {
+            frozen != null -> frozen.left
+            dragging -> gesture.shift.left
+            else -> 0f
+        },
+        animationSpec = if (dragging) snap() else tween(SettleMs),
+        label = "circleLeft",
+    )
+    val progress = VoiceGesture.cancelProgress(leftShift, span)
+    val scale = if (dragging) frozen?.scale ?: VoiceGesture.circleScale(progress) else 1f
+    val diameter by animateDpAsState(
+        targetValue = if (dragging) InputBarSpec.RecordSize else InputBarSpec.ActionSize,
+        animationSpec = tween(GrowMs),
+        label = "circleDiameter",
+    )
+
+    val inFlight = phase == VoicePhase.Locked || phase == VoicePhase.Paused
+    val draftReady = draft.isNotBlank()
+    val plane = inFlight || draftReady
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(InputBarSpec.Height)
+            // 手势必须挂在整条栏的最外层：命中测试碰到圆钮自己那枚 clickable 就停了，
+            // 挂在栏里面那层时手指压在圆钮上等于什么都没按。
             .then(
                 if (gestureLive) {
-                    Modifier.pointerInput(span) { trackVoiceGesture(span) { dispatch(it) } }
+                    Modifier.pointerInput(span) { trackVoiceGesture(span, dispatch) }
                 } else {
                     Modifier
                 },
-            )
-            .padding(horizontal = InputBarSpec.SideInset),
+            ),
     ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = InputBarSpec.TopPad)
-                .height(InputBarSpec.CapsuleHeight)
-                .widthIn(max = InputBarSpec.CapsuleWidth)
-                .fillMaxWidth(),
-        ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val band = maxWidth
-            // 录音与锁定收成读字区三百零二，左滑作废时圆钮已经缩回四十四，胶囊跟着放回三百四十六。
-            val narrowed = phase == VoicePhase.Holding || phase == VoicePhase.Locked
-            val capsuleWidth by animateDpAsState(
-                targetValue = if (narrowed) band - InputBarSpec.ButtonSize else band,
-                animationSpec = tween(GrowMs),
-                label = "capsuleWidth",
-            )
-            val leftShift by animateFloatAsState(
-                targetValue = if (dragging) gesture.shift.left else 0f,
-                animationSpec = if (dragging) snap() else tween(SettleMs),
-                label = "circleLeft",
-            )
-            val upShift by animateFloatAsState(
-                targetValue = if (dragging) gesture.shift.up else 0f,
-                animationSpec = if (dragging) snap() else tween(SettleMs),
-                label = "circleUp",
-            )
-            // 圆钮跟手缩：进度从 1 走到 0，直径从 87 收到 0.7 倍，与位置读同一份滤波值。
-            val progress = VoiceGesture.cancelProgress(leftShift, span)
-            val scale = if (dragging) VoiceGesture.circleScale(progress) else 1f
-            val circleSize by animateDpAsState(
-                targetValue = if (phase == VoicePhase.Idle) {
-                    InputBarSpec.ButtonSize
-                } else {
-                    InputBarSpec.CircleSize * scale
-                },
-                // 左滑作废时尺寸与位置一起 snap：位置已经跟手了，尺寸再走一百毫秒的 tween
-                // 就成了先缩再挪过去。
-                animationSpec = if (phase == VoicePhase.Cancelling) snap() else tween(GrowMs),
-                label = "circleSize",
-            )
+            val centerX = InputBarSpec.circleCenter(band)
+            val pillWidth = InputBarSpec.pillWidth(band)
 
-            Capsule(
-                phase = phase,
-                cancelling = cancelling,
-                leftShift = gesture.raw.left,
-                hintAlpha = if (dragging) VoiceGesture.hintAlpha(progress) else 1f,
-                elapsedMs = elapsedMs,
+            // 底：双层 blob 光晕，整片一张 Canvas 画完，不进组合树。
+            Blobs(
+                visible = dragging && frozen == null,
+                progress = progress,
                 levels = levels,
                 levelFrame = levelFrame,
-                draft = draft,
-                editing = editing,
-                enabled = enabled,
-                onDraftChange = { draft = it },
-                onSend = send,
-                onCancel = { dispatch(VoiceInputEvent.Cancel) },
-                onTapField = { focus.requestFocus() },
-                onExitEdit = { editing = false },
-                focus = focus,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .width(capsuleWidth)
-                    .fillMaxHeight(),
+                centerX = centerX,
+                modifier = Modifier.fillMaxSize(),
             )
 
-            RecordButton(
-                phase = phase,
-                enabled = enabled,
-                draft = draft,
-                size = circleSize,
-                onSend = if (phase == VoicePhase.Idle) send else { { dispatch(VoiceInputEvent.Send) } },
+            // 中：胶囊基座。宽度只由可用宽度算出，五档状态共用同一条，永不被圆钮挤动。
+            Box(
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .offset(
-                        x = InputBarSpec.centerOnButton(circleSize) - leftShift.dp,
-                        y = -upShift.dp,
+                    .offset(x = InputBarSpec.SideInset, y = InputBarSpec.PillTop)
+                    .size(pillWidth, InputBarSpec.PillHeight)
+                    .clip(PillShape)
+                    .background(Palette.card)
+                    .border(1.dp, Palette.hair, PillShape),
+            ) {
+                when (phase) {
+                    VoicePhase.Idle -> DraftRow(
+                        draft = draft,
+                        editing = editing,
+                        enabled = enabled,
+                        onChange = { draft = it },
+                        onSend = sendDraft,
+                        onExitEdit = { editing = false },
+                        focus = focus,
                     )
-                    .size(circleSize),
+
+                    VoicePhase.Holding, VoicePhase.Cancelling -> RecordingRow(
+                        progress = progress,
+                        elapsedMs = elapsedMs,
+                        binPlaying = frozen != null,
+                        binComposition = binComposition,
+                    )
+
+                    VoicePhase.Locked -> LockedRow(
+                        elapsedMs = elapsedMs,
+                        levels = levels,
+                        levelFrame = levelFrame,
+                        onCancel = { dispatch(VoiceInputEvent.Cancel) },
+                    )
+
+                    VoicePhase.Paused -> PausedRow(
+                        preview = preview,
+                        levels = levels,
+                        levelFrame = levelFrame,
+                        elapsedMs = elapsedMs,
+                        binPlaying = frozen != null,
+                        binComposition = binComposition,
+                        onDiscard = { dispatch(VoiceInputEvent.Cancel) },
+                        onToggle = onPreviewToggle,
+                    )
+                }
+            }
+
+            // 圆钮叠在光晕这一层：尺寸由状态算出，长大时向右溢出条外，胶囊一格不动。
+            ActionCircle(
+                diameter = diameter,
+                scale = scale,
+                fill = when {
+                    !enabled -> Palette.hairStrong
+                    dragging -> Palette.clay
+                    plane -> Palette.ink
+                    else -> Palette.clay
+                },
+                glyph = if (dragging || !plane) FluentIcons.Mic else FluentIcons.Send,
+                glyphSize = when {
+                    dragging -> InputBarSpec.RecordMicGlyph
+                    plane -> InputBarSpec.SendGlyph
+                    else -> InputBarSpec.MicGlyph
+                },
+                label = when {
+                    dragging -> "松开结束"
+                    plane -> "发送"
+                    else -> "按住说话"
+                },
+                onClick = when {
+                    !enabled -> null
+                    inFlight -> ({ dispatch(VoiceInputEvent.Send) })
+                    phase == VoicePhase.Idle && draftReady -> sendDraft
+                    else -> null
+                },
+                modifier = Modifier.offset(
+                    x = centerX - diameter / 2 - leftShift.dp,
+                    y = InputBarSpec.PillTop + InputBarSpec.PillHeight / 2 - diameter / 2,
+                ),
             )
+
+            // 顶：悬浮层。锁条、提示气泡、暂停键、恢复键都按固定纵向偏移漂着，不参与布局。
+            val holding = phase == VoicePhase.Holding
 
             LockChip(
-                visible = phase == VoicePhase.Holding,
-                progress = VoiceGesture.lockProgress(gesture.raw.up),
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .offset(x = InputBarSpec.centerOnButton(InputBarSpec.LockChipWidth)),
+                visible = holding,
+                modifier = Modifier.offset(
+                    x = centerX - InputBarSpec.LockWidth / 2,
+                    y = InputBarSpec.PillTop - InputBarSpec.LockHeight,
+                ),
             )
 
-            FloatingKey(
+            Tooltip(
+                visible = holding,
+                modifier = Modifier.offset(
+                    x = centerX - InputBarSpec.LockWidth / 2 - InputBarSpec.TooltipGap - InputBarSpec.TooltipWidth,
+                    y = InputBarSpec.PillTop - InputBarSpec.LockHeight / 2 - InputBarSpec.TooltipHeight / 2,
+                ),
+            )
+
+            HoldKey(
                 visible = phase == VoicePhase.Locked,
-                icon = FluentIcons.Pause,
-                label = "暂停收音",
                 delayMs = PauseKeyDelayMs,
+                size = InputBarSpec.PauseSize,
+                glyph = FluentIcons.Pause,
+                glyphSize = 18.dp,
+                label = "暂停收音",
                 onClick = { dispatch(VoiceInputEvent.Pause) },
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .offset(x = InputBarSpec.centerOnButton(InputBarSpec.KeySize)),
+                modifier = Modifier.offset(
+                    x = centerX - InputBarSpec.PauseSize / 2,
+                    y = InputBarSpec.PillTop - InputBarSpec.FloatGap - InputBarSpec.PauseSize,
+                ),
             )
 
-            FloatingKey(
+            HoldKey(
                 visible = phase == VoicePhase.Paused,
-                icon = FluentIcons.ChevUp,
-                label = "继续收音",
                 delayMs = 0L,
+                size = InputBarSpec.ResumeSize,
+                glyph = FluentIcons.Mic,
+                glyphSize = 18.dp,
+                label = "继续收音",
                 onClick = { dispatch(VoiceInputEvent.Resume) },
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .offset(x = InputBarSpec.centerOnButton(InputBarSpec.KeySize)),
+                modifier = Modifier.offset(
+                    x = centerX - InputBarSpec.ResumeSize / 2,
+                    y = InputBarSpec.PillTop - InputBarSpec.FloatGap - InputBarSpec.ResumeSize,
+                ),
             )
         }
     }
 }
 
+/**
+ * 双层 blob 光晕。顶点数、半径抖动与缩放都照 BlobDrawable：半径在四十七附近抖，
+ * 缩放是 0.926 / 0.878 再加一点四倍电平，左滑时整体按进度收回去。
+ */
+@Suppress("UNUSED_EXPRESSION")
 @Composable
-private fun Capsule(
-    phase: VoicePhase,
-    cancelling: Boolean,
-    leftShift: Float,
-    hintAlpha: Float,
-    elapsedMs: Long,
+private fun Blobs(
+    visible: Boolean,
+    progress: Float,
     levels: FloatArray,
     levelFrame: Long,
-    draft: String,
-    editing: Boolean,
-    enabled: Boolean,
-    onDraftChange: (String) -> Unit,
-    onSend: () -> Unit,
-    onCancel: () -> Unit,
-    onTapField: () -> Unit,
-    onExitEdit: () -> Unit,
-    focus: FocusRequester,
+    centerX: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(Radius.pill)
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .background(Palette.card)
-            .border(1.dp, Palette.hair, shape),
-    ) {
-        when {
-            phase == VoicePhase.Paused -> PreviewContent(
-                levels = levels,
-                levelFrame = levelFrame,
-                elapsedMs = elapsedMs,
-                onDiscard = onCancel,
-            )
-
-            phase != VoicePhase.Idle -> RecordingContent(
-                phase = phase,
-                cancelling = cancelling,
-                leftShift = leftShift,
-                hintAlpha = hintAlpha,
-                elapsedMs = elapsedMs,
-                onCancel = onCancel,
-            )
-
-            else -> DraftContent(
-                draft = draft,
-                editing = editing,
-                enabled = enabled,
-                onChange = onDraftChange,
-                onSend = onSend,
-                onTapField = onTapField,
-                onExitEdit = onExitEdit,
-                focus = focus,
-            )
-        }
+    val tiny = remember { BlobRing(vertices = 11, minRadius = 47f, maxRadius = 56f, scaleBase = 0.926f) }
+    val big = remember { BlobRing(vertices = 12, minRadius = 50f, maxRadius = 57.2f, scaleBase = 0.878f) }
+    Canvas(modifier = modifier) {
+        // 读一次帧计数，电平每换一帧就重绘一次；数组在采集侧原地复用，没有别的信号可用。
+        levelFrame
+        if (!visible) return@Canvas
+        val reveal = (progress / VoiceGesture.LockableProgress).coerceIn(0f, 1f)
+        if (reveal <= 0f) return@Canvas
+        val amplitude = levels.maxOrNull()?.coerceIn(0f, 1f) ?: 0f
+        val center = Offset(centerX.toPx(), InputBarSpec.PillTop.toPx() + InputBarSpec.PillHeight.toPx() / 2f)
+        big.draw(this, center, levelFrame, amplitude, reveal, Palette.clay.copy(alpha = 0.18f), density)
+        tiny.draw(this, center, levelFrame, amplitude, reveal, Palette.clay.copy(alpha = 0.28f), density)
     }
 }
 
-/** 空态与文字态：一句提示或一个输入框，右端那颗四十四收在同一只胶囊里。 */
+/**
+ * 一团 blob 的顶点与相位。每个顶点各自独立地在两个半径、两个角度之间插值，
+ * 相邻顶点用三次贝塞尔接起来，控制柄按两半径的均值算，轮廓因此一直闭合顺滑。
+ */
+private class BlobRing(
+    private val vertices: Int,
+    private val minRadius: Float,
+    private val maxRadius: Float,
+    private val scaleBase: Float,
+) {
+    private val radius = FloatArray(vertices)
+    private val angle = FloatArray(vertices)
+    private val nextRadius = FloatArray(vertices)
+    private val nextAngle = FloatArray(vertices)
+    private val progress = FloatArray(vertices)
+    private val speed = FloatArray(vertices)
+    private val random = Random(vertices * 7919)
+    private val control = ((4.0 / 3.0) * tan(PI / (2 * vertices))).toFloat()
+    private var smoothed = 0f
+    private var lastFrame = Long.MIN_VALUE
+
+    init {
+        for (i in 0 until vertices) {
+            seed(radius, angle, i)
+            seed(nextRadius, nextAngle, i)
+        }
+    }
+
+    private fun seed(intoRadius: FloatArray, intoAngle: FloatArray, index: Int) {
+        val wobble = 360f / vertices * 0.05f
+        intoRadius[index] = minRadius + random.nextFloat() * (maxRadius - minRadius)
+        intoAngle[index] = 360f / vertices * index + (random.nextFloat() - 0.5f) * wobble
+        speed[index] = 0.017f + 0.003f * random.nextFloat()
+    }
+
+    fun draw(
+        scope: DrawScope,
+        center: Offset,
+        frame: Long,
+        amplitude: Float,
+        reveal: Float,
+        color: Color,
+        density: Float,
+    ) {
+        // 电平每帧只吃进新值的 0.1，二十毫秒一帧的分贝被压成呼吸。
+        smoothed = smoothed * 0.9f + amplitude * 0.1f
+        if (frame != lastFrame) {
+            lastFrame = frame
+            for (i in 0 until vertices) {
+                progress[i] += speed[i] * 0.8f + smoothed * speed[i] * 8.2f * 1.01f
+                if (progress[i] >= 1f) {
+                    progress[i] = 0f
+                    radius[i] = nextRadius[i]
+                    angle[i] = nextAngle[i]
+                    seed(nextRadius, nextAngle, i)
+                }
+            }
+        }
+        val expand = (scaleBase + 1.4f * smoothed) * reveal
+        val path = Path()
+        for (i in 0 until vertices) {
+            val next = if (i + 1 < vertices) i + 1 else 0
+            val r1 = lerp(radius[i], nextRadius[i], progress[i]) * expand * density
+            val r2 = lerp(radius[next], nextRadius[next], progress[next]) * expand * density
+            val a1 = lerp(angle[i], nextAngle[i], progress[i])
+            val a2 = lerp(angle[next], nextAngle[next], progress[next])
+            val handle = control * (minOf(r1, r2) + (maxOf(r1, r2) - minOf(r1, r2)) / 2f)
+            val start = center + rotate(0f, -r1, a1)
+            val startControl = center + rotate(handle, -r1, a1)
+            val end = center + rotate(0f, -r2, a2)
+            val endControl = center + rotate(-handle, -r2, a2)
+            if (i == 0) path.moveTo(start.x, start.y)
+            path.cubicTo(startControl.x, startControl.y, endControl.x, endControl.y, end.x, end.y)
+        }
+        scope.drawPath(path, color)
+    }
+
+    private fun lerp(from: Float, to: Float, at: Float): Float = from * (1f - at) + to * at
+
+    private fun rotate(x: Float, y: Float, degrees: Float): Offset {
+        val radians = degrees * PI / 180.0
+        val c = cos(radians).toFloat()
+        val s = sin(radians).toFloat()
+        return Offset(x * c - y * s, x * s + y * c)
+    }
+}
+
+/** 空态与文字态：左边一句提示或一个输入框。右端那颗圆钮不在这只胶囊里。 */
 @Composable
-private fun DraftContent(
+private fun DraftRow(
     draft: String,
     editing: Boolean,
     enabled: Boolean,
     onChange: (String) -> Unit,
     onSend: () -> Unit,
-    onTapField: () -> Unit,
     onExitEdit: () -> Unit,
     focus: FocusRequester,
 ) {
     // 编辑态由焦点决定：输入框真拿到过焦点之后的失焦才算退出。
     // 刚挂上去那一帧报的失焦不算，否则草稿态一进去就自己弹回来。
     var hadFocus by remember { mutableStateOf(false) }
-    Row(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .padding(start = InputBarSpec.TextInset),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            if (editing) {
-                Pressable(
-                    modifier = Modifier.fillMaxSize(),
-                    enabled = enabled,
-                    contentAlignment = Alignment.CenterStart,
-                    onClick = onTapField,
-                ) {
-                    BasicTextField(
-                        value = draft,
-                        onValueChange = onChange,
-                        enabled = enabled,
-                        singleLine = true,
-                        textStyle = Type.uiStrong,
-                        cursorBrush = SolidColor(Palette.clayDeep),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { onSend() }),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focus)
-                            .onFocusChanged { state ->
-                                if (state.isFocused) {
-                                    hadFocus = true
-                                } else if (hadFocus) {
-                                    hadFocus = false
-                                    onExitEdit()
-                                }
-                            },
-                    )
-                }
-            } else {
-                Text(
-                    text = draft.ifEmpty { "说点什么" },
-                    style = if (draft.isEmpty()) Type.uiInk4 else Type.uiStrong,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        Spacer(Modifier.width(InputBarSpec.ButtonSize))
-    }
-}
-
-/** 录音态：红点与计时压在左端，提示居中，左滑时提示原地淡出。 */
-@Composable
-private fun RecordingContent(
-    phase: VoicePhase,
-    cancelling: Boolean,
-    leftShift: Float,
-    hintAlpha: Float,
-    elapsedMs: Long,
-    onCancel: () -> Unit,
-) {
-    val dot = if (cancelling) Palette.danger else Palette.clayDeep
-    val clock = if (cancelling) Palette.danger else Palette.ink2
-    val blink = blinkAlpha()
-    Box(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = InputBarSpec.DotInset),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(InputBarSpec.DotSize)
-                    .background(if (phase == VoicePhase.Cancelling) dot else dot.copy(alpha = blink), CircleShape),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = formatBarClock(elapsedMs),
-                style = Type.mono.copy(fontSize = 11.sp, lineHeight = 14.sp, color = clock),
-            )
-        }
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            when (phase) {
-                VoicePhase.Locked -> Pressable(
-                    shape = RoundedCornerShape(Radius.pill),
-                    onClick = onCancel,
-                ) {
-                    Text(
-                        "取消",
-                        style = Type.uiStrongInk2,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
-                }
-
-                // 作废当刻提示已经淡到零，不再补一句「已取消」：Telegram 这边直接就收条了。
-                VoicePhase.Cancelling -> Unit
-
-                else -> CancelHint(staged = cancelling, alpha = hintAlpha)
-            }
-        }
-    }
-}
-
-/** 提示跟进度淡出，滑满一条可走距离正好透明，那一刻也已经作废了。 */
-@Composable
-private fun CancelHint(staged: Boolean, alpha: Float) {
-    val tint = if (staged) Palette.danger else Palette.ink3
-    Row(
-        modifier = Modifier.alpha(alpha),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            FluentIcons.ChevRight,
-            contentDescription = null,
-            modifier = Modifier
-                .size(12.dp)
-                .rotate(180f),
-            tint = tint,
-        )
-        Spacer(Modifier.width(2.dp))
-        Text(
-            text = if (staged) "松手取消" else "滑动以取消",
-            style = Type.ui.copy(color = tint),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/** 暂停预览：左端垃圾桶四十四，中间二百五十二乘三十二的深色波形条，右侧还是那颗八十七。 */
-@Composable
-private fun PreviewContent(
-    levels: FloatArray,
-    levelFrame: Long,
-    elapsedMs: Long,
-    onDiscard: () -> Unit,
-) {
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(start = 20.dp, end = 12.dp),
+        contentAlignment = Alignment.CenterStart,
     ) {
-        Pressable(
-            modifier = Modifier.size(InputBarSpec.TrashSize),
-            shape = CircleShape,
-            contentDescription = "丢掉这段录音",
-            onClick = onDiscard,
-        ) {
-            Icon(
-                FluentIcons.Delete,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = Palette.ink3,
+        if (editing) {
+            BasicTextField(
+                value = draft,
+                onValueChange = onChange,
+                enabled = enabled,
+                singleLine = true,
+                textStyle = DraftStyle,
+                cursorBrush = SolidColor(Palette.clayDeep),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { onSend() }),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focus)
+                    .onFocusChanged { state ->
+                        if (state.isFocused) {
+                            hadFocus = true
+                        } else if (hadFocus) {
+                            hadFocus = false
+                            onExitEdit()
+                        }
+                    },
+            )
+        } else {
+            Text(
+                text = draft.ifEmpty { "说点什么..." },
+                style = if (draft.isEmpty()) PlaceholderStyle else DraftStyle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        PreviewBar(
-            levels = levels,
-            levelFrame = levelFrame,
-            elapsedMs = elapsedMs,
-            modifier = Modifier
-                .width(InputBarSpec.PreviewWidth)
-                .height(InputBarSpec.PreviewHeight),
-        )
     }
 }
 
 /**
- * 深色波形条对着真实电平走。三十四根柱子在同一个 Canvas 里画完，不进组合树；
- * 电平每帧只吃进新值的 0.1，播出来的呼吸不带毛刺。
+ * 录音态：左端一颗陶土圆点、计时、左向折角箭头与「滑动以取消」。
+ * 手指往左一挪，圆点换成垃圾桶、计时右移，滑到四成五以下这三样一起转陶土深色。
  */
-@Suppress("UNUSED_EXPRESSION")
 @Composable
-private fun PreviewBar(
+private fun RecordingRow(
+    progress: Float,
+    elapsedMs: Long,
+    binPlaying: Boolean,
+    binComposition: LottieComposition?,
+) {
+    val staged = progress < VoiceGesture.ReleaseCancelBelow
+    val sliding = progress < 1f
+    val tone = if (staged) Palette.clayDeep else Palette.ink3
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (sliding) {
+            TrashSlot(
+                left = 16.dp,
+                tint = tone,
+                playing = binPlaying,
+                composition = binComposition,
+                modifier = Modifier.offset(y = InputBarSpec.TrashSlotTop),
+            )
+            Text(
+                text = formatBarClock(elapsedMs),
+                style = ClockStyle.copy(color = if (staged) Palette.clayDeep else Palette.ink),
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = 48.dp),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = 16.dp)
+                    .size(InputBarSpec.DotSize)
+                    .background(Palette.clayDeep, CircleShape),
+            )
+            Text(
+                text = formatBarClock(elapsedMs),
+                style = ClockStyle,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = 36.dp),
+            )
+        }
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = 156.dp)
+                .graphicsLayer { alpha = VoiceGesture.hintAlpha(progress) },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                FluentIcons.ChevRight,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(14.dp)
+                    .rotate(180f),
+                tint = tone,
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "滑动以取消",
+                style = SlideStyle.copy(color = tone),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 锁定态：可点的「取消」、陶土圆点、计时，右侧一溜实时电平柱。 */
+@Composable
+private fun LockedRow(
+    elapsedMs: Long,
+    levels: FloatArray,
+    levelFrame: Long,
+    onCancel: () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Pressable(
+            onClick = onCancel,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = 16.dp),
+        ) {
+            Text(
+                text = "取消",
+                style = CancelStyle,
+                modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = 74.dp)
+                .size(InputBarSpec.DotSize)
+                .background(Palette.clayDeep, CircleShape),
+        )
+        Text(
+            text = formatBarClock(elapsedMs),
+            style = ClockStyle,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = 94.dp),
+        )
+        LiveBars(
+            levels = levels,
+            levelFrame = levelFrame,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = 162.dp, y = InputBarSpec.PillHeight / 2 - InputBarSpec.LiveBarMax / 2)
+                .width(InputBarSpec.LiveBarStep * (InputBarSpec.LiveBarCount - 1) + InputBarSpec.LiveBarWidth)
+                .height(InputBarSpec.LiveBarMax),
+        )
+    }
+}
+
+/** 暂停态：左边垃圾桶，中间二百三十六乘三十二的深色时间轴。 */
+@Composable
+private fun PausedRow(
+    preview: VoicePreview?,
     levels: FloatArray,
     levelFrame: Long,
     elapsedMs: Long,
-    modifier: Modifier = Modifier,
+    binPlaying: Boolean,
+    binComposition: LottieComposition?,
+    onDiscard: () -> Unit,
+    onToggle: () -> Unit,
 ) {
-    val smoothed = remember(levels) { FloatArray(levels.size) }
+    Box(modifier = Modifier.fillMaxSize()) {
+        TrashSlot(
+            left = 14.dp,
+            tint = Palette.ink3,
+            playing = binPlaying,
+            composition = binComposition,
+            onClick = onDiscard,
+            modifier = Modifier.offset(y = InputBarSpec.TrashSlotTop),
+        )
+        Timeline(
+            preview = preview,
+            levels = levels,
+            levelFrame = levelFrame,
+            elapsedMs = elapsedMs,
+            onToggle = onToggle,
+            modifier = Modifier
+                .offset(x = 44.dp, y = InputBarSpec.PillHeight / 2 - InputBarSpec.TimelineHeight / 2)
+                .size(InputBarSpec.TimelineWidth, InputBarSpec.TimelineHeight),
+        )
+    }
+}
+
+/** 垃圾桶位：平时是矢量图元，作废时换成 Telegram 那支吞噬动效，播一次就弃。 */
+@Composable
+private fun TrashSlot(
+    left: Dp,
+    tint: Color,
+    playing: Boolean,
+    composition: LottieComposition?,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+) {
+    // 动效画布一百见方，垃圾桶本体只占中间四十宽五十五高，铺到四十 dp 才与旁边那颗图元一般大。
+    val binSize = 40.dp
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(Radius.pill))
+            .offset(x = left)
+            .size(InputBarSpec.TrashGlyph),
+    ) {
+        if (playing && composition != null) {
+            val frame by animateLottieCompositionAsState(
+                composition = composition,
+                iterations = 1,
+                isPlaying = true,
+                restartOnPlay = true,
+            )
+            LottieAnimation(
+                composition = composition,
+                progress = { frame },
+                modifier = Modifier
+                    .offset(
+                        x = (InputBarSpec.TrashGlyph - binSize) / 2,
+                        y = (InputBarSpec.TrashGlyph - binSize) / 2,
+                    )
+                    .size(binSize),
+            )
+        } else {
+            val glyph: @Composable () -> Unit = {
+                Icon(
+                    FluentIcons.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    tint = if (playing) Palette.clayDeep else tint,
+                )
+            }
+            if (onClick != null) {
+                Pressable(
+                    modifier = Modifier.fillMaxSize(),
+                    contentDescription = "丢掉这段录音",
+                    onClick = onClick,
+                ) { glyph() }
+            } else {
+                glyph()
+            }
+        }
+    }
+}
+
+/**
+ * 深色时间轴：左端陶土播放键，中段三十二根柱按预览波形画，已播部分陶土实底、未播压到四成五。
+ * 没有预览数据时退回实时电平与已录时长，不留一段空白。
+ */
+@Composable
+private fun Timeline(
+    preview: VoicePreview?,
+    levels: FloatArray,
+    levelFrame: Long,
+    elapsedMs: Long,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val previewBars = remember(preview?.waveform) {
+        preview?.let { resample(waveAmplitudes(it.waveform), InputBarSpec.PreviewBarCount) }
+    }
+    val liveBars = remember(levelFrame) { resample(levels, InputBarSpec.PreviewBarCount) }
+    val bars = previewBars ?: liveBars
+    val played = preview?.progress?.coerceIn(0f, 1f) ?: 0f
+    val duration = preview?.durationMs ?: elapsedMs
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(InputBarSpec.TimelineRadius))
             .background(Palette.ink),
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // 读一次帧计数，电平每换一帧就重绘一次；数组在采集侧原地复用，没有别的信号可用。
-            levelFrame
-            if (smoothed.isEmpty()) return@Canvas
-            val barWidth = 2.dp.toPx()
-            val start = 46.dp.toPx()
-            val end = 8.dp.toPx()
-            val span = (size.width - start - end).coerceAtLeast(1f)
-            val gap = ((span - smoothed.size * barWidth) / (smoothed.size - 1)).coerceAtLeast(1f)
+            val left = 36.dp.toPx()
+            val right = 51.dp.toPx()
+            val barWidth = InputBarSpec.PreviewBarWidth.toPx()
+            val span = size.width - left - right - barWidth
+            val gap = span / (bars.size - 1).coerceAtLeast(1)
+            val minHeight = InputBarSpec.PreviewBarMin.toPx()
+            val maxHeight = InputBarSpec.PreviewBarMax.toPx()
             val centerY = size.height / 2f
-            val minHeight = 3.dp.toPx()
-            val maxHeight = size.height - 8.dp.toPx()
-            smoothed.indices.forEach { index ->
-                smoothed[index] = VoiceGesture.smoothLevel(smoothed[index], levels[index].coerceIn(0f, 1f))
-                val height = (minHeight + (maxHeight - minHeight) * smoothed[index]).coerceAtMost(maxHeight)
+            bars.forEachIndexed { index, level ->
+                val height = minHeight + (maxHeight - minHeight) * level.coerceIn(0f, 1f)
+                val playedPart = index.toFloat() / (bars.size - 1).coerceAtLeast(1) <= played
                 drawRoundRect(
-                    color = Color.White.copy(alpha = 0.9f),
-                    topLeft = Offset(
-                        x = start + index * (barWidth + gap),
-                        y = centerY - height / 2f,
-                    ),
+                    color = if (playedPart) Palette.clay else Color.White.copy(alpha = UnplayedAlpha),
+                    topLeft = Offset(left + index * gap, centerY - height / 2f),
                     size = Size(barWidth, height),
                     cornerRadius = CornerRadius(barWidth / 2f),
                 )
             }
         }
+        Pressable(
+            modifier = Modifier
+                .offset(x = 4.dp, y = 4.dp)
+                .size(InputBarSpec.PlaySize),
+            shape = CircleShape,
+            resting = Palette.clay,
+            pressing = pressedTone(Palette.clay),
+            contentDescription = if (preview?.playing == true) "暂停试听" else "试听这段录音",
+            onClick = onToggle,
+        ) {
+            Icon(
+                if (preview?.playing == true) FluentIcons.Pause else FluentIcons.Play,
+                contentDescription = null,
+                modifier = Modifier.size(InputBarSpec.PlayGlyph),
+                tint = Color.White,
+            )
+        }
         Text(
-            text = formatBarClock(elapsedMs),
-            style = Type.mono.copy(fontSize = 10.5.sp, lineHeight = 13.sp, color = Color.White),
+            text = formatDuration(duration),
+            style = DurationStyle,
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(start = 8.dp)
-                .background(Palette.ink)
-                .padding(vertical = 2.dp),
+                .offset(x = 194.dp),
         )
     }
 }
 
-/** 圆钮：空态的四十四是麦克风，有草稿换成纸飞机，录音时长大到八十七。 */
+/** 实时电平柱：十八根，三宽六距，高度在四到二十之间跟电平走。 */
+@Suppress("UNUSED_EXPRESSION")
 @Composable
-private fun RecordButton(
-    phase: VoicePhase,
-    enabled: Boolean,
-    draft: String,
-    size: Dp,
-    onSend: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val sending = phase == VoicePhase.Locked || phase == VoicePhase.Paused || draft.isNotBlank()
-    val fill = when {
-        !enabled -> Palette.hairStrong
-        sending -> Palette.ink
-        else -> Palette.clay
-    }
-    // 深底发送键按下去退一档到 ink2，与陶土实底降到 clayDeep 是同一个方向。
-    val pressedFill = if (sending) Palette.ink2 else Palette.clayDeep
-    // 禁不禁用只看真的不可用：空态那颗麦克风照样能点，点下去是开草稿，不是发送。
-    Pressable(
-        modifier = modifier,
-        shape = CircleShape,
-        resting = fill,
-        pressing = pressedFill,
-        enabled = enabled,
-        onClick = onSend,
-    ) {
-        Icon(
-            imageVector = if (sending) FluentIcons.Send else FluentIcons.Mic,
-            contentDescription = when {
-                sending -> "发送"
-                else -> "按住说话"
-            },
-            modifier = Modifier.size(if (size > InputBarSpec.ButtonSize) 28.dp else 18.dp),
-            tint = Color.White,
-        )
-    }
-}
-
-/** 锁条浮在圆钮上方二十一，上滑时按锁定进度从六十六收到三十六，箭头跟着淡出去。 */
-@Composable
-private fun LockChip(visible: Boolean, progress: Float, modifier: Modifier = Modifier) {
-    val height = InputBarSpec.LockChipHeight -
-        (InputBarSpec.LockChipHeight - InputBarSpec.LockChipNarrowHeight) * progress
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(SettleMs)),
-        exit = fadeOut(tween(SettleMs)),
-        modifier = modifier,
-    ) {
-        Box(
-            modifier = Modifier.offset(
-                y = -(InputBarSpec.CircleSize / 2 + InputBarSpec.LockChipGap + height / 2),
-            ),
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(InputBarSpec.LockChipWidth)
-                    .height(height)
-                    .clip(RoundedCornerShape(Radius.chip))
-                    .background(Palette.card)
-                    .border(1.dp, Palette.hair, RoundedCornerShape(Radius.chip)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    FluentIcons.LockOpen,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = Palette.ink3,
-                )
-            }
-            Icon(
-                FluentIcons.ChevUp,
-                contentDescription = null,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .offset(y = (-14).dp)
-                    .size(14.dp),
-                tint = Palette.ink3.copy(alpha = (1f - progress).coerceIn(0f, 1f)),
+private fun LiveBars(levels: FloatArray, levelFrame: Long, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        // 电平每换一帧重画一次，数组由采集侧原地复用，没有别的信号可用。
+        levelFrame
+        val barWidth = InputBarSpec.LiveBarWidth.toPx()
+        val step = InputBarSpec.LiveBarStep.toPx()
+        val minHeight = InputBarSpec.LiveBarMin.toPx()
+        val maxHeight = InputBarSpec.LiveBarMax.toPx()
+        val centerY = size.height / 2f
+        for (index in 0 until InputBarSpec.LiveBarCount) {
+            val at = levels.size - InputBarSpec.LiveBarCount + index
+            val level = if (at >= 0 && at < levels.size) levels[at].coerceIn(0f, 1f) else 0f
+            val height = minHeight + (maxHeight - minHeight) * level
+            drawRoundRect(
+                color = Palette.clay.copy(alpha = 0.75f),
+                topLeft = Offset(index * step, centerY - height / 2f),
+                size = Size(barWidth, height),
+                cornerRadius = CornerRadius(barWidth / 2f),
             )
         }
     }
 }
 
-/** 暂停键与恢复键都是三十六，贴在圆钮顶上，只做透明度的进出。 */
+/**
+ * 圆钮：空态四十八的陶土麦克风，录音时长到八十二，有草稿或锁定时是墨色纸飞机。
+ * 左滑时按进度缩到七成并跟手左移，缩放走图形层，直径动画不参与。
+ */
 @Composable
-private fun FloatingKey(
-    visible: Boolean,
-    icon: ImageVector,
+private fun ActionCircle(
+    diameter: Dp,
+    scale: Float,
+    fill: Color,
+    glyph: ImageVector,
+    glyphSize: Dp,
     label: String,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val content: @Composable () -> Unit = {
+        Icon(
+            glyph,
+            contentDescription = null,
+            modifier = Modifier.size(glyphSize),
+            tint = Color.White,
+        )
+    }
+    val sized = modifier
+        .size(diameter)
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+    if (onClick != null) {
+        Pressable(
+            modifier = sized,
+            shape = CircleShape,
+            resting = fill,
+            pressing = pressedTone(fill),
+            contentDescription = label,
+            onClick = onClick,
+        ) { content() }
+    } else {
+        Box(
+            modifier = sized
+                .clip(CircleShape)
+                .background(fill)
+                .semantics { contentDescription = label },
+            contentAlignment = Alignment.Center,
+        ) { content() }
+    }
+}
+
+/** 悬浮键：纸白圆钮加细描边，只做透明度进出，延迟落地之后才可点。 */
+@Composable
+private fun HoldKey(
+    visible: Boolean,
     delayMs: Long,
+    size: Dp,
+    glyph: ImageVector,
+    glyphSize: Dp,
+    label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -751,62 +1083,77 @@ private fun FloatingKey(
         exit = fadeOut(tween(SettleMs)),
         modifier = modifier,
     ) {
-        Box(
-            modifier = Modifier.offset(
-                y = -(InputBarSpec.CircleSize / 2 + InputBarSpec.LockChipGap + InputBarSpec.KeySize / 2),
-            ),
+        Pressable(
+            modifier = Modifier.size(size),
+            shape = CircleShape,
+            resting = Palette.card,
+            border = BorderStroke(1.dp, Palette.hair),
+            enabled = live,
+            contentDescription = label,
+            onClick = onClick,
         ) {
-            ParleyKey(icon = icon, label = label, enabled = live, onClick = onClick)
+            Icon(glyph, contentDescription = null, modifier = Modifier.size(glyphSize), tint = Palette.clay)
         }
     }
 }
 
+/** 锁条：上边一枚折角箭头，下边一把陶土锁，底边贴着胶囊顶。 */
 @Composable
-private fun ParleyKey(
-    icon: ImageVector,
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    Pressable(
-        modifier = Modifier.size(InputBarSpec.KeySize),
-        shape = CircleShape,
-        resting = Palette.card,
-        border = BorderStroke(1.dp, Palette.hair),
-        enabled = enabled,
-        contentDescription = label,
-        onClick = onClick,
+private fun LockChip(visible: Boolean, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(SettleMs)),
+        exit = fadeOut(tween(SettleMs)),
+        modifier = modifier,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = Palette.ink3)
+        Column(
+            modifier = Modifier
+                .size(InputBarSpec.LockWidth, InputBarSpec.LockHeight)
+                .clip(RoundedCornerShape(InputBarSpec.LockRadius))
+                .background(Palette.card)
+                .border(1.dp, Palette.hair, RoundedCornerShape(InputBarSpec.LockRadius))
+                .padding(top = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                FluentIcons.ChevUp,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = Palette.ink3,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Icon(
+                FluentIcons.LockOpen,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = Palette.clay,
+            )
+        }
     }
 }
 
-/** 红点一秒一个来回，透明度掉到零再回来，与真机上那只闪法一致。 */
+/** 锁条左边的墨色气泡，纵向与锁条同中心，左滑作废时整层清空。 */
 @Composable
-private fun blinkAlpha(): Float {
-    val transition = rememberInfiniteTransition(label = "recordingDot")
-    val alpha by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = keyframes {
-                durationMillis = 500
-                1f at 0
-                1f at 227
-                0f at 454
-                0f at 500
-            },
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "recordingDotAlpha",
-    )
-    return alpha
+private fun Tooltip(visible: Boolean, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(SettleMs)),
+        exit = fadeOut(tween(SettleMs)),
+        modifier = modifier,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(InputBarSpec.TooltipWidth, InputBarSpec.TooltipHeight)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Palette.ink),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = "上滑以锁定", style = TooltipStyle, maxLines = 1)
+        }
+    }
 }
 
-/**
- * 一次按压从头管到底：先等两百毫秒看是点击还是按住，按住之后就一路跟手，
- * 抬手或中途作废都在机器里判定，界面只把事件喂进去。
- */
+/** 一次按压从头管到底：先等一百九十毫秒看是点击还是按住，按住之后就一路跟手。 */
 private suspend fun PointerInputScope.trackVoiceGesture(
     span: Float,
     dispatch: (VoiceInputEvent) -> Unit,
@@ -855,4 +1202,48 @@ private suspend fun AwaitPointerEventScope.waitForRelease() {
         val event = awaitPointerEvent()
         if (event.changes.none { it.pressed }) return
     }
+}
+
+/** 录音时长读到秒，形如 0:28。 */
+private fun formatDuration(ms: Long): String {
+    val seconds = ms / 1000
+    return "%d:%02d".format(seconds / 60, seconds % 60)
+}
+
+/**
+ * 一百根柱挤在六十三字节里，每根五 bit、从高位往低位排。
+ * 数组短了就当后面都是静音，不抛也不补零之外的东西。
+ */
+private fun waveAmplitudes(waveform: ByteArray): FloatArray {
+    val count = 100
+    val values = FloatArray(count)
+    var bit = 0
+    for (index in 0 until count) {
+        var value = 0
+        repeat(5) {
+            val byteIndex = bit / 8
+            if (byteIndex >= waveform.size) return values
+            val byte = waveform[byteIndex].toInt() and 0xFF
+            value = (value shl 1) or ((byte shr (7 - bit % 8)) and 1)
+            bit++
+        }
+        values[index] = value / 31f
+    }
+    return values
+}
+
+/** 把任意根数的波形重采样成要画的那几根，端点对齐、中间线性插值。 */
+private fun resample(values: FloatArray, count: Int): FloatArray {
+    if (values.isEmpty()) return FloatArray(count)
+    if (values.size == count) return values
+    val out = FloatArray(count)
+    val step = (values.size - 1).toFloat() / (count - 1).coerceAtLeast(1)
+    for (index in 0 until count) {
+        val at = index * step
+        val low = at.toInt().coerceIn(0, values.lastIndex)
+        val high = (low + 1).coerceAtMost(values.lastIndex)
+        val weight = at - low
+        out[index] = values[low] * (1f - weight) + values[high] * weight
+    }
+    return out
 }

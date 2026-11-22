@@ -97,6 +97,9 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.security.crypto)
 
+    // 垃圾桶那支吞噬动效用 Lottie 播，其余动效仍然手写。
+    implementation(libs.lottie.compose)
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16")
 }
