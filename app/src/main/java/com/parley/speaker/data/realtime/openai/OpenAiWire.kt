@@ -168,7 +168,7 @@ internal object OpenAiWire {
                     null
                 } else {
                     Log.w("OpenAiRealtime", "server error $code $type ${message.take(200)}")
-                    Parsed(RealtimeEvent.Failed(ProviderFault.message(code, type, message) ?: "服务异常，正在重连"))
+                    Parsed(RealtimeEvent.Failed(ProviderFault.notice(code, type, message)))
                 }
             }
 

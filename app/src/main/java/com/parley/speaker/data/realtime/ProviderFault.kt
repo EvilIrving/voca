@@ -32,6 +32,12 @@ internal object ProviderFault {
         ),
     )
 
+    /**
+     * 适配器这一层要的那一句：认得出类别才有一句话给用户，认不出就是空串。
+     * 空串表示这件事只说给日志听，界面不出声，连接失败本身也不再是一条状态提示。
+     */
+    fun notice(vararg hints: String?): String = message(*hints).orEmpty()
+
     /** 错误码、状态串、原文随便给几段，认得出类别就给产品那一句。 */
     fun message(vararg hints: String?): String? {
         val hay = hints.joinToString(" ") { it.orEmpty() }.lowercase()

@@ -232,7 +232,7 @@ internal object DoubaoWire {
     /** 服务端的原因只进日志，界面上出现的是归类之后那一句。 */
     private fun faultOf(code: String?, said: String?): String {
         Log.w("DoubaoWire", "server said $code ${said?.take(200)}")
-        return ProviderFault.message(code, said) ?: "服务异常，正在重连"
+        return ProviderFault.notice(code, said)
     }
 
     private fun messageOf(frame: DoubaoFrame): String? {

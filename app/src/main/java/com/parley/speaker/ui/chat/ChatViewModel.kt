@@ -331,8 +331,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 if (!greeted) {
                     greeted = true
                     // 开场问候本身就是一条文字消息，线路不收文字就一条都不发，改弹一条说明。
-                    val refusal = textRefusal(Connection.Ready, capabilities)
-                    if (refusal == null) session?.sendText(openingOf(SeedContent.SessionOpening, GreetingPrompt)) else showNotice(refusal)
+                    when (textGate(Connection.Ready, capabilities)) {
+                        TextGate.Allowed ->
+                            session?.sendText(openingOf(SeedContent.SessionOpening, GreetingPrompt))
+                        TextGate.Unsupported -> showNotice(TextUnsupported)
+                        TextGate.Waiting, TextGate.Unconfigured -> Unit
+                    }
                 }
             }
 
@@ -534,7 +538,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             RealtimeEvent.Interrupted -> dispatch(TurnEvent.Interrupted)
             RealtimeEvent.TurnComplete -> dispatch(TurnEvent.TurnComplete)
             is RealtimeEvent.Failed -> {
-                showNotice(event.message)
+                // 认得出类别的（额度、鉴权、模型）才给一句能动手的话，网络与协议杂音只进日志。
+                if (event.message.isNotBlank()) showNotice(event.message) else Log.i(Tag, "连接失败，按退避重连")
                 dispatch(TurnEvent.SessionLost)
                 // 适配器自己那两次带 handle 的短退避已经用尽，或者初次握手就不成立，长退避从这里接手。
                 viewModelScope.launch { scheduleReconnect(seq) }
@@ -571,8 +576,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         reconnect = reconnect.reset()
     }
 
-    /** 点顶栏圆点或退避到点：只跳过当前这次等待，序号不动，下一次失败照旧翻倍。 */
-    fun retryNow() {
+    /** 退避到点：跳过当前这次等待，序号不动，下一次失败照旧翻倍。 */
+    private fun retryNow() {
         if (reviewing) return
         reconnectJob?.cancel()
         reconnectJob = null
@@ -716,13 +721,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 return false
             }
 
-            Connection.Connecting -> {
-                showNotice("正在连接")
-                return false
-            }
-
-            Connection.Failed -> {
-                showNotice("正在重连")
+            // 连接还在路上就当这一下没按过，不弹任何提示，状态只在日志里。
+            Connection.Connecting, Connection.Failed -> {
+                Log.i(Tag, "连接未就绪，这一下不收")
                 return false
             }
 
@@ -1417,13 +1418,14 @@ internal fun List<Turn>.minusTurn(turnId: String): List<Turn> = filterNot { it.i
 
 /**
  * 文本通道的准入：连接先得就绪，适配器的能力清单还得自报收文字。
- * 返回该弹的提示，null 表示放行。豆包那条端到端链路只有音频，打字在这里被挡住。
+ * 未就绪只在日志里说一句，界面不出声；只有配置问题与能力不支持才弹提示。
  */
-internal fun textRefusal(connection: Connection, capabilities: Capabilities?): String? = when (connection) {
-    Connection.Unconfigured -> FillLiveKey
-    Connection.Connecting -> "正在连接"
-    Connection.Failed -> "正在重连"
-    Connection.Ready -> if (capabilities?.acceptsText == false) TextUnsupported else null
+internal enum class TextGate { Allowed, Waiting, Unsupported, Unconfigured }
+
+internal fun textGate(connection: Connection, capabilities: Capabilities?): TextGate = when (connection) {
+    Connection.Unconfigured -> TextGate.Unconfigured
+    Connection.Connecting, Connection.Failed -> TextGate.Waiting
+    Connection.Ready -> if (capabilities?.acceptsText == false) TextGate.Unsupported else TextGate.Allowed
 }
 
 /**

@@ -154,7 +154,7 @@ class OpenAiWireTest {
 
         assertEquals(RealtimeEvent.Failed(ProviderFault.Config), failure?.event)
         assertEquals(RealtimeEvent.Failed(ProviderFault.Quota), capped?.event)
-        assertEquals(RealtimeEvent.Failed("服务异常，正在重连"), unknown?.event)
+        assertEquals("认不出类别就只给空串，界面不出声", RealtimeEvent.Failed(""), unknown?.event)
         assertNull(noResponse)
     }
 

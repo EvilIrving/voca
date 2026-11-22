@@ -285,7 +285,6 @@ object TurnFlow {
             is TurnPhase.Recording -> {
                 effects += TurnEffect.StopCapture
                 effects += TurnEffect.Delete(phase.userTurnId)
-                effects += TurnEffect.Notify("连接失败，请重试")
                 state.copy(
                     phase = TurnPhase.Offline,
                     turns = state.turns.filterNot { it.id == phase.userTurnId },
@@ -296,7 +295,6 @@ object TurnFlow {
             is TurnPhase.Awaiting -> {
                 val dropped = setOfNotNull(phase.userTurnId, phase.echoTurnId)
                 dropped.forEach { effects += TurnEffect.Delete(it) }
-                effects += TurnEffect.Notify("连接失败，请重试")
                 state.copy(
                     phase = TurnPhase.Offline,
                     turns = state.turns.filterNot { it.id in dropped },

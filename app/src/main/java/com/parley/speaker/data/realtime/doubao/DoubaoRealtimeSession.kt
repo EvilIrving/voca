@@ -127,7 +127,7 @@ class DoubaoRealtimeSession(
             reset()
             Log.i(TAG, "closed $code $reason")
             if (closed) return
-            onEvent(RealtimeEvent.Failed("正在重连"))
+            onEvent(RealtimeEvent.Failed(""))
         }
     }
 
@@ -140,10 +140,10 @@ class DoubaoRealtimeSession(
     private fun classify(t: Throwable, response: Response?): String = when {
         response?.code == 401 || response?.code == 403 -> ProviderFault.Key
         response?.code == 404 -> "端点不可用，请在设置中检查"
-        t is java.net.SocketTimeoutException -> "网络异常，正在重连"
-        t is java.net.UnknownHostException -> "网络异常，正在重连"
-        t is javax.net.ssl.SSLException -> "网络异常，正在重连"
-        else -> "服务异常，正在重连"
+        t is java.net.SocketTimeoutException -> ""
+        t is java.net.UnknownHostException -> ""
+        t is javax.net.ssl.SSLException -> ""
+        else -> ""
     }
 
     override fun startTurn() {
@@ -248,7 +248,7 @@ class DoubaoRealtimeSession(
         if (inbound is DoubaoInbound.SessionFinished) {
             late.close()
             if (closed) return
-            onEvent(RealtimeEvent.Failed("正在重连"))
+            onEvent(RealtimeEvent.Failed(""))
             return
         }
         val tag = late.tag(null)

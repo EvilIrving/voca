@@ -138,28 +138,27 @@ class GeminiLiveSession(
     private fun classify(t: Throwable, response: Response?): String = when {
         response?.code == 401 || response?.code == 403 -> ProviderFault.Key
         response?.code == 404 -> ProviderFault.Config
-        response != null && response.code >= 400 -> ProviderFault.message("${response.code}", handshakeBody(response))
-            ?: "服务异常，正在重连"
-        t is java.net.SocketTimeoutException -> "网络异常，正在重连"
-        t is java.net.UnknownHostException -> "网络异常，正在重连"
-        t is javax.net.ssl.SSLException -> "网络异常，正在重连"
-        else -> "服务异常，正在重连"
+        response != null && response.code >= 400 -> ProviderFault.notice("${response.code}", handshakeBody(response))
+        t is java.net.SocketTimeoutException -> ""
+        t is java.net.UnknownHostException -> ""
+        t is javax.net.ssl.SSLException -> ""
+        else -> ""
     }
 
     /**
-     * socket 建起来不等于握手完成：服务端可能收了 setup 却不回话，界面就会一直停在连接中。
-     * 到点没等到 setupComplete 就主动关掉这条连接，走与握手失败同一条退避与提示。
+     * socket 建起来不等于握手完成：服务端可能收了 setup 却不回话。到点没等到 setupComplete
+     * 就主动关掉这条连接重连；这件事只在日志里留痕，界面不摆连接状态。
      */
     private fun watchSetup(webSocket: WebSocket) {
         setupJob?.cancel()
         setupJob = scope.launch {
             delay(SetupTimeoutMs)
             if (webSocket !== socket || ready) return@launch
-            Log.w(TAG, "setup timeout")
+            Log.w(TAG, "setup timeout after ${SetupTimeoutMs}ms, lastServerReason=${serverReason ?: "none"}")
             ready = false
             socket = null
             webSocket.close(1000, "setup timeout")
-            onEvent(RealtimeEvent.Failed(reasonOrFail("网络异常，正在重连")))
+            onEvent(RealtimeEvent.Failed(reasonOrFail("")))
         }
     }
 
@@ -169,7 +168,7 @@ class GeminiLiveSession(
         serverReason = null
         if (said.isNullOrBlank()) return fallback
         Log.w(TAG, "server said ${said.take(200)}")
-        return ProviderFault.message(said) ?: fallback
+        return ProviderFault.notice(said).ifBlank { fallback }
     }
 
     /** 握手失败时 OkHttp 只给状态码，配额、地区这类原因全在响应体里，读一小段回来归类。 */
@@ -224,7 +223,7 @@ class GeminiLiveSession(
             socket = null
             Log.i(TAG, "closed $code $reason")
             if (closed || resume()) return
-            onEvent(RealtimeEvent.Failed(reasonOrFail("正在重连")))
+            onEvent(RealtimeEvent.Failed(reasonOrFail("")))
         }
     }
 
@@ -403,7 +402,7 @@ class GeminiLiveSession(
             Log.w(TAG, "server error $code $status ${said?.take(200)}")
             onEvent(
                 RealtimeEvent.Failed(
-                    ProviderFault.message(code, status, said) ?: "服务异常，正在重连",
+                    ProviderFault.notice(code, status, said),
                 ),
             )
         }

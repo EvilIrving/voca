@@ -28,10 +28,7 @@ class ReviewGateTest {
     fun `回看时文本通道也一并挡在只读之外`() {
         // 线路就绪也不放行收音，回看那条路上先看只读，再看连接状态。
         assertFalse("回看优先于连接状态", recordingAllowed(reviewing = true))
-        assertNull("连接就绪时对话里可以正常按", textRefusal(Connection.Ready, capabilities = null))
-
-        val message = textRefusal(Connection.Failed, capabilities = null)
-        assertNotNull(message)
-        assertTrue("未连接时提示正在重连", message!!.contains("重连"))
+        assertEquals("连接就绪时对话里可以正常按", TextGate.Allowed, textGate(Connection.Ready, capabilities = null))
+        assertEquals("连接断了就先等着，不在这条路上弹字", TextGate.Waiting, textGate(Connection.Failed, capabilities = null))
     }
 }

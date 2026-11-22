@@ -171,8 +171,8 @@ class DoubaoWireTest {
             sessionFailed.event(),
         )
         assertEquals(
-            "认不出类别的错误帧走通用那一句",
-            RealtimeEvent.Failed("服务异常，正在重连"),
+            "认不出类别就只给空串，界面不出声，原文留给日志",
+            RealtimeEvent.Failed(""),
             DoubaoWire.parse(error).event(),
         )
     }

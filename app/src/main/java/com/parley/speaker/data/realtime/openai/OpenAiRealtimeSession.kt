@@ -128,7 +128,7 @@ class OpenAiRealtimeSession(
             socket = null
             Log.i(TAG, "closed $code $reason")
             if (closed) return
-            onEvent(RealtimeEvent.Failed("正在重连"))
+            onEvent(RealtimeEvent.Failed(""))
         }
     }
 
@@ -136,10 +136,10 @@ class OpenAiRealtimeSession(
         response?.code == 401 || response?.code == 403 -> ProviderFault.Key
         response?.code == 404 -> ProviderFault.Config
         response?.code == 429 -> ProviderFault.Busy
-        t is java.net.SocketTimeoutException -> "网络异常，正在重连"
-        t is java.net.UnknownHostException -> "网络异常，正在重连"
-        t is javax.net.ssl.SSLException -> "网络异常，正在重连"
-        else -> "服务异常，正在重连"
+        t is java.net.SocketTimeoutException -> ""
+        t is java.net.UnknownHostException -> ""
+        t is javax.net.ssl.SSLException -> ""
+        else -> ""
     }
 
     override fun startTurn() {
@@ -216,7 +216,7 @@ class OpenAiRealtimeSession(
             delay(SESSION_MINUTES * MINUTE_MS)
             if (closed) return@launch
             Log.i(TAG, "session limit ${SESSION_MINUTES}min reached")
-            onEvent(RealtimeEvent.Failed("已达会话时长上限，正在重连"))
+            onEvent(RealtimeEvent.Failed(""))
             close()
         }
     }
