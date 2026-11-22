@@ -31,10 +31,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.parley.speaker.domain.AnalysisStatus
 import com.parley.speaker.domain.Speaker
 import com.parley.speaker.domain.Turn
 import com.parley.speaker.ui.icon.FluentIcons
@@ -68,23 +72,6 @@ fun ParleyIconButton(
     }
 }
 
-@Composable
-fun Avatar(letter: String, size: Dp = 32.dp) {
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(Palette.clayTint)
-            .border(1.dp, Palette.clay, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = letter,
-            style = Type.uiStrong.copy(color = Palette.clayDeep, fontWeight = FontWeight.Medium),
-        )
-    }
-}
-
 private val BubbleActionIcons = listOf(
     FluentIcons.Speaker to "播放",
     FluentIcons.Translate to "翻译",
@@ -94,12 +81,11 @@ private val BubbleActionIcons = listOf(
 @Composable
 private fun BubbleActions(tint: Color = Palette.ink4) {
     Row(
-        modifier = Modifier.height(24.dp),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.block),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BubbleActionIcons.forEach { (icon, label) ->
-            Icon(icon, label, modifier = Modifier.size(18.dp), tint = tint)
+            Icon(icon, label, modifier = Modifier.size(16.dp), tint = tint)
         }
     }
 }
@@ -107,9 +93,7 @@ private fun BubbleActions(tint: Color = Palette.ink4) {
 @Composable
 fun EchoBubble(turn: Turn, onOpenReview: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth()) {
-        Avatar("E")
-        Spacer(Modifier.width(Spacing.avatarGap))
-        Column(modifier = Modifier.width(262.dp)) {
+        Column(modifier = Modifier.width(258.dp)) {
             Surface(
                 color = Palette.card,
                 shape = RoundedCornerShape(
@@ -120,7 +104,7 @@ fun EchoBubble(turn: Turn, onOpenReview: () -> Unit) {
                 ),
                 border = BorderStroke(1.dp, Palette.hair),
             ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 13.dp, bottom = 11.dp)) {
                     Text(turn.text, style = Type.prose)
                     Spacer(Modifier.height(10.dp))
                     BubbleActions()
@@ -131,7 +115,7 @@ fun EchoBubble(turn: Turn, onOpenReview: () -> Unit) {
 }
 
 @Composable
-fun UserBubble(turn: Turn, onOpenReview: () -> Unit) {
+fun UserBubble(turn: Turn, onOpenReview: () -> Unit, onRetryAnalysis: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.End,
@@ -146,39 +130,58 @@ fun UserBubble(turn: Turn, onOpenReview: () -> Unit) {
             ),
             modifier = Modifier.widthIn(max = 268.dp),
         ) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                Text(turn.text, style = Type.prose)
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    BubbleActions()
-                }
-            }
+            Text(
+                turn.text,
+                style = Type.prose,
+                modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 13.dp, bottom = 12.dp),
+            )
         }
-        ScoreLine(turn = turn, onOpenReview = onOpenReview)
+        ScoreLine(turn = turn, onOpenReview = onOpenReview, onRetryAnalysis = onRetryAnalysis)
     }
 }
 
+/** 分值胶囊：二十七高、白底描边，发音用陶土深色、语法用鼠尾草。 */
 @Composable
-private fun ScoreLine(turn: Turn, onOpenReview: () -> Unit) {
-    val review = turn.review ?: return
-    val text = buildString {
-        review.pronunciation?.let { append("发音 ${it.score}  ·  ") }
-        append("语法 ${review.grammar.score}")
-    }
+private fun ScoreLine(turn: Turn, onOpenReview: () -> Unit, onRetryAnalysis: () -> Unit) {
+    val failed = turn.analysis == AnalysisStatus.Failed
+    val review = turn.review
+    if (review == null && !failed) return
     Row(
-        modifier = Modifier
-            .padding(top = 6.dp, end = 4.dp)
-            .clickable { onOpenReview() },
+        modifier = Modifier.padding(top = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = Type.caption)
-        Spacer(Modifier.width(2.dp))
-        Icon(
-            FluentIcons.ChevRight,
-            contentDescription = "查看评测",
-            modifier = Modifier.size(14.dp),
-            tint = Palette.ink4,
-        )
+        Surface(
+            color = Palette.card,
+            shape = RoundedCornerShape(Radius.pill),
+            border = BorderStroke(1.dp, Palette.hair),
+            modifier = Modifier
+                .height(27.dp)
+                .clickable { if (failed && review == null) onRetryAnalysis() else onOpenReview() },
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (review == null) {
+                    Text(
+                        "分析失败 · 重试",
+                        style = Type.caption.copy(color = Palette.danger),
+                    )
+                } else {
+                    review.pronunciation?.let { score ->
+                        Text(
+                            "发音 ${score.score}",
+                            style = Type.caption.copy(color = Palette.clayDeep),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    Text(
+                        "语法 ${review.grammar.score}",
+                        style = Type.caption.copy(color = Palette.olive),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -188,19 +191,25 @@ fun HintCard(text: String) {
         color = Palette.oliveTint,
         shape = RoundedCornerShape(Radius.card),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row {
-                Icon(
-                    FluentIcons.Bulb,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = Palette.olive,
-                )
-                Spacer(Modifier.width(Spacing.iconText))
-                Text(text, style = Type.prose)
-            }
-            Spacer(Modifier.height(10.dp))
-            BubbleActions(tint = Palette.olive)
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                FluentIcons.Bulb,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = Palette.olive,
+            )
+            Spacer(Modifier.width(Spacing.iconText))
+            Text(
+                text,
+                style = Type.prose.copy(fontSize = 14.sp, lineHeight = 21.sp).let {
+                    it.copy(fontStyle = FontStyle.Italic)
+                },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -261,10 +270,10 @@ fun FlagChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun SheetHandle(modifier: Modifier = Modifier) {
+fun SheetHandle(modifier: Modifier = Modifier, width: Dp = 36.dp) {
     Box(
         modifier = modifier
-            .width(36.dp)
+            .width(width)
             .height(4.dp)
             .clip(RoundedCornerShape(Radius.pill))
             .background(Palette.hairStrong),
@@ -282,4 +291,61 @@ fun highlighted(text: String, highlight: String): AnnotatedString = buildAnnotat
         append(text.substring(start, start + highlight.length))
     }
     append(text.substring(start + highlight.length))
+}
+
+/** 下拉菜单的一行：有副行时给模型参数用，没有副行时固定四十四高。 */
+data class MenuItem(
+    val label: String,
+    val detail: String? = null,
+    val selected: Boolean = false,
+    val onClick: () -> Unit,
+)
+
+@Composable
+fun ParleyMenu(
+    items: List<MenuItem>,
+    modifier: Modifier = Modifier,
+    width: Dp = 232.dp,
+) {
+    Surface(
+        color = Palette.card,
+        shape = RoundedCornerShape(Radius.card),
+        border = BorderStroke(1.dp, Palette.hair),
+        shadowElevation = 6.dp,
+        modifier = modifier.width(width),
+    ) {
+        Column(Modifier.padding(6.dp)) {
+            items.forEach { item ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(Radius.chip))
+                        .background(if (item.selected) Palette.clayTint else Color.Transparent)
+                        .clickable { item.onClick() }
+                        .then(
+                            if (item.detail == null) Modifier.height(44.dp)
+                            else Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        )
+                        .padding(horizontal = if (item.detail == null) 10.dp else 0.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(item.label, style = Type.uiStrong)
+                        item.detail?.let {
+                            Spacer(Modifier.height(2.dp))
+                            Text(it, style = Type.mono.copy(fontSize = 10.5.sp, lineHeight = 14.sp))
+                        }
+                    }
+                    if (item.selected) {
+                        Icon(
+                            FluentIcons.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp),
+                            tint = Palette.clayDeep,
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

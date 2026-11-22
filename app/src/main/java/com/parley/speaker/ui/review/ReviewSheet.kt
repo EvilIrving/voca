@@ -2,13 +2,13 @@ package com.parley.speaker.ui.review
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.parley.speaker.domain.Register
 import com.parley.speaker.domain.Turn
 import com.parley.speaker.ui.component.ParleyIconButton
@@ -50,6 +51,8 @@ fun ReviewSheet(
     onDismiss: () -> Unit,
     onSaveToVocab: () -> Unit,
     onContinue: () -> Unit,
+    onReplay: () -> Unit = {},
+    onSpeak: (String) -> Unit = {},
 ) {
     val review = turn.review ?: return
     var register by remember(turn.id) { mutableStateOf(Register.Idiomatic) }
@@ -59,7 +62,7 @@ fun ReviewSheet(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0x1A141413))
+                .background(Color(0x2E141413))
                 .clickable(onClick = onDismiss),
         )
         Surface(
@@ -67,7 +70,7 @@ fun ReviewSheet(
             shape = RoundedCornerShape(topStart = Radius.sheet, topEnd = Radius.sheet),
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.78f),
+                .height(602.dp),
         ) {
             Column(
                 modifier = Modifier
@@ -89,13 +92,13 @@ fun ReviewSheet(
                 Spacer(Modifier.height(14.dp))
                 SoftCard(modifier = Modifier.fillMaxWidth()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        PlayDot(onReplay)
+                        Spacer(Modifier.width(Spacing.block))
                         Text(
                             text = review.original,
                             style = Type.prose,
                             modifier = Modifier.weight(1f),
                         )
-                        Spacer(Modifier.width(Spacing.block))
-                        PlayDot()
                     }
                 }
                 Spacer(Modifier.height(20.dp))
@@ -108,7 +111,7 @@ fun ReviewSheet(
                     val issue = pronunciation.phonemes.firstOrNull()
                     if (issue != null) {
                         Spacer(Modifier.height(22.dp))
-                        SectionLabel(FluentIcons.Pulse, "发音建议")
+                        SectionLabel(FluentIcons.Mic, "音素建议")
                         Spacer(Modifier.height(10.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             WordChip("${issue.word}  ${issue.phonetic}")
@@ -141,21 +144,11 @@ fun ReviewSheet(
                             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.block)) {
                                 Icon(
                                     FluentIcons.Speaker,
-                                    contentDescription = "播放改写",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = Palette.ink4,
-                                )
-                                Icon(
-                                    FluentIcons.Translate,
-                                    contentDescription = "翻译",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = Palette.ink4,
-                                )
-                                Icon(
-                                    FluentIcons.Bookmark,
-                                    contentDescription = "收藏",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = Palette.ink4,
+                                    contentDescription = "朗读改写",
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .clickable { onSpeak(rewrite.text) },
+                                    tint = Palette.ink3,
                                 )
                             }
                         }
@@ -168,16 +161,13 @@ fun ReviewSheet(
                     horizontalArrangement = Arrangement.spacedBy(Spacing.block),
                 ) {
                     OutlinedAction(
-                        label = "收进生词本",
-                        icon = true,
-                        onClick = onSaveToVocab,
-                        modifier = Modifier.weight(1f),
+                        label = "继续对话",
+                        onClick = onContinue,
                     )
                     OutlinedAction(
-                        label = "继续对话",
-                        icon = false,
+                        label = "收进生词本",
                         primary = true,
-                        onClick = onContinue,
+                        onClick = onSaveToVocab,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -188,18 +178,18 @@ fun ReviewSheet(
 }
 
 @Composable
-private fun PlayDot() {
+private fun PlayDot(onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(36.dp)
-            .background(Palette.card, CircleShape)
-            .clickable {},
+            .size(32.dp)
+            .border(1.dp, Palette.hairStrong, CircleShape)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             FluentIcons.Play,
             contentDescription = "复听原文",
-            modifier = Modifier.size(14.dp),
+            modifier = Modifier.size(12.dp),
             tint = Palette.ink,
         )
     }
@@ -209,7 +199,13 @@ private fun PlayDot() {
 private fun ScoreRow(pronunciation: Pair<Int, String>?, grammar: Pair<Int, String>) {
     Row(modifier = Modifier.fillMaxWidth()) {
         if (pronunciation != null) {
-            ScoreColumn("发音", pronunciation.first, pronunciation.second, Modifier.weight(1f))
+            ScoreColumn(
+                label = "发音",
+                score = pronunciation.first,
+                note = pronunciation.second,
+                color = Palette.clayDeep,
+                modifier = Modifier.weight(1f),
+            )
             Box(
                 modifier = Modifier
                     .width(1.dp)
@@ -217,19 +213,31 @@ private fun ScoreRow(pronunciation: Pair<Int, String>?, grammar: Pair<Int, Strin
                     .background(Palette.hair),
             )
         }
-        ScoreColumn("语法", grammar.first, grammar.second, Modifier.weight(1f))
+        ScoreColumn(
+            label = "语法",
+            score = grammar.first,
+            note = grammar.second,
+            color = Palette.olive,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
 @Composable
-private fun ScoreColumn(label: String, score: Int, note: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier.padding(start = if (label == "语法") 0.dp else 0.dp)) {
+private fun ScoreColumn(
+    label: String,
+    score: Int,
+    note: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
         Text(label, style = Type.caption)
         Spacer(Modifier.height(2.dp))
         Row(verticalAlignment = Alignment.Bottom) {
-            Text("$score", style = Type.monoLarge)
+            Text("$score", style = Type.prose.copy(fontSize = 27.sp, lineHeight = 30.sp, color = color))
             Spacer(Modifier.width(4.dp))
-            Text("分", style = Type.caption, modifier = Modifier.padding(bottom = 4.dp))
+            Text("分", style = Type.caption, modifier = Modifier.padding(bottom = 5.dp))
         }
         Spacer(Modifier.height(4.dp))
         Text(note, style = Type.caption)
@@ -255,7 +263,6 @@ private fun RegisterTab(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun OutlinedAction(
     label: String,
-    icon: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     primary: Boolean = false,
@@ -267,19 +274,12 @@ private fun OutlinedAction(
         modifier = modifier.clickable { onClick() },
     ) {
         Row(
-            modifier = Modifier.padding(vertical = 13.dp),
+            modifier = Modifier
+                .then(if (primary) Modifier.fillMaxWidth() else Modifier)
+                .padding(horizontal = 18.dp, vertical = 13.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (icon) {
-                Icon(
-                    FluentIcons.Bookmark,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = Palette.ink3,
-                )
-                Spacer(Modifier.width(Spacing.iconText))
-            }
             Text(
                 text = label,
                 style = Type.uiStrong.copy(color = if (primary) Color.White else Palette.ink2),
