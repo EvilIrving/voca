@@ -34,6 +34,8 @@ import kotlin.random.Random
  *
  * 三条协议细节都在这里收口：取消不发收尾推理信号、断线按 sessionResumption 的 handle 续接、
  * 到 maxSessionMinutes 主动换一条连接并把历史压成文字带过去。
+ * [history] 是接着一条历史会话聊时要先灌进去的流水，只在第一次连接时交代，
+ * 之后换连接与断线续接都走各自的 handle 与摘要，不再重复这一段。
  */
 class GeminiLiveSession(
     private val apiKey: String,
@@ -42,6 +44,7 @@ class GeminiLiveSession(
     private val systemPrompt: String,
     private val onEvent: (RealtimeEvent) -> Unit,
     private val maxSessionMinutes: Int = DEFAULT_SESSION_MINUTES,
+    private val history: String? = null,
 ) : RealtimeSession {
 
     override val capabilities = Capabilities(
@@ -122,7 +125,7 @@ class GeminiLiveSession(
         if (closed || socket != null) return
         Log.i(TAG, "connecting model=$model voice=$voice keyLen=${apiKey.length}")
         reconnectAttempts = 0
-        open(resumeHandle = null, seed = null)
+        open(resumeHandle = null, seed = history)
     }
 
     private fun open(resumeHandle: String?, seed: String?) {

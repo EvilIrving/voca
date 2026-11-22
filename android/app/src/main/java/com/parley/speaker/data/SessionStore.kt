@@ -130,25 +130,39 @@ class SessionStore(context: Context) {
 
     /**
      * 会话结束时签到一条记录，轮次、双项均值与新词数从 [startedAt] 到 [endedAt] 的库里算出来。
-     * 同名 id 重复签到不会改写已存下的那条，时间戳与首算的均值都保持第一次的值。
+     * 已经有一行的（接着聊回来的那一段）不另起一行，只把收口时间与重算的读数写回去，
+     * 名字与起点保持第一次的值；这一条也不按时间窗重绑轮次，中间夹着的别的会话不会被圈进来。
      */
     suspend fun closeSession(
         id: String,
         startedAt: Long,
         endedAt: Long = System.currentTimeMillis(),
     ): SessionRecord {
-        db.turns().bindSession(id, startedAt, endedAt)
-        val turnsInSession = db.turns().bySession(id).ifEmpty { db.turns().between(startedAt, endedAt) }
+        val existing = db.sessions().byId(id)
+        val turnsInSession = if (existing != null) {
+            db.turns().bySession(id)
+        } else {
+            db.turns().bindSession(id, startedAt, endedAt)
+            db.turns().bySession(id).ifEmpty { db.turns().between(startedAt, endedAt) }
+        }
         val reviews = turnsInSession.mapNotNull { it.toTurn()?.review }
+        val rounds = turnsInSession.count { it.speaker == Speaker.User.name }
+        val pronunciationAvg = reviews.mapNotNull { it.pronunciation?.score }.mean()
+        val grammarAvg = reviews.map { it.grammar.score }.mean()
+        val newWordCount = db.vocab().countFirstSeenSince(startedAt)
+        if (existing != null) {
+            db.sessions().updateStats(id, endedAt, rounds, pronunciationAvg, grammarAvg, newWordCount)
+            return db.sessions().byId(id)?.toRecord() ?: existing.toRecord()
+        }
         val row = SessionRow(
             id = id,
             name = "",
             startedAt = startedAt,
             endedAt = endedAt,
-            rounds = turnsInSession.count { it.speaker == Speaker.User.name },
-            pronunciationAvg = reviews.mapNotNull { it.pronunciation?.score }.mean(),
-            grammarAvg = reviews.map { it.grammar.score }.mean(),
-            newWordCount = db.vocab().countFirstSeenSince(startedAt),
+            rounds = rounds,
+            pronunciationAvg = pronunciationAvg,
+            grammarAvg = grammarAvg,
+            newWordCount = newWordCount,
             manualName = false,
         )
         db.sessions().insertIfAbsent(row)

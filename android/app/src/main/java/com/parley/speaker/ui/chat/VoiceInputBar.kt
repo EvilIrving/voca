@@ -246,7 +246,6 @@ fun VoiceInputBar(
     levels: FloatArray,
     levelFrame: Long,
     recording: Boolean,
-    enabled: Boolean,
     preview: VoicePreview? = null,
     onPressStart: () -> Boolean,
     onArmed: (Boolean) -> Unit,
@@ -373,7 +372,7 @@ fun VoiceInputBar(
     val frozen = discard
     val phase = frozen?.phase ?: gesture.phase
     // 草稿空着时仍要能按住录：空输入框没有可编辑的东西，挡住手势只会让人以为麦克风坏了。
-    val gestureLive = enabled && (gesture.phase != VoicePhase.Idle || !editing || draft.isEmpty())
+    val gestureLive = gesture.phase != VoicePhase.Idle || !editing || draft.isEmpty()
     val dragging = phase == VoicePhase.Holding || phase == VoicePhase.Cancelling
 
     // 圆钮左移每帧吃进目标的 0.3：图形始终落后手指一截，松手自己追上来。
@@ -430,7 +429,6 @@ fun VoiceInputBar(
                     VoicePhase.Idle -> DraftRow(
                         draft = draft,
                         editing = editing,
-                        enabled = enabled,
                         onChange = { draft = it },
                         onSend = sendDraft,
                         onTap = { editing = true },
@@ -482,7 +480,6 @@ fun VoiceInputBar(
                 diameter = diameter,
                 scale = scale,
                 fill = when {
-                    !enabled -> Palette.hairStrong
                     dragging -> Palette.clay
                     plane -> Palette.ink
                     else -> Palette.clay
@@ -499,7 +496,6 @@ fun VoiceInputBar(
                     else -> "按住说话"
                 },
                 onClick = when {
-                    !enabled -> null
                     inFlight -> ({ dispatch(VoiceInputEvent.Send) })
                     phase == VoicePhase.Idle && draftReady -> sendDraft
                     else -> null
@@ -689,7 +685,6 @@ private class BlobRing(
 private fun DraftRow(
     draft: String,
     editing: Boolean,
-    enabled: Boolean,
     onChange: (String) -> Unit,
     onSend: () -> Unit,
     onTap: () -> Unit,
@@ -709,7 +704,6 @@ private fun DraftRow(
             BasicTextField(
                 value = draft,
                 onValueChange = onChange,
-                enabled = enabled,
                 singleLine = true,
                 textStyle = DraftStyle,
                 cursorBrush = SolidColor(Palette.clayDeep),
@@ -745,16 +739,12 @@ private fun DraftRow(
                 )
             }
             // 有草稿时圆钮是纸飞机，点它就是发出去；要改就得点这一行字，把输入框拉回来。
-            if (enabled) {
-                Pressable(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.CenterStart,
-                    contentDescription = "编辑草稿",
-                    onClick = onTap,
-                ) { text() }
-            } else {
-                text()
-            }
+            Pressable(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.CenterStart,
+                contentDescription = "编辑草稿",
+                onClick = onTap,
+            ) { text() }
         }
     }
 }

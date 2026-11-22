@@ -98,8 +98,8 @@ fun ChatScreen(
     onRecordArmed: (Boolean) -> Unit,
     onRecordPressEnd: (cancelled: Boolean) -> Unit,
     sessionName: String = "",
-    reviewing: Boolean = false,
-    onExitReview: () -> Unit = {},
+    continuing: Boolean = false,
+    onExitSession: () -> Unit = {},
     onNewSession: () -> Unit = {},
     onSendText: (String) -> Unit = {},
     onSaveTurn: (String, Boolean) -> Unit = { _, _ -> },
@@ -153,8 +153,8 @@ fun ChatScreen(
     val scrollSignature = remember(turns.size, tailTurn?.id, tailTurn?.text?.length, state.hint) {
         "${turns.size}_${tailTurn?.id.orEmpty()}_${tailTurn?.text?.length ?: 0}_${state.hint != null}"
     }
-    LaunchedEffect(scrollSignature, follow, reviewing) {
-        if (!follow || reviewing || turns.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(scrollSignature, follow, continuing) {
+        if (!follow || turns.isEmpty()) return@LaunchedEffect
         val count = listState.layoutInfo.totalItemsCount
         if (count > 0) {
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
@@ -176,10 +176,10 @@ fun ChatScreen(
     ) {
         TopBar(
             sessionName = sessionName,
-            reviewing = reviewing,
-            canStartNew = showNewSessionAction(reviewing, turns.size),
+            continuing = continuing,
+            canStartNew = showNewSessionAction(continuing, turns.size),
             vocabToday = vocabToday,
-            onExitReview = onExitReview,
+            onExitSession = onExitSession,
             onNewSession = onNewSession,
             onVocabClick = onVocabClick,
             onSessionNameTap = onSessionNameTap,
@@ -218,30 +218,23 @@ fun ChatScreen(
                             translation = translations[turn.id] ?: turn.translation,
                             expanded = expanded[turn.id] == true,
                             translating = turn.id in asking,
-                            reviewing = reviewing,
                             onPlay = { onPlayTurn(turn.id) },
                             onTranslate = { translate(turn) },
                             onSave = { onSaveTurn(turn.id, !turn.saved) },
                             onCopy = { onCopyTurn(turn.id) },
-                            onRetry = {
-                                if (!reviewing) {
-                                    retryTargetOf(turns, turn.id)?.let(onRetryAnalysis)
-                                }
-                            },
+                            onRetry = { retryTargetOf(turns, turn.id)?.let(onRetryAnalysis) },
                             onDelete = { onDeleteTurn(turn.id) },
                         )
 
                         Speaker.User -> UserBubble(
                             turn = turn,
                             onOpenReview = { onReviewClick(turn) },
-                            onRetryAnalysis = if (reviewing) ({}) else ({ onRetryAnalysis(turn.id) }),
+                            onRetryAnalysis = { onRetryAnalysis(turn.id) },
                         )
                     }
                 }
-                if (!reviewing) {
-                    state.hint?.let { hint ->
-                        item(key = "hint", contentType = "hint") { HintCard(hint) }
-                    }
+                state.hint?.let { hint ->
+                    item(key = "hint", contentType = "hint") { HintCard(hint) }
                 }
             }
         }
@@ -252,7 +245,6 @@ fun ChatScreen(
             levels = levels,
             levelFrame = levelFrame,
             recording = state.recording,
-            enabled = recordingAllowed(reviewing),
             onPressStart = onRecordPressStart,
             onArmed = onRecordArmed,
             onPressEnd = onRecordPressEnd,
@@ -337,7 +329,6 @@ private fun EchoRow(
     translation: String?,
     expanded: Boolean,
     translating: Boolean,
-    reviewing: Boolean,
     onPlay: () -> Unit,
     onTranslate: () -> Unit,
     onSave: () -> Unit,
@@ -362,7 +353,7 @@ private fun EchoRow(
                         saved = turn.saved,
                         expanded = expanded,
                         translating = translating,
-                        retryable = !reviewing,
+                        retryable = true,
                     ),
                 ),
                 onDismiss = { menuOpen = false },
@@ -385,10 +376,10 @@ private fun EchoRow(
 @Composable
 private fun TopBar(
     sessionName: String,
-    reviewing: Boolean,
+    continuing: Boolean,
     canStartNew: Boolean,
     vocabToday: Int,
-    onExitReview: () -> Unit,
+    onExitSession: () -> Unit,
     onNewSession: () -> Unit,
     onVocabClick: () -> Unit,
     onSessionNameTap: () -> Unit,
@@ -400,10 +391,10 @@ private fun TopBar(
             .height(44.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 回看时左上角换成返回箭头；对话进行中换成气泡加号，点一下收掉这一段并开新的一段。
+        // 接着聊一条历史会话时左上角是返回箭头；对话进行中换成气泡加号，点一下收掉这一段并开新的一段。
         // 空着的新会话已经站在起点，左上角不重复放同一枚。
         when {
-            reviewing -> BackButton(onExitReview)
+            continuing -> BackButton(onExitSession)
             canStartNew -> ParleyIconButton(
                 icon = FluentIcons.ChatAdd,
                 contentDescription = "新会话",
@@ -467,9 +458,9 @@ private fun TopBar(
     }
 }
 
-/** 对话进行中才出气泡加号；空着的新会话与历史回看都不放。 */
-internal fun showNewSessionAction(reviewing: Boolean, turnCount: Int): Boolean =
-    !reviewing && turnCount > 0
+/** 对话进行中才出气泡加号；空着的新会话与接着聊的历史会话都不放。 */
+internal fun showNewSessionAction(continuing: Boolean, turnCount: Int): Boolean =
+    !continuing && turnCount > 0
 
 /** 顶栏这一排的尺寸：左右两枚图标各占三十二，会话名单行省略、宽度上限一百零八。 */
 object TopBarSpec {

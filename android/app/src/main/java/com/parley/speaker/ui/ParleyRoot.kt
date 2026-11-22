@@ -81,34 +81,20 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
         vocabPage(vocab, startOfLocalDay(System.currentTimeMillis()), VocabFilter.Today).counts.today
     }
     val sessions by vm.sessions.collectAsStateWithLifecycle()
-    val transcript by vm.transcript.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val providers by vm.providers.collectAsStateWithLifecycle()
     val textProviders by vm.textProviders.collectAsStateWithLifecycle()
     val report by vm.report.collectAsStateWithLifecycle()
     var panel by remember { mutableStateOf(Panel.None) }
-    var viewingSession by remember { mutableStateOf<com.parley.speaker.data.SessionRecord?>(null) }
     var reviewTurn by remember { mutableStateOf<Turn?>(null) }
     val drawer = rememberDrawerState()
     val drawerShown by remember(drawer) { derivedStateOf { drawer.current > 0.001f } }
-    val reviewing = viewingSession != null
+    // 屏幕上是不是接着某条历史会话聊：那一条的名字与标识都由视图模型一处报上来。
+    val continuing = state.sessionId != null
 
-    // 回看是同一屏的只读视图：顶栏换成那次会话的名字与返回箭头，列表读那条的对话。
-    val openReview: (com.parley.speaker.data.SessionRecord) -> Unit = { entry ->
-        viewingSession = entry
-        vm.reviewSession(entry.id)
-    }
-    val closeReview: () -> Unit = {
-        viewingSession = null
-        vm.clearTranscript()
-        vm.endReview()
-    }
-
-    val startNewSession: () -> Unit = {
-        viewingSession = null
-        vm.clearTranscript()
-        vm.startNewSession()
-    }
+    // 抽屉里点一条旧会话就接着它聊：顶栏换成那一条的名字与返回箭头，输入条照旧能用。
+    val openSession: (com.parley.speaker.data.SessionRecord) -> Unit = { entry -> vm.resumeSession(entry) }
+    val leaveSession: () -> Unit = { vm.leaveSession() }
 
     LaunchedEffect(drawerShown) {
         if (drawerShown) {
@@ -127,11 +113,11 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
         }
     }
 
-    BackHandler(enabled = drawerShown || viewingSession != null || panel != Panel.None || reviewTurn != null) {
+    BackHandler(enabled = drawerShown || continuing || panel != Panel.None || reviewTurn != null) {
         when {
             reviewTurn != null -> reviewTurn = null
             drawerShown -> drawer.close()
-            viewingSession != null -> closeReview()
+            continuing -> leaveSession()
             else -> panel = Panel.None
         }
     }
@@ -142,15 +128,15 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
             drawer = {
                 SessionDrawer(
                     sessions = sessions,
-                    viewingId = viewingSession?.id,
+                    viewingId = state.sessionId,
                     open = drawerShown,
                     onNewSession = {
                         drawer.close()
-                        startNewSession()
+                        vm.startNewSession()
                     },
                     onPick = { id ->
                         drawer.close()
-                        sessions.firstOrNull { it.id == id }?.let { openReview(it) }
+                        sessions.firstOrNull { it.id == id }?.let(openSession)
                     },
                     onSettings = {
                         drawer.close()
@@ -161,15 +147,15 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
         ) {
             ChatScreen(
                 state = state,
-                turns = if (reviewing) transcript.orEmpty() else state.turns,
-                sessionName = viewingSession?.name ?: state.sessionName.orEmpty(),
+                turns = state.turns,
+                sessionName = state.sessionName.orEmpty(),
                 elapsedMs = elapsedMs,
                 levels = levels,
                 levelFrame = levelFrame,
-                reviewing = reviewing,
+                continuing = continuing,
                 // 切会话有两条路：底栏以上向右横滑拉出抽屉；或者看不见的那一块——点会话名。
-                onExitReview = closeReview,
-                onNewSession = startNewSession,
+                onExitSession = leaveSession,
+                onNewSession = vm::startNewSession,
                 onVocabClick = { panel = Panel.Vocab },
                 onSessionNameTap = { drawer.open() },
                 onReviewClick = { reviewTurn = it },

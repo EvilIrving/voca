@@ -49,6 +49,16 @@ class SessionLedger(private val clock: () -> Long = System::currentTimeMillis) {
         return current
     }
 
+    /**
+     * 接着一条历史会话聊：账本改用那条的标识与起点，收段时写回同一条记录，不另起一行。
+     * 起点取那条会话的开头，轮次与双项均值因此算的是这一整段而非续上的那几轮。
+     */
+    fun adopt(id: String, startedAt: Long): Segment {
+        val now = clock()
+        current = Segment(id, startedAt = startedAt, lastActivityAt = now)
+        return current
+    }
+
     /** 用户这一手算作活动：静默三十分钟从这一刻重新数。 */
     fun touch() {
         val now = clock()

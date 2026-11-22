@@ -34,7 +34,18 @@ class MemoryLedger(
     suspend fun drain(
         materialOf: (String) -> String?,
         rewrite: suspend (memory: String, material: String) -> String?,
+        continuous: Boolean = false,
     ) {
+        if (!continuous) {
+            while (true) {
+                val turnId = queue.tryReceive().getOrNull() ?: break
+                val material = materialOf(turnId) ?: continue
+                val next = admitMemory(text, rewrite(text, material)) ?: continue
+                text = next
+                persist(next)
+            }
+            return
+        }
         for (turnId in queue) {
             val material = materialOf(turnId) ?: continue
             val next = admitMemory(text, rewrite(text, material)) ?: continue

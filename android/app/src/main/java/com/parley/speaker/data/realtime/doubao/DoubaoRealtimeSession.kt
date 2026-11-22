@@ -9,6 +9,7 @@ import com.parley.speaker.data.realtime.RealtimeEvent
 import com.parley.speaker.data.realtime.RealtimeSession
 import com.parley.speaker.domain.LiveVendor
 import com.parley.speaker.domain.VoiceCatalog
+import com.parley.speaker.domain.promptWithHistory
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -41,7 +42,11 @@ class DoubaoRealtimeSession(
     private val onEvent: (RealtimeEvent) -> Unit,
     private val pushToTalk: Boolean = true,
     private val connectId: String = UUID.randomUUID().toString(),
+    /** 接着一条历史会话聊时要带上的那段流水：豆包没有跨连接续上的句柄，它接在系统提示后面。 */
+    history: String? = null,
 ) : RealtimeSession {
+
+    private val prompt = promptWithHistory(systemPrompt, history)
 
     override val capabilities = Capabilities(
         canInterrupt = true,
@@ -242,7 +247,7 @@ class DoubaoRealtimeSession(
             return
         }
         if (inbound is DoubaoInbound.ConnectionStarted) {
-            send(DoubaoWire.startSession(sessionId, voice, systemPrompt, pushToTalk))
+            send(DoubaoWire.startSession(sessionId, voice, prompt, pushToTalk))
             return
         }
         if (inbound is DoubaoInbound.SessionFinished) {

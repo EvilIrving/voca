@@ -163,6 +163,21 @@ interface SessionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIfAbsent(row: SessionRow)
 
+    // 接着聊的那一段收回去：只刷新收口时间与重算出来的数与均值，名字与起点保持第一次的值。
+    @Query(
+        "UPDATE `session` SET endedAt = :endedAt, rounds = :rounds, " +
+            "pronunciationAvg = :pronunciationAvg, grammarAvg = :grammarAvg, newWordCount = :newWordCount " +
+            "WHERE id = :id",
+    )
+    suspend fun updateStats(
+        id: String,
+        endedAt: Long,
+        rounds: Int,
+        pronunciationAvg: Int?,
+        grammarAvg: Int?,
+        newWordCount: Int,
+    )
+
     @Query("SELECT * FROM `session` WHERE name = '' AND endedAt >= :since ORDER BY endedAt DESC LIMIT :limit")
     suspend fun unnamedSince(since: Long, limit: Int): List<SessionRow>
 

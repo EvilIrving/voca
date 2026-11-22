@@ -87,6 +87,20 @@ class SessionCycleTest {
         assertEquals("设置页里改过的提示词", next.prompt)
         assertNotEquals(SeedContent.DefaultPrompt, next.prompt)
     }
+
+    @Test
+    fun `接着聊一条历史会话用那条的标识与起点`() {
+        var now = 9_000_000L
+        val ledger = SessionLedger { now }
+
+        val adopted = ledger.adopt("session-old", startedAt = 1_000L)
+
+        assertEquals("session-old", adopted.id)
+        assertEquals("起点是那条会话的开头，不是接回来的这一刻", 1_000L, adopted.startedAt)
+        assertEquals("接回来就算一次活动", now, adopted.lastActivityAt)
+        assertEquals("收回去写的是同一条", "session-old", ledger.closeIfOpen()?.id)
+        assertNull("同一条只交一次账", ledger.closeIfOpen())
+    }
 }
 
 /**

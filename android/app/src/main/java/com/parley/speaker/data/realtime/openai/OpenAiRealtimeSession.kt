@@ -7,6 +7,7 @@ import com.parley.speaker.data.realtime.Pcm
 import com.parley.speaker.data.realtime.ProviderFault
 import com.parley.speaker.data.realtime.RealtimeEvent
 import com.parley.speaker.data.realtime.RealtimeSession
+import com.parley.speaker.domain.promptWithHistory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,7 +43,11 @@ class OpenAiRealtimeSession(
     private val voice: String,
     private val instructions: String,
     private val onEvent: (RealtimeEvent) -> Unit,
+    /** 接着一条历史会话聊时要带上的那段流水：没有可续的句柄，它接在 instructions 后面。 */
+    history: String? = null,
 ) : RealtimeSession {
+
+    private val prompt = promptWithHistory(instructions, history)
 
     override val capabilities = Capabilities(
         canInterrupt = true,
@@ -97,7 +102,7 @@ class OpenAiRealtimeSession(
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.i(TAG, "open ${response.code}")
-            send(OpenAiWire.sessionUpdate(model, voice, instructions))
+            send(OpenAiWire.sessionUpdate(model, voice, prompt))
             scheduleLimit()
         }
 

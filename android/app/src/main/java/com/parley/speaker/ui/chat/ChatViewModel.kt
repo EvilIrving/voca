@@ -67,6 +67,7 @@ import com.parley.speaker.domain.TurnFlow
 import com.parley.speaker.domain.TurnFlowState
 import com.parley.speaker.domain.TurnPhase
 import com.parley.speaker.domain.VocabCard
+import com.parley.speaker.domain.continuationHistory
 import com.parley.speaker.domain.liveChange
 import com.parley.speaker.domain.memoryMaterial
 import com.parley.speaker.domain.systemPromptOf
@@ -99,8 +100,10 @@ data class ChatState(
     val recording: Boolean = false,
     val connection: Connection = Connection.Connecting,
     val notice: String? = null,
-    /** 顶栏中段显示的会话名：新会话不显示，历史回看时由外部传入。 */
+    /** 顶栏中段显示的会话名：新的一段不显示，接着聊某条历史会话时是那一条的名字。 */
     val sessionName: String? = null,
+    /** 正在接着聊的那条历史会话；null 表示屏幕上就是手上新的一段。 */
+    val sessionId: String? = null,
 ) {
     val round: Int get() = turns.count { it.speaker == Speaker.User }
 }
@@ -125,7 +128,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** 朗读凭据与发音评测共用同一份 Azure 语音资源，没配就自然落到系统语音。 */
+    /** 朗读凭据与发音评测共用同一份 Azure 语音资源，缺凭据或未成功时保持静默。 */
     private val tts by lazy {
         Tts(player) {
             val assessor = settingsStore.settings.value.assessor
@@ -153,19 +156,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _sessions = MutableStateFlow<List<SessionRecord>>(emptyList())
     val sessions: StateFlow<List<SessionRecord>> = _sessions.asStateFlow()
-
-    private val _transcript = MutableStateFlow<List<Turn>?>(null)
-    val transcript: StateFlow<List<Turn>?> = _transcript.asStateFlow()
-
-    fun loadTranscript(sessionId: String) {
-        viewModelScope.launch {
-            _transcript.value = store.transcript(sessionId)
-        }
-    }
-
-    fun clearTranscript() {
-        _transcript.value = null
-    }
 
     // 电平每二十毫秒一帧、持续整段收音，绝不新建数组：采集侧就地把数值写进同一个缓冲，
     // 界面只订阅帧计数，重绘一次读一次。
@@ -228,7 +218,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var connectSeq = 0
     private var reconnect = ReconnectState()
     private var reconnectJob: Job? = null
-    private var reviewing = false
+
+    /** 正在接着聊的那条历史会话；null 表示手上的这一段是新开的。 */
+    private var continuing: SessionRecord? = null
+
+    /** 这一段开场时带进来的历史流水：接着聊的那一条重连也要把同一段带上。 */
+    private var historyOf: String? = null
+
+    /** 正在读进来的那条历史会话：连点两条时后来的接管，前一条的连接不会留在外面。 */
+    private var resumeJob: Job? = null
     private var startedAt = 0L
     private var greeted = false
     private val turnVocab = mutableMapOf<String, List<VocabCard>>()
@@ -278,6 +276,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             memory.drain(
                 materialOf = { turnId -> memoryMaterial(flow.turns, turnId) },
                 rewrite = { current, material -> analyzer().memorize(current, material) },
+                continuous = true,
             )
         }
         viewModelScope.launch { turnAudio.prune() }
@@ -452,7 +451,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 recording = phase is TurnPhase.Recording,
                 connection = connection,
                 notice = notice,
-                sessionName = null,
+                sessionName = continuing?.name?.ifBlank { null },
+                sessionId = continuing?.id,
             )
         }
     }
@@ -460,8 +460,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * 按供应商分发到各自的适配器。未配置判定按当前供应商的凭据，构造参数与各家真实签名对齐：
      * Gemini 吃密钥、模型、音色与系统提示，OpenAI 叫 instructions，豆包吃三件套且没有模型参数。
+     * [history] 是接着一条历史会话聊时要先交代的那段流水，新开的一段为 null。
      */
-    private fun connect() {
+    private fun connect(history: String? = historyOf) {
         val current = settingsStore.settings.value
         val live = current.live
         if (!live.ready) {
@@ -482,6 +483,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 voice = live.voice,
                 systemPrompt = instructions,
                 onEvent = { event -> onEvent(seq, event) },
+                history = history,
             )
 
             LiveVendor.OpenAi -> OpenAiRealtimeSession(
@@ -490,6 +492,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 voice = live.voice,
                 instructions = instructions,
                 onEvent = { event -> onEvent(seq, event) },
+                history = history,
             )
 
             LiveVendor.Doubao -> DoubaoRealtimeSession(
@@ -499,6 +502,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 voice = live.voice,
                 systemPrompt = instructions,
                 onEvent = { event -> onEvent(seq, event) },
+                history = history,
             )
         }
         session = created
@@ -537,11 +541,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * 未连接后的自动重连：一秒起、逐次翻倍、封顶三十秒，每次叠 0..300 ms 抖动。
-     * 只排一次，[reconnect] 的序号只在真正握手成功、收段、回看与改配置时归零。
+     * 只排一次，[reconnect] 的序号只在真正握手成功、收段与改配置时归零。
      */
     private fun scheduleReconnect(seq: Int) {
         if (seq != connectSeq) return
-        if (reviewing) return
         // 这一段已经收掉就不必再接：下一次操作会开新的一段并重连。
         if (ledger.current.closed) return
         if (!settingsStore.settings.value.live.ready) return
@@ -552,7 +555,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         reconnectJob = viewModelScope.launch {
             delay(wait)
             reconnectJob = null
-            // 这一轮等待期间被取消过就作废，别把已经收掉或者正在回看的会话重新拉起来。
+            // 这一轮等待期间被取消过就作废，别把已经收掉的那一段重新拉起来。
             if (!reconnect.isCurrent(mine.epoch) || seq != connectSeq) return@launch
             retryNow()
         }
@@ -566,24 +569,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 退避到点：跳过当前这次等待，序号不动，下一次失败照旧翻倍。 */
     private fun retryNow() {
-        if (reviewing) return
         reconnectJob?.cancel()
         reconnectJob = null
         reconnect = reconnect.skipped()
         dropSession()
         connect()
-    }
-
-    /**
-     * 离开回看：切到别的会话时当前这一段已经收掉，这里正好把新的一段接上；
-     * 没被收掉的就接着排那一轮重连。
-     */
-    fun endReview() {
-        reviewing = false
-        when {
-            ledger.current.closed -> beginSegment()
-            connection == Connection.Failed -> scheduleReconnect(connectSeq)
-        }
     }
 
     private fun launchAnalysis(turnId: String, text: String) {
@@ -688,7 +678,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         dispatch(TurnEvent.SessionLost)
         dropSession()
         plan = plan.resuming(settingsStore.settings.value.prompt)
-        greeted = false
+        // 接着聊的那一段重连时模型已经从流水里接过上下文，开场那一句不再发。
+        greeted = continuing != null
         connect()
     }
 
@@ -697,11 +688,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * 界面据此退回 Idle，不装作在收音。
      */
     fun onRecordPressStart(): Boolean {
-        if (!recordingAllowed(reviewing)) {
-            showNotice(ReviewReadOnly)
-            return false
-        }
-        // 上一段已经收尾（静默到点或刚回看完），这一下就是新的一段的第一手。
+        // 上一段已经收尾（静默到点或刚从一条历史会话退出来），这一下就是新的一段的第一手。
         ledger.touch()
         when (connection) {
             Connection.Unconfigured -> {
@@ -825,14 +812,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun translate(text: String): String? {
         if (text.isBlank()) return null
         val turn = flow.turns.lastOrNull { it.speaker == Speaker.Echo && it.text == text }
-            ?: _transcript.value?.lastOrNull { it.speaker == Speaker.Echo && it.text == text }
         turn?.translation?.let { return it }
         val translated = analyzer().translate(text) ?: return null
         if (turn != null) {
             dispatch(TurnEvent.TranslationDone(turn.id, translated))
-            _transcript.value = _transcript.value?.map {
-                if (it.id == turn.id) it.copy(translation = translated) else it
-            }
             viewModelScope.launch { store.saveTurn(turn.copy(translation = translated)) }
         }
         return translated
@@ -840,14 +823,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 气泡上的书签：库里的 saved 位是唯一数据源，界面读 Turn.saved。 */
     fun setSaved(turnId: String, saved: Boolean) {
-        val inFlow = flow.turns.firstOrNull { it.id == turnId }
-        if (inFlow != null) {
-            if (inFlow.saved == saved) return
+        val turn = flow.turns.firstOrNull { it.id == turnId }
+        if (turn != null) {
+            if (turn.saved == saved) return
             flow = flow.copy(turns = flow.turns.map { if (it.id == turnId) it.copy(saved = saved) else it })
             project()
-        }
-        _transcript.value = _transcript.value?.map {
-            if (it.id == turnId) it.copy(saved = saved) else it
         }
         viewModelScope.launch { store.setSaved(turnId, saved) }
         if (saved) showNotice("已收进生词本")
@@ -881,7 +861,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             flow = flow.copy(turns = flow.turns.minusTurn(turnId))
             project()
         }
-        _transcript.value = _transcript.value?.minusTurn(turnId)
         purgeTurn(turnId)
     }
 
@@ -898,19 +877,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** 当前这一段的列表与回看的那一条都找同一轮：两条链路的轮次 id 一致。 */
-    private fun turnById(turnId: String): Turn? =
-        flow.turns.firstOrNull { it.id == turnId } ?: _transcript.value?.firstOrNull { it.id == turnId }
+    /** 当前这一段找一轮：接着聊的历史会话与手上的新一段走同一份列表，轮次 id 一致。 */
+    private fun turnById(turnId: String): Turn? = flow.turns.firstOrNull { it.id == turnId }
 
-    /** 生词卡上的朗读：单词先行、例句跟随，单词与例句之间留一段自然停顿。 */
+    /** 生词卡上的朗读：直接朗读例句句子，例句缺失时朗读词条。 */
     fun speakCard(card: VocabCard) {
         val word = card.word.trim()
         val example = card.example.trim()
-        val text = when {
-            word.isEmpty() -> example
-            example.isEmpty() -> word
-            else -> "$word。\n$example"
-        }
+        val text = example.ifEmpty { word }
         speakText(text)
     }
 
@@ -949,7 +923,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val record = runCatching { store.closeSession(ended.id, ended.startedAt) }.getOrNull()
             publishSession(record)
             loadSessions()
-            // 命名只写一次，材料取整段对话；manualName 为真的会话在 SQL 那一层就挡住自动名。
+            // 名字只写一次：接着聊回来的那一段早就有名字，收回去时原样留着。
+            if (record == null || record.name.isNotBlank()) return@launch
+            // 材料取整段对话；manualName 为真的会话在 SQL 那一层就挡住自动名。
             val name = nameOfSession(ended.id, closedTurns) ?: return@launch
             // 自动名只写给收口的那一段：期间换了段、或者用户自己改过名，这一次自动名就丢掉。
             publishSession(autoNameTarget(_lastSession.value, ended.id, name) ?: return@launch)
@@ -958,7 +934,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
-    /** 收段之后紧接着开新的一段：点新会话、离开回看都走这里。 */
+    /** 收段之后紧接着开新的一段：点新会话、离开接着聊的那一条都走这里。 */
     private fun rollSegment() {
         endSegment()
         beginSegment()
@@ -966,12 +942,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * 开新的一段：角色提示词照旧带走，只换会话标识与那一屏对话。
-     * 历史对话留在库里，回看那条链只看 sessionId，不靠清表。
+     * 历史对话留在库里，接着聊那条链只看 sessionId，不靠清表。
      * [greet] 为假就不让助手先开口：静默收段那一段是收给空房间的，用户回来自己起头即可。
      */
     private fun beginSegment(greet: Boolean = true) {
+        // 读进来的那一截还没跑完就换了段：那一次续聊作废，别把它接上来的连接留在线路上。
+        resumeJob?.cancel()
+        resumeJob = null
         ledger.begin()
         plan = plan.resuming(settingsStore.settings.value.prompt)
+        // 新的一段不是接着哪一条聊的，顶栏中段的会话名与开场流水都跟着退下去。
+        continuing = null
+        historyOf = null
         recordedTurns.clear()
         turnVocab.clear()
         // 新的一段从空阔的闸开起：上一段删过哪几轮与这一段的轮次无关。
@@ -990,23 +972,41 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 切到别的会话的只读回看：先收掉手上这一段，再取那条的对话。
-     * 回看期间不开新的一段，退出回看时由 [endReview] 接上。
+     * 接着一条历史会话聊：把那一整段对话读回手上，新的一轮续在后面，账本改用那条的标识与起点，
+     * 连接按那段流水开场，模型接着原来的场景说下去。
      */
-    fun reviewSession(sessionId: String) {
-        reviewing = true
+    fun resumeSession(record: SessionRecord) {
         cancelReconnect()
+        resumeJob?.cancel()
         endSegment()
-        loadTranscript(sessionId)
+        resumeJob = viewModelScope.launch {
+            val turns = runCatching { store.transcript(record.id) }.getOrDefault(emptyList())
+            // 读库期间又被别的操作接管了：这一次续聊作废，不接上连接。
+            if (!isActive) return@launch
+            continuing = record
+            ledger.adopt(record.id, record.startedAt)
+            plan = plan.resuming(settingsStore.settings.value.prompt)
+            recordedTurns.clear()
+            turnVocab.clear()
+            audio.reset()
+            dropUplink()
+            flow = TurnFlowState(turns = turns)
+            historyOf = continuationHistory(turns)
+            // 开场那一句不再发：模型已经从这段流水里接过上下文。
+            greeted = true
+            project()
+            connect()
+        }
+    }
+
+    /** 离开接着聊的那一条：这一段收回去写进同一条记录，屏幕上换成新的一段。 */
+    fun leaveSession() {
+        if (continuing == null) return
+        rollSegment()
     }
 
     /** 顶栏气泡加号与抽屉里的「新会话」走同一条：手上这一段收掉，开新的一段。 */
-    fun startNewSession() {
-        reviewing = false
-        // 回看的那条只是只读视图，切新会话时一并退出。
-        _transcript.value = null
-        rollSegment()
-    }
+    fun startNewSession() = rollSegment()
 
     fun loadSessions() {
         viewModelScope.launch {
@@ -1391,15 +1391,6 @@ internal const val FillLiveKey = "请填写语音模型 apikey"
 
 /** 线路不收文字时的提示语。开场问候与打字输入共用同一句。 */
 internal const val TextUnsupported = "当前语音模型不支持打字"
-
-/** 回看时按录音弹的提示。回看只读，不出声也不落轮。 */
-internal const val ReviewReadOnly = "回看中，请退出后继续"
-
-/**
- * 录音入口的准入：回看是只读视图，输入条整条置灰，按下去也不收。
- * 界面与视图模型读同一份判断，不留两套。
- */
-internal fun recordingAllowed(reviewing: Boolean): Boolean = !reviewing
 
 /** 删一轮只从这一轮身上动手，别的轮次原样留着。 */
 internal fun List<Turn>.minusTurn(turnId: String): List<Turn> = filterNot { it.id == turnId }

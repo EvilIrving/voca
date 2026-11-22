@@ -189,6 +189,32 @@ class SessionPersistenceTest {
     }
 
     @Test
+    fun `接着聊回来的那一条不另起一行，读数按整段重算`() = runBlocking {
+        val store = SessionStore(app)
+        val started = System.currentTimeMillis() - 60_000L
+        store.saveTurn(Turn(id = "s1-u1", speaker = Speaker.User, text = "早上没睡好", sessionId = "s1"))
+        store.saveTurn(Turn(id = "s1-e1", speaker = Speaker.Echo, text = "Rough start.", sessionId = "s1"))
+        store.closeSession("s1", started)
+        store.rename("s1", "没睡好的早晨", manual = false)
+
+        // 中间夹了另一段会话，它的轮次不能被接着聊的那一条圈进去。
+        store.saveTurn(Turn(id = "s2-u1", speaker = Speaker.User, text = "另一段", sessionId = "s2"))
+        store.closeSession("s2", System.currentTimeMillis())
+
+        store.saveTurn(Turn(id = "s1-u2", speaker = Speaker.User, text = "还想去喝咖啡", sessionId = "s1"))
+        val again = store.closeSession("s1", started)
+
+        assertEquals("名字写定就留着", "没睡好的早晨", again.name)
+        assertEquals("起点还是那一次", started, again.startedAt)
+        assertEquals("轮次按整段重算", 2, again.rounds)
+        assertEquals(1, store.loadSessions().flatMap { it.sessions }.count { it.id == "s1" })
+        assertEquals(
+            listOf("早上没睡好", "Rough start.", "还想去喝咖啡"),
+            store.transcript("s1").map { it.text },
+        )
+    }
+
+    @Test
     fun `升级到四版时把旧词条按时间窗补进会话`() {
         withDatabaseFile("parley.db", version = 3) { legacy ->
             legacy.execSQL(TURN_TABLE_V3)
