@@ -47,7 +47,7 @@ struct RootView<VM: ParleySession>: View {
                     onSettings: {
                         drawer.close()
                         panel = .settings
-                    }
+                    },
                 )
             } content: {
                 ChatScreen(
@@ -97,8 +97,11 @@ struct RootView<VM: ParleySession>: View {
             }
 
             if panel == .vocab {
-                VocabScreen(cards: vm.vocab, onDismiss: { panel = .none }, onSpeak: vm.speakCard)
-                    .transition(.move(edge: .bottom))
+                VocabScreen(
+                    cards: vm.vocab,
+                    onDismiss: { panel = .none },
+                    onSpeak: vm.speakCard)
+                .transition(.move(edge: .bottom))
             }
 
             if panel == .settings {

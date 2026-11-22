@@ -134,6 +134,23 @@ class SessionStore(context: Context) {
 
     suspend fun bumpVocab(word: String) = db.vocab().bump(word, System.currentTimeMillis())
 
+    /** 左滑删掉的词先落库：界面已经乐观拿掉，库里不删就是下次冷启动又冒出来。 */
+    suspend fun deleteVocab(word: String) = db.vocab().delete(word)
+
+    /** 撤销时整行插回去，复现次数是卡片带来的原值；首次收录时间卡片没带，只能取它带的那个时间。 */
+    suspend fun restoreVocab(card: VocabCard) = db.vocab().restore(
+        VocabRow(
+            word = card.word,
+            phonetic = card.phonetic,
+            meaning = card.meaning,
+            example = card.example,
+            highlight = card.highlight,
+            repeats = card.repeats,
+            firstSeenAt = card.lastSeenAt,
+            lastSeenAt = card.lastSeenAt,
+        ),
+    )
+
     /**
      * 会话结束时签到一条记录，轮次、双项均值与新词数从 [startedAt] 到 [endedAt] 的库里算出来。
      * 已经有一行的（接着聊回来的那一段）不另起一行，只把收口时间与重算的读数写回去，
@@ -206,6 +223,7 @@ class SessionStore(context: Context) {
         if (trimmed.isEmpty()) return
         db.sessions().rename(id, trimmed, manual)
     }
+
 
     private fun TurnRow.toTurn(): Turn? {
         val speaker = runCatching { Speaker.valueOf(speaker) }.getOrNull() ?: return null

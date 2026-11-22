@@ -319,6 +319,7 @@ actor ParleyDatabase {
         try run("DELETE FROM turn")
     }
 
+
     private func queryTurns(_ sql: String, _ args: Any?...) throws -> [TurnRow] {
         try query(sql, args) { stmt in
             TurnRow(
@@ -388,6 +389,21 @@ actor ParleyDatabase {
 
     func bumpVocab(word: String, now: Int64) throws {
         try run("UPDATE vocab SET repeats = repeats + 1, lastSeenAt = ? WHERE word = ?", now, word)
+    }
+
+    func deleteVocab(word: String) throws {
+        try run("DELETE FROM vocab WHERE word = ? COLLATE NOCASE", word)
+    }
+
+    /// 撤销删除时整行插回去：复现次数与首次收录时间都在行里，不能重算。
+    func restoreVocab(_ row: VocabRow) throws {
+        try run(
+            """
+            INSERT OR REPLACE INTO vocab (word, phonetic, meaning, example, highlight, repeats, firstSeenAt, lastSeenAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            row.word, row.phonetic, row.meaning, row.example, row.highlight, row.repeats, row.firstSeenAt, row.lastSeenAt
+        )
     }
 
     private func queryVocab(_ sql: String, _ args: Any?...) throws -> [VocabRow] {
@@ -460,6 +476,7 @@ actor ParleyDatabase {
             endedAt, rounds, pronunciationAvg, grammarAvg, newWordCount, id
         )
     }
+
 
     private func querySessions(_ sql: String, _ args: Any?...) throws -> [SessionRow] {
         try query(sql, args) { stmt in

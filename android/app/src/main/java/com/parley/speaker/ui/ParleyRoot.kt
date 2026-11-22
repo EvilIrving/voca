@@ -218,6 +218,8 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
                 cards = vocab,
                 onDismiss = { panel = Panel.None },
                 onSpeak = vm::speakCard,
+                onDelete = vm::deleteVocab,
+                onRestore = vm::restoreVocab,
             )
         }
 

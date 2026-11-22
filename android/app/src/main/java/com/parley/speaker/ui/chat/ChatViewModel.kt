@@ -1067,6 +1067,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+
+
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
         val before = settingsStore.settings.value
         settingsStore.update(transform)
@@ -1197,6 +1199,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         for (i in 0 until BarCount - 1) levelBuffer[i] = levelBuffer[i + 1]
         levelBuffer[BarCount - 1] = level
         _levelFrame.value += 1
+    }
+
+    /** 左滑删掉的词先拿掉再落库：等库回来再改界面会先闪一下那一行。 */
+    fun deleteVocab(word: String) {
+        _vocab.value = _vocab.value.filterNot { it.word.equals(word, ignoreCase = true) }
+        viewModelScope.launch { store.deleteVocab(word) }
+    }
+
+    /** 撤销时把卡片按原样插回并按最近出现时间归位，界面不等库回来。 */
+    fun restoreVocab(card: VocabCard) {
+        if (_vocab.value.none { it.word.equals(card.word, ignoreCase = true) }) {
+            _vocab.value = (listOf(card) + _vocab.value).sortedByDescending { it.lastSeenAt }
+        }
+        viewModelScope.launch { store.restoreVocab(card) }
     }
 
     /** 这一轮按静音收尾：采集停掉、预览收掉、上行音频丢掉，界面回空态。 */

@@ -128,6 +128,7 @@ interface TurnDao {
     @Query("DELETE FROM turn WHERE id = :id")
     suspend fun delete(id: String)
 
+
     @Query("DELETE FROM turn")
     suspend fun clear()
 }
@@ -165,6 +166,13 @@ interface VocabDao {
 
     @Query("UPDATE vocab SET repeats = repeats + 1, lastSeenAt = :now WHERE word = :word")
     suspend fun bump(word: String, now: Long)
+
+    // 左滑删掉的词先落库，撤销时按原样插回去：整行都在，复现次数与首次收录时间不能重算。
+    @Query("DELETE FROM vocab WHERE word = :word COLLATE NOCASE")
+    suspend fun delete(word: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun restore(row: VocabRow)
 }
 
 @Dao
@@ -202,6 +210,7 @@ interface SessionDao {
             "WHERE id = :id AND (manualName = 0 OR :manual = 1)",
     )
     suspend fun rename(id: String, name: String, manual: Boolean)
+
 }
 
 /** 模型清单缓存按供应商一条，重复拉取整条盖掉。 */

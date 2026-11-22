@@ -124,6 +124,30 @@ actor SessionStore {
         try await db.bumpVocab(word: word, now: now)
     }
 
+    /// 左滑删掉的词直接落库：界面已经乐观拿掉，库里不删就是下次冷启动又冒出来。
+    func deleteVocab(word: String) async throws {
+        try await db.deleteVocab(word: word)
+    }
+
+    /// 撤销时整行插回去，复现次数是卡片带来的原值；
+    /// 首次收录时间卡片没带，只能取它带的那个时间，卡片也没有可用时间就取当下。
+    func restoreVocab(card: VocabCard) async throws {
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let seen = card.lastSeenAt > 0 ? card.lastSeenAt : now
+        try await db.restoreVocab(
+            VocabRow(
+                word: card.word,
+                phonetic: card.phonetic,
+                meaning: card.meaning,
+                example: card.example,
+                highlight: card.highlight,
+                repeats: card.repeats,
+                firstSeenAt: seen,
+                lastSeenAt: seen
+            )
+        )
+    }
+
     /// 会话结束时签到一条记录，轮次、双项均值与新词数从 `startedAt` 到 `endedAt` 的库里算出来。
     /// 已经有一行的（接着聊回来的那一段）不另起一行，只把收口时间与重算的读数写回去，
     /// 名字与起点保持第一次的值；这一条也不按时间窗重绑轮次，中间夹着的别的会话不会被圈进来。
@@ -206,6 +230,7 @@ actor SessionStore {
         guard !trimmed.isEmpty else { return }
         try await db.renameSession(id: id, name: trimmed, manual: manual)
     }
+
 
     private func toTurn(_ row: TurnRow) -> Turn? {
         guard let speaker = Speaker.fromDB(row.speaker) else { return nil }

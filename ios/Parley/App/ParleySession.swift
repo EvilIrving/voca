@@ -30,6 +30,8 @@ protocol ParleySession: AnyObject, ObservableObject {
     func translate(_ text: String) async -> String?
     func speakCard(_ card: VocabCard)
     func speakText(_ text: String)
+    func deleteVocab(word: String)
+    func restoreVocab(card: VocabCard)
     func resumeSession(_ record: SessionRecord)
     func leaveSession()
     func startNewSession()
@@ -72,6 +74,8 @@ final class PreviewParleySession: ParleySession {
     func translate(_ text: String) async -> String? { nil }
     func speakCard(_ card: VocabCard) {}
     func speakText(_ text: String) {}
+    func deleteVocab(word: String) {}
+    func restoreVocab(card: VocabCard) {}
     func resumeSession(_ record: SessionRecord) {}
     func leaveSession() {}
     func startNewSession() {}

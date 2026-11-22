@@ -283,6 +283,20 @@ final class ChatStore: ObservableObject, ParleySession {
         Task { _ = await tts.speak(text) }
     }
 
+    /// 左滑删掉的词先拿掉再落库：等库回来再改界面会先闪一下那一行。
+    func deleteVocab(word: String) {
+        vocab.removeAll { $0.word.caseInsensitiveCompare(word) == .orderedSame }
+        Task { try? await store.deleteVocab(word: word) }
+    }
+
+    /// 撤销时把卡片按原样插回并按最近出现时间归位，界面不等库回来。
+    func restoreVocab(card: VocabCard) {
+        if !vocab.contains(where: { $0.word.caseInsensitiveCompare(card.word) == .orderedSame }) {
+            vocab = ([card] + vocab).sorted { $0.lastSeenAt > $1.lastSeenAt }
+        }
+        Task { try? await store.restoreVocab(card: card) }
+    }
+
     /// 接着一条历史会话聊：把那一整段对话读回手上，新的一轮续在后面，账本改用那条的标识与起点，
     /// 连接按那段流水开场，模型接着原来的场景说下去。
     func resumeSession(_ record: SessionRecord) {
@@ -327,6 +341,8 @@ final class ChatStore: ObservableObject, ParleySession {
             checkIn = checkInWeeks(sessions: practice, now: now)
         }
     }
+
+
 
     func updateSettings(_ transform: (AppSettings) -> AppSettings) {
         let before = settingsStore.settings
