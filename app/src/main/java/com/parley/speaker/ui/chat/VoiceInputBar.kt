@@ -963,8 +963,9 @@ private fun TrashSlot(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    // 动效画布一百见方，垃圾桶本体只占中间四十宽五十五高，铺到四十 dp 才与旁边那颗图元一般大。
-    val binSize = 40.dp
+    // 动效画布一百见方，杯子本体只占左上那一块；铺到四十五 dp 再往右下挪几格，
+    // 杯口才正好落在旁边那颗图元的位置上，起手不跳。
+    val binSize = 45.dp
     Box(
         modifier = modifier
             .offset(x = left)
@@ -982,8 +983,8 @@ private fun TrashSlot(
                 progress = { frame },
                 modifier = Modifier
                     .offset(
-                        x = (InputBarSpec.TrashGlyph - binSize) / 2,
-                        y = (InputBarSpec.TrashGlyph - binSize) / 2,
+                        x = (InputBarSpec.TrashGlyph - binSize) / 2 + 7.dp,
+                        y = (InputBarSpec.TrashGlyph - binSize) / 2 + 6.dp,
                     )
                     .size(binSize),
             )
