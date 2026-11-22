@@ -1,8 +1,9 @@
 package com.parley.speaker.domain
 
 enum class AssessorProvider(val label: String) {
-    None("未接入"),
+    None("未选择"),
     Azure("微软 Azure 语音评测"),
+    Xfyun("讯飞评测流式版"),
 }
 
 /** 文本分析请求把密钥放在哪里，三档对应 Bearer 头、自定义头与查询参数。 */
@@ -81,11 +82,32 @@ data class AnalysisSettings(
     val thinking: Boolean = false,
 )
 
+/**
+ * 两家的凭据各占一组，齐备即启用。Azure 认密钥与区域两项；讯飞认 AppID、APIKey、APISecret 三件套。
+ * resolvedProvider 是唯一判定点：显式选中的那家参数齐备就照办，否则按齐备情况退回推导，
+ * 两家都齐备又没有显式选择时 Azure 在前，因此同一时刻只有一家生效。
+ */
 data class AssessorSettings(
     val provider: AssessorProvider = AssessorProvider.None,
     val azureKey: String = "",
     val azureRegion: String = "",
-)
+    val xfyunAppId: String = "",
+    val xfyunApiKey: String = "",
+    val xfyunApiSecret: String = "",
+) {
+    val azureReady: Boolean get() = azureKey.isNotBlank() && azureRegion.isNotBlank()
+
+    val xfyunReady: Boolean
+        get() = xfyunAppId.isNotBlank() && xfyunApiKey.isNotBlank() && xfyunApiSecret.isNotBlank()
+
+    val resolvedProvider: AssessorProvider
+        get() = when {
+            provider == AssessorProvider.Xfyun && xfyunReady -> AssessorProvider.Xfyun
+            azureReady -> AssessorProvider.Azure
+            xfyunReady -> AssessorProvider.Xfyun
+            else -> AssessorProvider.None
+        }
+}
 
 data class AppSettings(
     val live: LiveSettings = LiveSettings(),

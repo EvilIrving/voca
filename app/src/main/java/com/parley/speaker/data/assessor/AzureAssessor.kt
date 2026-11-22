@@ -61,9 +61,14 @@ class AzureAssessor(
     private companion object {
         const val TAG = "AzureAssessor"
         const val MAX_AUDIO_MILLIS = 30_000
-        val WAV_MEDIA_TYPE = "audio/wav; codecs=audio/pcm; samplerate=16000".toMediaType()
     }
 }
+
+/**
+ * 上传的音频媒体类型。OkHttp 的参数值不允许出现裸斜杠，codecs 不带引号整串就解不开，
+ * 看起来有值实际是 null，请求头因此落到默认的 application/json。
+ */
+internal val WAV_MEDIA_TYPE = "audio/wav; codecs=\"audio/pcm\"; samplerate=16000".toMediaType()
 
 internal fun azureEndpoint(region: String, locale: String): String =
     "https://$region.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=$locale"

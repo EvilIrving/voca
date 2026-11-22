@@ -7,6 +7,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -74,6 +75,20 @@ class AzureAssessorTest {
         assertEquals("data", String(wav, 36, 4, Charsets.US_ASCII))
         assertEquals(pcm.size, ByteBuffer.wrap(wav, 40, 4).order(ByteOrder.LITTLE_ENDIAN).int)
         assertArrayEquals(pcm, wav.copyOfRange(44, wav.size))
+    }
+
+    @Test
+    fun `上传的媒体类型带上带引号的 codecs 并能被 OkHttp 解析`() {
+        val media = WAV_MEDIA_TYPE
+
+        assertEquals("audio", media.type)
+        assertEquals("wav", media.subtype)
+        assertEquals("codecs 不丢", "audio/pcm", media.parameter("codecs"))
+        assertEquals("16000", media.parameter("samplerate"))
+        assertNull(
+            "旧写法 codecs=audio/pcm 里的斜杠让整串解不开",
+            "audio/wav; codecs=audio/pcm; samplerate=16000".toMediaTypeOrNull(),
+        )
     }
 
     private fun headerParams(referenceText: String?) =
