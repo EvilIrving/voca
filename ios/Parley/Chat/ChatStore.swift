@@ -11,6 +11,12 @@ final class ChatStore: ObservableObject, ParleySession {
     let meter = VoiceMeter()
     @Published private(set) var voicePreview: VoicePreview?
     @Published private(set) var vocab: [VocabCard] = []
+    /// 设置页那张打卡热力图：收段记录一有新的一份就重算，界面不再自己扫库。
+    @Published private(set) var checkIn = checkInWeeks(sessions: [], now: 0)
+
+    /// 收音一停就量出来的真实长度，按轮 id 存着，落库时挂到那一轮上。
+    private var spokenMs: [String: Int64] = [:]
+    private var capturingTurnId: String?
     @Published private(set) var providers: [ProviderLine] = []
     @Published private(set) var textProviders = TextProviderCatalog.all
     @Published private(set) var report: String?
@@ -314,7 +320,11 @@ final class ChatStore: ObservableObject, ParleySession {
     }
     func loadSessions() {
         Task {
-            sessions = (try? await store.loadSessions())?.flatMap(\.sessions) ?? []
+            let records = (try? await store.loadSessions())?.flatMap(\.sessions) ?? []
+            sessions = records
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            let practice = (try? await store.practiceSessions(since: checkInWindowStart(now: now))) ?? []
+            checkIn = checkInWeeks(sessions: practice, now: now)
         }
     }
 
@@ -442,13 +452,19 @@ final class ChatStore: ObservableObject, ParleySession {
     private func applyEffects(_ effects: [TurnEffect]) {
         for effect in effects {
             switch effect {
-            case .startCapture:
+            case .startCapture(let turnId):
+                capturingTurnId = turnId
                 beginCaptureOrRetry()
             case .stopCapture:
                 meter.reset()
                 stopPreview()
+                // 封口前先量出这段录音的真实长度，打卡认的就是这个数，文件随后删掉。
+                let captured = capturingTurnId
+                capturingTurnId = nil
                 Task {
-                    if let clip = await recorder.finish() { try? FileManager.default.removeItem(atPath: clip.path) }
+                    guard let clip = await recorder.finish() else { return }
+                    if let captured { spokenMs[captured] = clip.durationMs }
+                    try? FileManager.default.removeItem(atPath: clip.path)
                 }
             case .sendTurnStart:
                 session?.startTurn()
@@ -470,8 +486,12 @@ final class ChatStore: ObservableObject, ParleySession {
             case .persist(var turn):
                 if turn.audioPath == nil, recordedTurns.contains(turn.id) { turn.audioPath = turnAudio.path(turnId: turn.id) }
                 if turn.sessionId == nil { turn.sessionId = sessionId }
+                // 自己说的那一轮带上量到的长度；打字发的、助手说的都没有这一段录音。
+                if turn.speaker == .user, let spoken = spokenMs.removeValue(forKey: turn.id) { turn.durationMs = spoken }
                 Task { try? await store.saveTurn(turn) }
             case .delete(let turnId):
+                // 作废掉的那一轮不会再落库，量到的长度也跟着丢。
+                spokenMs.removeValue(forKey: turnId)
                 purgeTurn(turnId)
             case .analyze(let turnId, let text):
                 launchAnalysis(turnId: turnId, text: text)

@@ -51,6 +51,7 @@ import com.parley.speaker.data.settings.SettingsStore
 import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AppSettings
 import com.parley.speaker.domain.AssessorProvider
+import com.parley.speaker.domain.CheckInWeeks
 import com.parley.speaker.domain.LinkStatus
 import com.parley.speaker.domain.LiveChange
 import com.parley.speaker.domain.LiveDefaults
@@ -68,6 +69,8 @@ import com.parley.speaker.domain.TurnFlow
 import com.parley.speaker.domain.TurnFlowState
 import com.parley.speaker.domain.TurnPhase
 import com.parley.speaker.domain.VocabCard
+import com.parley.speaker.domain.checkInWeeks
+import com.parley.speaker.domain.checkInWindowStart
 import com.parley.speaker.domain.continuationHistory
 import com.parley.speaker.domain.liveChange
 import com.parley.speaker.domain.memoryMaterial
@@ -158,6 +161,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _sessions = MutableStateFlow<List<SessionRecord>>(emptyList())
     val sessions: StateFlow<List<SessionRecord>> = _sessions.asStateFlow()
+
+    /** 设置页那张打卡热力图：收段记录一有新的一份就重算，界面不再自己扫库。 */
+    private val _checkIn = MutableStateFlow(checkInWeeks(emptyList(), System.currentTimeMillis()))
+    val checkIn: StateFlow<CheckInWeeks> = _checkIn.asStateFlow()
+
+    /** 收音一停就量出来的真实长度，按轮 id 存着，落库时挂到那一轮上。 */
+    private val spokenMs = mutableMapOf<String, Long>()
+    private var capturingTurnId: String? = null
 
     // 电平每二十毫秒一帧、持续整段收音，绝不新建数组：采集侧就地把数值写进同一个缓冲，
     // 界面只订阅帧计数，重绘一次读一次。
@@ -351,15 +362,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun applyEffects(effects: List<TurnEffect>) {
         effects.forEach { effect ->
             when (effect) {
-                is TurnEffect.StartCapture -> beginCaptureOrRetry()
+                is TurnEffect.StartCapture -> {
+                    capturingTurnId = effect.turnId
+                    beginCaptureOrRetry()
+                }
 
                 TurnEffect.StopCapture -> {
                     timerJob?.cancel()
                     timerJob = null
                     stopPreview()
-                    // 这一段是发出去还是作废，落到文件上的那只 OGG 都不再有人用，封口之后删掉。
+                    // 这一段是发出去还是作废，落到文件上的那只 OGG 都不再有人用，
+                    // 封口前先量出它的真实长度，打卡认的就是这个数。
+                    val captured = capturingTurnId
+                    capturingTurnId = null
                     viewModelScope.launch {
-                        recorder.finish()?.let { clip -> runCatching { File(clip.path).delete() } }
+                        recorder.finish()?.let { clip ->
+                            if (captured != null) spokenMs[captured] = clip.durationMs
+                            runCatching { File(clip.path).delete() }
+                        }
                     }
                     java.util.Arrays.fill(levelBuffer, 0f)
                     _levelFrame.value += 1
@@ -392,11 +412,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     } else {
                         turn.audioPath
                     }
-                    val toSave = if (turn.sessionId == null) turn.copy(sessionId = sessionId, audioPath = path) else turn.copy(audioPath = path)
-                    viewModelScope.launch { store.saveTurn(toSave) }
+                    val toSave = if (turn.sessionId == null) {
+                        turn.copy(sessionId = sessionId, audioPath = path)
+                    } else {
+                        turn.copy(audioPath = path)
+                    }
+                    // 自己说的那一轮带上量到的长度；打字发的、助手说的都没有这一段录音。
+                    val spoken = if (turn.speaker == Speaker.User) spokenMs.remove(turn.id) else null
+                    val withSpoken = if (spoken == null) toSave else toSave.copy(durationMs = spoken)
+                    viewModelScope.launch { store.saveTurn(withSpoken) }
                 }
 
-                is TurnEffect.Delete -> purgeTurn(effect.turnId)
+                is TurnEffect.Delete -> {
+                    // 作废掉的那一轮不会再落库，量到的长度也跟着丢，别留在这张表里。
+                    spokenMs.remove(effect.turnId)
+                    purgeTurn(effect.turnId)
+                }
 
                 is TurnEffect.Analyze -> launchAnalysis(effect.turnId, effect.text)
                 is TurnEffect.LearnVocab -> {
@@ -1028,8 +1059,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadSessions() {
         viewModelScope.launch {
-            _sessions.value = runCatching { store.loadSessions() }.getOrDefault(emptyList())
-                .flatMap { it.sessions }
+            val records = runCatching { store.loadSessions() }.getOrDefault(emptyList())
+            _sessions.value = records.flatMap { it.sessions }
+            val now = System.currentTimeMillis()
+            val practice = runCatching { store.practiceSessions(checkInWindowStart(now)) }.getOrDefault(emptyList())
+            _checkIn.value = checkInWeeks(practice, now)
         }
     }
 

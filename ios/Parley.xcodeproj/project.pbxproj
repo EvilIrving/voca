@@ -33,6 +33,7 @@
 		3D97976E3A6B3346AE98E9C2 /* Realtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78313A042161575952227884 /* Realtime.swift */; };
 		3E11889DA3AC51D14081C048 /* BackButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF5A5841A3FE7051044FB8B /* BackButton.swift */; };
 		459B47D1C13782533C41808C /* SpeechDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC567BDF66C7156CCB902516 /* SpeechDetector.swift */; };
+		CCA6E46D7F9128E3DEEB0110 /* CheckIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C3414065C5D1159C172D88 /* CheckIn.swift */; };
 		462D1A6EBEEEB0BD529AD8F4 /* OpenAiWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F25FE01D2457042BE7884F /* OpenAiWire.swift */; };
 		4750A6687CA022D2908C283B /* ClipPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DFC59B602DF0BB2031B9E43 /* ClipPlayer.swift */; };
 		47C044616BD9626E5BD51883 /* VoiceGestureTrack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70F3C6276D2EF704E16FF7A9 /* VoiceGestureTrack.swift */; };
@@ -145,6 +146,7 @@
 		9459FBF68351E8C55671C3BB /* VoiceMeter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMeter.swift; sourceTree = "<group>"; };
 		9534C0CDE518122BB53E67FA /* ModelsJson.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsJson.swift; sourceTree = "<group>"; };
 		96831BC90A5DBEC3E584D2A0 /* SpeechGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechGate.swift; sourceTree = "<group>"; };
+		51C3414065C5D1159C172D88 /* CheckIn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckIn.swift; sourceTree = "<group>"; };
 		96C873D03A3A9129BB193768 /* VoicePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePreview.swift; sourceTree = "<group>"; };
 		97899C5BE33AFD8EDD170C53 /* TurnFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnFlow.swift; sourceTree = "<group>"; };
 		9AF6EA78C9BC052ED0801773 /* chat_audio_record_delete.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = chat_audio_record_delete.json; sourceTree = "<group>"; };
@@ -224,6 +226,7 @@
 			isa = PBXGroup;
 			children = (
 				16400E91D28B65EAC6AD3BC5 /* Continuation.swift */,
+				51C3414065C5D1159C172D88 /* CheckIn.swift */,
 				BFD2FCA189FC757EA0F01CCD /* Memory.swift */,
 				DE530C47CBE24D5E32D6BBE7 /* Models.swift */,
 				0C3EE66FF7A1601FD3B0029A /* SeedContent.swift */,
@@ -586,6 +589,7 @@
 				7EC8D341E48D334AF4ADF210 /* SpeechAssessor.swift in Sources */,
 				459B47D1C13782533C41808C /* SpeechDetector.swift in Sources */,
 				00766305DB71CF249622ACCF /* SpeechGate.swift in Sources */,
+				CCA6E46D7F9128E3DEEB0110 /* CheckIn.swift in Sources */,
 				B2021184C72C1EC4C0D801C5 /* TextProviders.swift in Sources */,
 				4B9ED01D196952D1FE7939E2 /* TtsSpeaker.swift in Sources */,
 				68BB59FA5848DC0BB836626D /* TurnAnalyzer.swift in Sources */,
