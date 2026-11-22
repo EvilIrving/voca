@@ -44,6 +44,10 @@ android {
         buildConfig = true
     }
 
+    // prompts/ 就是三段提示词的源：system.md 是全局系统提示词，session.md 是新的一段开场加载的材料，
+    // memory.md 是全局记忆的起点。整目录当 assets 打包，改文字不必改代码，也不另存一份副本。
+    sourceSets["main"].assets.srcDir(rootProject.file("prompts"))
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
         // 报文层用 android.util.Log 记供应商原文，单测里让它退成空实现，不然解析路径一进日志就抛。

@@ -280,6 +280,7 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
                 providers = providers,
                 textProviders = textProviders,
                 report = report,
+                defaultPrompt = vm.defaultPrompt,
                 onDismiss = { panel = Panel.None },
                 onProbe = vm::probe,
                 onUpdate = vm::updateSettings,

@@ -15,6 +15,13 @@ object IdleCut {
 }
 
 /**
+ * 新的一段开场要发给模型的第一句。`prompts/session.md` 里有材料就用它，空着才用那一句固定问候，
+ * 所以开场写什么只改文件，不改代码。
+ */
+internal fun openingOf(loaded: String, greeting: String): String =
+    loaded.trim().ifBlank { greeting }
+
+/**
  * 一段会话的账。起点定了就不改，[closed] 一立起来这一段就只交出去一次，
  * 切场景与静默判定同时到点也只落一条记录。
  */

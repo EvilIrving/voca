@@ -56,6 +56,9 @@ object Type {
         color = Palette.ink,
     )
     val proseItalic = prose.copy(fontStyle = FontStyle.Italic)
+
+    /** 系统提示词与全局记忆都是中文叙述，比正文小一号、行高紧一点。 */
+    val promptProse = prose.copy(fontSize = 13.sp, lineHeight = 21.sp, color = Palette.ink2)
     val ui = TextStyle(
         fontFamily = InterFamily,
         fontSize = 13.sp,

@@ -14,6 +14,7 @@ import com.parley.speaker.audio.AzureCredential
 import com.parley.speaker.audio.Tts
 import com.parley.speaker.audio.TurnAudioStore
 import com.parley.speaker.data.SeedContent
+import com.parley.speaker.data.Prompts
 import com.parley.speaker.data.SessionRecord
 import com.parley.speaker.data.SessionStore
 import com.parley.speaker.data.startOfLocalDay
@@ -33,6 +34,8 @@ import com.parley.speaker.data.db.MIGRATION_1_2
 import com.parley.speaker.data.db.MIGRATION_2_3
 import com.parley.speaker.data.db.MIGRATION_3_4
 import com.parley.speaker.data.db.MIGRATION_4_5
+import com.parley.speaker.data.db.MIGRATION_5_6
+import com.parley.speaker.data.db.MIGRATION_6_7
 import com.parley.speaker.data.db.ParleyDatabase
 import com.parley.speaker.data.realtime.Capabilities
 import com.parley.speaker.data.realtime.RealtimeEvent
@@ -62,7 +65,11 @@ import com.parley.speaker.domain.TurnFlow
 import com.parley.speaker.domain.TurnFlowState
 import com.parley.speaker.domain.TurnPhase
 import com.parley.speaker.domain.VocabCard
+import com.parley.speaker.domain.admitMemory
 import com.parley.speaker.domain.liveChange
+import com.parley.speaker.domain.memoryMaterial
+import com.parley.speaker.domain.systemPromptOf
+import com.parley.speaker.domain.transcriptLine
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
@@ -118,7 +125,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val catalogs by lazy {
         ModelCatalogStore(
             Room.databaseBuilder(application, ParleyDatabase::class.java, "parley.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
                 .modelCatalogs(),
         )
@@ -134,6 +141,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     val settings: StateFlow<AppSettings> = settingsStore.settings
 
+    /** 出厂的系统提示词，配置中心那个「恢复默认」要向它回来。 */
+    val defaultPrompt: String get() = settingsStore.defaultPrompt
+
     private val _state = MutableStateFlow(
         ChatState(
             scenario = SeedContent.Scenarios.first(),
@@ -144,7 +154,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     )
     val state: StateFlow<ChatState> = _state.asStateFlow()
 
-    /** 最近收掉的那条会话记录：小结卡与改名都看它，自动名写好之后会被替换一次。 */
+    /** 最近收掉的那条会话记录：顶栏中段的名字与自动命名都看它，写好之后会被替换一次。 */
     private val _lastSession = MutableStateFlow<SessionRecord?>(null)
     val lastSession: StateFlow<SessionRecord?> = _lastSession.asStateFlow()
 
@@ -201,8 +211,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /** 当前这一段的账：起点、上次活动、有没有收过。四种收段时机都从这里过。 */
     private val ledger = SessionLedger()
 
-    /** 当前这一段开场时定下的场景与角色提示词。 */
+    /** 当前这一段开场时定下的场景与系统提示词。 */
     private var plan = SegmentPlan(SeedContent.Scenarios.first(), settingsStore.settings.value.prompt)
+
+    /** 三段提示词的出处：仓库的 prompts/ 目录打包成 assets。 */
+    private val prompts = Prompts(application)
+
+    /**
+     * 全局记忆：跨会话保留的那一段，界面看不见也改不了。启动时从库里读，没有就拿
+     * prompts/memory.md 那段口吻起头；每轮由改写请求整段重写，写库一次。
+     * 建连接时它接在系统提示词后面进 setup，换连接、断线重连都能把最新的那份带上。
+     */
+    private var memory = ""
+
+    /** 改写请求排成一条队列：前一段没写完就只留最后一轮，不把同一件事在排队里叠几份。 */
+    private val memoryRequests = Channel<String>(Channel.CONFLATED)
 
     /** 当前连接自报的能力清单，打字输入与开场问候按它开关。 */
     private var capabilities: Capabilities? = null
@@ -251,7 +274,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _vocab.value = store.loadVocab()
             refreshProviders()
             publishCachedModels()
+            // 记忆先于连接到位，第一条连接就带着上一次留下来的事。
+            memory = runCatching { store.globalMemory() }.getOrDefault("").ifBlank {
+                prompts.memory.also { seed -> if (seed.isNotBlank()) store.saveMemory(seed) }
+            }
             connect()
+        }
+        // 改写一条一条走，每条都读当下这份记忆，并进去的东西不会互相覆盖。
+        viewModelScope.launch {
+            for (turnId in memoryRequests) rewriteMemory(turnId)
         }
         viewModelScope.launch { turnAudio.prune() }
         viewModelScope.launch { backfillSessionNames() }
@@ -296,7 +327,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     greeted = true
                     // 开场问候本身就是一条文字消息，线路不收文字就一条都不发，改弹一条说明。
                     val refusal = textRefusal(Connection.Ready, capabilities)
-                    if (refusal == null) session?.sendText(GreetingPrompt) else showNotice(refusal)
+                    if (refusal == null) session?.sendText(openingOf(prompts.session, GreetingPrompt)) else showNotice(refusal)
                 }
             }
 
@@ -439,12 +470,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         connectSeq += 1
         val seq = connectSeq
+        // 记忆每一轮都在变，连接却只在开场、换连接与重连时建，系统提示与全局记忆在这里一起进 setup。
+        // 正在进行的那条连接上下文里本来就有这段对话，中途再灌一份只会把上下文撑大。
+        val instructions = systemPromptOf(plan.prompt, memory)
         val created = when (live.provider) {
             LiveVendor.Gemini -> GeminiLiveSession(
                 apiKey = live.geminiKey,
                 model = live.model,
                 voice = live.voice,
-                systemPrompt = plan.prompt,
+                systemPrompt = instructions,
                 onEvent = { event -> onEvent(seq, event) },
             )
 
@@ -452,7 +486,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 apiKey = live.openAiKey,
                 model = live.model,
                 voice = live.voice,
-                instructions = plan.prompt,
+                instructions = instructions,
                 onEvent = { event -> onEvent(seq, event) },
             )
 
@@ -461,7 +495,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 appKey = live.doubaoAppKey,
                 accessKey = live.doubaoAccessKey,
                 voice = live.voice,
-                systemPrompt = plan.prompt,
+                systemPrompt = instructions,
                 onEvent = { event -> onEvent(seq, event) },
             )
         }
@@ -567,6 +601,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 AnalysisRoute.Store -> writeBackAnalysis(turnId, review, analysis.vocab)
             }
         }
+        // 记忆与评测各跑各的：评测回来说的是这一句说的对不对，记忆说的是这一场还该记住什么。
+        memoryRequests.trySend(turnId)
+    }
+
+    /**
+     * 记忆改写：材料是这一轮前后那几句话，输出是整段新记忆，收下来就写库。
+     * 记忆是全局的，收段与切会话都不清它；改写不碰音频链路，也不进任何界面。
+     */
+    private suspend fun rewriteMemory(turnId: String) {
+        val material = memoryMaterial(flow.turns, turnId) ?: return
+        val current = memory
+        val next = admitMemory(current, analyzer().memorize(current, material)) ?: return
+        memory = next
+        runCatching { store.saveMemory(next) }
     }
 
     /**
@@ -841,7 +889,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         player.stop()
         dropSession()
         attachAudioPaths()
-        // 这一屏对话留到下一段开起来再换，小结卡与命名都要拿它算。
+        // 这一屏对话留到下一段开起来再换，自动命名要拿它算。
         flow = flow.copy(phase = TurnPhase.Offline, cancelArmed = false)
         connection = if (settingsStore.settings.value.live.ready) Connection.Failed else Connection.Unconfigured
         clearNotice()
@@ -1112,10 +1160,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun transcriptOf(turns: List<Turn>): String? = turns
         .filter { it.text.isNotBlank() }
-        .joinToString("\n") { turn ->
-            val who = if (turn.speaker == Speaker.User) "学生" else "助教"
-            "$who：${turn.text}"
-        }
+        .joinToString("\n", transform = ::transcriptLine)
         .takeIf { it.isNotBlank() }
 
     /** 启动补写：最近一天里没写成名字的会话最多补三条。 */

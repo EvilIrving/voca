@@ -92,6 +92,31 @@ class SessionPersistenceTest {
     }
 
     @Test
+    fun `全局记忆写一次重启后还在`() = runBlocking {
+        SessionStore(app).saveMemory("他叫李明，准备雅思，周四面试。")
+
+        assertEquals("他叫李明，准备雅思，周四面试。", SessionStore(app).globalMemory())
+    }
+
+    @Test
+    fun `升到七版时补出记忆表，旧会话原样带着`() {
+        withDatabaseFile("parley.db", version = 6) { legacy ->
+            legacy.execSQL(TURN_TABLE_V5)
+            legacy.execSQL(VOCAB_TABLE)
+            legacy.execSQL(SESSION_TABLE)
+            legacy.execSQL(MODEL_CATALOG_TABLE)
+            legacy.execSQL(
+                "INSERT INTO `turn` (`id`, `speaker`, `text`, `createdAt`) VALUES ('u1', 'User', '上一版的对话', 100)",
+            )
+        }
+
+        val stored = runBlocking { SessionStore(app).loadTurns() }
+
+        assertEquals(listOf("上一版的对话"), stored.map { it.text })
+        assertEquals("新库从头空着，等第一轮改写写进来", "", runBlocking { SessionStore(app).globalMemory() })
+    }
+
+    @Test
     fun `同一个词的两种大小写在库里是一条`() = runBlocking {
         val store = SessionStore(app)
         store.recordVocab(listOf(card("Coffee", repeats = 1)))

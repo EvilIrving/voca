@@ -6,6 +6,8 @@ import com.parley.speaker.data.db.MIGRATION_2_3
 import com.parley.speaker.data.db.MIGRATION_3_4
 import com.parley.speaker.data.db.MIGRATION_4_5
 import com.parley.speaker.data.db.MIGRATION_5_6
+import com.parley.speaker.data.db.MIGRATION_6_7
+import com.parley.speaker.data.db.MemoryRow
 import com.parley.speaker.data.db.ParleyDatabase
 import com.parley.speaker.data.db.SessionRow
 import com.parley.speaker.data.db.TurnRow
@@ -25,11 +27,19 @@ import kotlinx.serialization.json.Json
 class SessionStore(context: Context) {
 
     private val db = Room.databaseBuilder(context, ParleyDatabase::class.java, "parley.db")
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
         .build()
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun loadTurns(): List<Turn> = db.turns().all().mapNotNull { it.toTurn() }
+
+    /** 全局记忆：跨会话保留的那一段。库里没有时返回空，由调用方拿默认起点顶上。 */
+    suspend fun globalMemory(): String = db.memory().byId(GlobalMemoryId)?.text.orEmpty()
+
+    /** 改写完的记忆整段盖掉，时间戳只作记录，读的时候不参与判定。 */
+    suspend fun saveMemory(text: String) {
+        db.memory().put(MemoryRow(id = GlobalMemoryId, text = text, updatedAt = System.currentTimeMillis()))
+    }
 
     /** 只写这一轮：新轮插入时写时间戳，已有轮保留原 createdAt；收藏位只走 [setSaved]。 */
     suspend fun saveTurn(turn: Turn) {
@@ -210,5 +220,8 @@ class SessionStore(context: Context) {
 
     private companion object {
         const val UnnamedWindow = 24 * 60 * 60 * 1000L
+
+        /** 全局记忆只有这一条，不按会话分表，也不随会话收口增删。 */
+        const val GlobalMemoryId = "global"
     }
 }

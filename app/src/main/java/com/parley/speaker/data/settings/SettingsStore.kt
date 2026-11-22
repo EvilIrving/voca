@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.parley.speaker.BuildConfig
+import com.parley.speaker.data.Prompts
 import com.parley.speaker.data.SeedContent
 import com.parley.speaker.data.analysis.TextProviderCatalog
 import com.parley.speaker.domain.AnalysisCredentials
@@ -34,6 +35,10 @@ class SettingsStore(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
+    // 出厂提示词要在 _settings 之前就读好：read() 一上来就拿它当 fallback，字段初始化是按声明顺序跑的。
+    /** 出厂的系统提示词从 `prompts/system.md` 来，配置中心的「恢复默认」也取这一份。 */
+    val defaultPrompt: String = Prompts(context).system
+
     private val _settings = MutableStateFlow(read())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
@@ -54,7 +59,7 @@ class SettingsStore(context: Context) {
             ),
         ),
         assessor = AssessorSettings(provider = AssessorProvider.None),
-        prompt = SeedContent.DefaultPrompt,
+        prompt = defaultPrompt,
     )
 
     private fun read(): AppSettings {
@@ -68,7 +73,7 @@ class SettingsStore(context: Context) {
             live = readLive(prefs),
             analysis = readAnalysis(prefs),
             assessor = readAssessor(prefs),
-            prompt = prefs.getString(KEY_PROMPT, null) ?: SeedContent.DefaultPrompt,
+            prompt = readPrompt(prefs, defaultPrompt),
         )
     }
 
@@ -95,9 +100,10 @@ class SettingsStore(context: Context) {
     private companion object {
         const val FILE_NAME = "parley_secure"
         const val KEY_SEEDED = "seeded"
-        const val KEY_PROMPT = "prompt"
     }
 }
+
+private const val KEY_PROMPT = "prompt"
 
 private const val KEY_ANALYSIS_SAVED = "analysis_saved"
 private const val KEY_ANALYSIS_PROVIDER = "analysis_provider"
@@ -204,6 +210,19 @@ internal fun SharedPreferences.Editor.putAssessor(settings: AssessorSettings): S
         .putString(KEY_XFYUN_APP_ID, settings.xfyunAppId)
         .putString(KEY_XFYUN_API_KEY, settings.xfyunApiKey)
         .putString(KEY_XFYUN_API_SECRET, settings.xfyunApiSecret)
+
+/**
+ * 系统提示词的读法。存着的那份还是旧出厂默认时换成新的，用户自己改过的原样留着；
+ * 这道迁移只认那一段旧文字，不会把别人写过的东西盖掉。
+ */
+internal fun readPrompt(prefs: SharedPreferences, fallback: String): String {
+    val stored = prefs.getString(KEY_PROMPT, null)
+    return when (stored) {
+        null -> fallback
+        SeedContent.DefaultPrompt -> fallback
+        else -> stored
+    }
+}
 
 private const val KEY_LIVE_PROVIDER = "live_provider"
 

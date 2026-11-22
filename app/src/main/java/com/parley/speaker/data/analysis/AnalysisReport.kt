@@ -69,6 +69,20 @@ private fun objectOf(raw: String): JsonObject? {
     return runCatching { wire.parseToJsonElement(raw.substring(start, end + 1)) as? JsonObject }.getOrNull()
 }
 
+/**
+ * 记忆正文的取法。模型偶尔把整段记忆包成 {"memory": "…"} 这种对象，字段名不固定，
+ * 按 memory、text、content 三个常见的认一次，认不出就把原文当正文。
+ */
+internal fun parseMemory(raw: String): String? {
+    val text = raw.trim()
+    if (text.startsWith("{")) {
+        val report = objectOf(text)
+        val unwrapped = listOf("memory", "text", "content").firstNotNullOfOrNull { report?.text(it) }
+        if (unwrapped != null) return unwrapped
+    }
+    return text.takeIf { it.isNotEmpty() }
+}
+
 internal fun vocabCards(items: JsonArray?, turnId: String): List<VocabCard> {
     if (items == null) return emptyList()
     return items.mapNotNull { element ->

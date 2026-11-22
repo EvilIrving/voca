@@ -25,6 +25,12 @@ interface TurnAnalyzer {
 
     /** 会话名：材料是整段对话的文字流水，返回能指认内容的短语。 */
     suspend fun name(transcript: String): String?
+
+    /**
+     * 会话记忆：把这一轮的材料并进现有记忆，返回改写后的整段正文。
+     * 记忆是内部机制，界面没有入口，改写规则写在提示词里，用户改的是角色与场景。
+     */
+    suspend fun memorize(memory: String, material: String): String?
 }
 
 /**

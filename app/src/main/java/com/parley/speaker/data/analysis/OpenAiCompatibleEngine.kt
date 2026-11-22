@@ -4,6 +4,7 @@ import android.util.Log
 import com.parley.speaker.domain.AnalysisCredentials
 import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AuthKind
+import com.parley.speaker.domain.MemoryMaxChars
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.add
@@ -226,6 +227,17 @@ class OpenAiCompatibleEngine(
             ?.take(MaxNameChars)
     }
 
+    override suspend fun memorize(memory: String, material: String): String? = withContext(Dispatchers.IO) {
+        if (!config.ready || material.isBlank()) return@withContext null
+        val request = config.request(memoryPrompt(memory, material), structured = false) ?: return@withContext null
+        // 收不收由 admitMemory 一处定，这里只把包装、围栏与引号拆掉，不自己判长短。
+        post(request)
+            ?.let { replyText(it) }
+            ?.let(::parseMemory)
+            ?.trim('"', '「', '」', '\n', '`')
+            ?.takeIf { it.isNotEmpty() }
+    }
+
     private fun post(request: Request): String? = try {
         client.newCall(request).execute().use { response ->
             val body = response.body.string()
@@ -288,4 +300,26 @@ internal fun translatePrompt(text: String): String = """
 internal fun sessionNamePrompt(transcript: String): String = """
     给下面这段英语口语练习取一个能指认内容的中文短语，不超过十个字，只输出短语本身，不要引号，不要解释：
     $transcript
+""".trimIndent()
+
+/**
+ * 记忆维护的提示词。这一段是产品机制的一部分，不跟角色提示词走、不进配置中心：
+ * 记忆怎么合并、什么该留、留多长都由这里定，用户能改的只是角色与场景。
+ */
+internal fun memoryPrompt(memory: String, material: String): String = """
+    你在维护一场英语口语练习的记忆。下面是现在的记忆与刚刚发生的一轮对话。
+    把这一轮的新内容并进记忆，只输出改写后的记忆正文。
+
+    硬性要求：
+    1. 输出的是整段记忆，不是追加的片段；不写标题、编号、条目、时间戳，也不写修改说明。
+    2. 被新内容推翻的说法直接改写或删掉，前后矛盾时以最近一次为准。
+    3. 只留后面还用得上的事：身份、水平、想练的方向、提过的人与地点、正在准备的事、卡住过的说法。
+    4. 用连贯的中文叙述，不分行，不超过 $MemoryMaxChars 个字符。
+    5. 只给正文本身，不要 JSON、不要字段名、不要引号，也不要代码块围栏。
+
+    现在的记忆：
+    $memory
+
+    刚刚这一轮：
+    $material
 """.trimIndent()

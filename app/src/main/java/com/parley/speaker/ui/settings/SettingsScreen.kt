@@ -102,6 +102,7 @@ fun SettingsScreen(
     providers: List<ProviderLine>,
     textProviders: List<TextProvider>,
     report: String?,
+    defaultPrompt: String,
     onDismiss: () -> Unit,
     onProbe: () -> Unit,
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
@@ -177,7 +178,7 @@ fun SettingsScreen(
                 },
             )
             Spacer(Modifier.height(18.dp))
-            GroupLabel("角色提示词")
+            GroupLabel("系统提示词")
             PromptCard(prompt = settings.prompt, onEdit = { editing = "prompt" })
             Spacer(Modifier.height(18.dp))
             ProbeCard(
@@ -201,7 +202,7 @@ fun SettingsScreen(
         "doubao" -> LiveDialog(LiveVendor.Doubao, settings.live, onUpdate) { editing = null }
         "azure" -> AzureDialog(settings.assessor, onUpdate) { editing = null }
         "xfyun" -> XfyunDialog(settings.assessor, onUpdate) { editing = null }
-        "prompt" -> PromptDialog(settings.prompt, onUpdate) { editing = null }
+        "prompt" -> PromptDialog(settings.prompt, defaultPrompt, onUpdate) { editing = null }
         else -> editing
             ?.takeIf { it.startsWith(ProviderPrefix) }
             ?.removePrefix(ProviderPrefix)
@@ -345,19 +346,24 @@ private fun PromptCard(prompt: String, onEdit: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Pressable(modifier = Modifier.fillMaxWidth(), onClick = onEdit) {
-            Box(Modifier.padding(14.dp)) {
+            Column(Modifier.padding(14.dp)) {
+                // 系统提示词是全局共享的一段中文叙述，所有会话建连接时都带上它。
                 Text(
                     text = prompt,
-                    style = Type.proseItalic,
-                    maxLines = 4,
+                    style = Type.promptProse,
+                    maxLines = 5,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(end = 76.dp),
                 )
-                Text(
-                    text = "编辑提示词",
-                    style = Type.uiStrongClay,
-                    modifier = Modifier.align(Alignment.TopEnd),
-                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(FluentIcons.Edit, contentDescription = null, tint = Palette.clayDeep, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(text = "编辑提示词", style = Type.uiStrongClay)
+                }
             }
         }
     }
@@ -823,20 +829,39 @@ private fun XfyunDialog(
 @Composable
 private fun PromptDialog(
     prompt: String,
+    defaultPrompt: String,
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var text by remember(prompt) { mutableStateOf(prompt) }
     SettingsDialog(
-        title = "角色提示词",
+        title = "系统提示词",
         onSave = {
             onUpdate { it.copy(prompt = text) }
             onDismiss()
         },
         onDismiss = onDismiss,
     ) {
-        EditField("提示词", text, secret = false, singleLine = false) { text = it }
+        Surface(color = Palette.tint, shape = RoundedCornerShape(Radius.control), modifier = Modifier.fillMaxWidth()) {
+            BasicTextField(
+                value = text,
+                onValueChange = { text = it },
+                textStyle = Type.promptProse,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 232.dp, max = 320.dp)
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+            )
+        }
         Spacer(Modifier.height(12.dp))
+        Pressable(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { text = defaultPrompt },
+        ) {
+            Box(Modifier.height(32.dp), contentAlignment = Alignment.CenterStart) {
+                Text(text = "恢复默认", style = Type.uiStrongClay)
+            }
+        }
     }
 }
 

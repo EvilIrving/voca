@@ -22,15 +22,15 @@ class ExportedSchemaTest {
 
         val database = Json.parseToJsonElement(schema.readText()).jsonObject.getValue("database").jsonObject
 
-        assertEquals(1, database.getValue("version").jsonPrimitive.int)
+        assertEquals(7, database.getValue("version").jsonPrimitive.int)
         val tables = database.getValue("entities").jsonArray
             .map { it.jsonObject.getValue("tableName").jsonPrimitive.content }
             .toSet()
-        assertEquals(setOf("turn", "vocab"), tables)
+        assertEquals(setOf("turn", "vocab", "session", "model_catalog", "memory"), tables)
     }
 
     private fun schemaFile(): File {
-        val relative = "schemas/com.parley.speaker.data.db.ParleyDatabase/1.json"
+        val relative = "schemas/com.parley.speaker.data.db.ParleyDatabase/7.json"
         return listOf(File(relative), File("app/$relative")).firstOrNull { it.isFile } ?: File(relative)
     }
 }

@@ -100,3 +100,20 @@ class SessionCycleTest {
         assertEquals("配置中心里改过的提示词", next.prompt)
     }
 }
+
+/**
+ * 新的一段开场要发给模型的第一句：`prompts/session.md` 有材料就用它，空着才用固定问候。
+ */
+class OpeningTest {
+
+    @Test
+    fun `开场材料非空就用它`() {
+        assertEquals("今天从没睡好的早晨聊起。", openingOf("  今天从没睡好的早晨聊起。 ", "打个招呼"))
+    }
+
+    @Test
+    fun `开场材料空着或者只有空白时用固定问候`() {
+        assertEquals("打个招呼", openingOf("", "打个招呼"))
+        assertEquals("打个招呼", openingOf(" \n  ", "打个招呼"))
+    }
+}

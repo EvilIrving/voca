@@ -54,13 +54,20 @@ data class SessionRow(
 /**
  * 一家供应商的模型清单缓存。modelsJson 是整份清单的序列化结果，fetchedAt 是拉取成功的时间，
  * keyTag 是密钥指纹，换过密钥就不再拿旧清单顶上。
- */
-@Entity(tableName = "model_catalog")
+ */@Entity(tableName = "model_catalog")
 data class ModelCatalogRow(
     @PrimaryKey val providerId: String,
     val modelsJson: String,
     val fetchedAt: Long,
     val keyTag: String,
+)
+
+/** 全局记忆只一行：跨会话保留的那段叙述，界面看不见也改不了，只能由自动改写链路写。 */
+@Entity(tableName = "memory")
+data class MemoryRow(
+    @PrimaryKey val id: String,
+    val text: String,
+    val updatedAt: Long,
 )
 
 @Dao
@@ -261,6 +268,29 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+/** 全局记忆读写：一行一条，改写一次就整段盖掉。 */
+@Dao
+interface MemoryDao {
+    @Query("SELECT * FROM memory WHERE id = :id")
+    suspend fun byId(id: String): MemoryRow?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(row: MemoryRow)
+}
+
+/** 六到七：全局记忆单独一张表，旧库只补一张空表，会话与生词原样带过来。 */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `memory` (" +
+                "`id` TEXT NOT NULL, " +
+                "`text` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`id`))",
+        )
+    }
+}
+
 /**
  * 表结构变更规约：改实体就把 version 加一，同一次改动里写好 [androidx.room.migration.Migration]，
  * 并在建库的地方用 addMigrations 注册，旧版本数据原样带过来；禁止 fallbackToDestructiveMigration，
@@ -269,8 +299,8 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
  * 它就是历史版本的唯一凭据。
  */
 @Database(
-    entities = [TurnRow::class, VocabRow::class, SessionRow::class, ModelCatalogRow::class],
-    version = 6,
+    entities = [TurnRow::class, VocabRow::class, SessionRow::class, ModelCatalogRow::class, MemoryRow::class],
+    version = 7,
     exportSchema = true,
 )
 abstract class ParleyDatabase : RoomDatabase() {
@@ -278,4 +308,5 @@ abstract class ParleyDatabase : RoomDatabase() {
     abstract fun vocab(): VocabDao
     abstract fun sessions(): SessionDao
     abstract fun modelCatalogs(): ModelCatalogDao
+    abstract fun memory(): MemoryDao
 }
