@@ -7,6 +7,13 @@ const fonts = [F.serif, F.serifIt, F.serifMd, F.serifSb, F.serifCn, F.serifCnMd,
 for (const f of fonts) { try { await figma.loadFontAsync(f); } catch (e) {} }
 
 const made = {};
+function makeInst(parent, name, x, y) {
+  const src = page.children.find(n => n.type === 'COMPONENT' && String(n.name) === name);
+  const i = src.createInstance();
+  parent.appendChild(i);
+  if (x !== undefined) { if (parent.layoutMode && parent.layoutMode !== 'NONE') i.layoutPositioning = 'ABSOLUTE'; i.x = x; i.y = y; }
+  return i;
+}
 let colY = 0;
 function place(c, label, colX) {
   c.x = colX; c.y = colY;
@@ -40,22 +47,15 @@ function iconBtn(size, glyph, iconSize, opts) {
     icon(c, glyph, iconSize, opts.color || C.ink3);
   });
 }
-put(iconBtn(44, 'add', 19, {}), 'Speaker/IconButton/44/Add', 'A');
-put(iconBtn(44, 'callEnd', 19, {}), 'Speaker/IconButton/44/CallEnd', 'A');
 put(iconBtn(34, 'settings', 18, {}), 'Speaker/IconButton/34/Gear', 'A');
 put(iconBtn(32, 'book', 18, { fill: C.paper, stroke: C.paper }), 'Speaker/IconButton/32/Book', 'A');
 put(iconBtn(30, 'dismiss', 16, { stroke: C.paper, fill: C.paper, color: C.ink4 }), 'Speaker/IconButton/30/Dismiss', 'A');
 put(iconBtn(32, 'arrowLeft', 18, { fill: C.paper, stroke: C.paper, color: C.ink2 }), 'Speaker/IconButton/32/Back', 'A');
-put(iconBtn(44, 'mic', 19, { fill: C.card, stroke: C.hair, color: C.ink3 }), 'Speaker/IconButton/44/Mic', 'A');
-put(iconBtn(44, 'arrowUp', 19, { fill: C.clay, stroke: C.clay, color: C.card }), 'Speaker/IconButton/44/Send', 'A');
 put(iconBtn(30, 'checkMark', 15, { fill: C.clay, stroke: C.clay, color: C.card }), 'Speaker/IconButton/30/Confirm', 'A');
 put(iconBtn(30, 'speaker', 15, { fill: C.clayTint, stroke: C.clayTint, color: C.clayDeep }), 'Speaker/IconButton/30/Speaker', 'A');
 put(iconBtn(30, 'edit', 15, { fill: C.paper, stroke: C.paper, color: C.ink4 }), 'Speaker/IconButton/30/Edit', 'A');
 
-put(comp(page, 'Speaker/Button/Primary/Talk', { h: 48, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', gap: 8, pl: 20, pr: 20, fill: C.clay, radius: 999 }, c => {
-  icon(c, 'mic', 19, C.card);
-  t(c, '按住说话', { font: F.cnMd, size: 14, color: C.card, lh: 20, ls: 2, name: 'label' });
-}), 'Speaker/Button/Primary/Talk', 'A');
+
 
 put(comp(page, 'Speaker/Button/Primary/Label', { h: 48, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', pl: 20, pr: 20, fill: C.clay, radius: 999 }, c => {
   t(c, '继续对话', { font: F.cnMd, size: 14, color: C.card, lh: 20, ls: 6, name: 'label' });
@@ -92,13 +92,9 @@ put(comp(page, 'Speaker/Score/Value', { dir: 'VERTICAL', gap: 2 }, c => {
 
 /* ---------------- molecules ---------------- */
 function echoBubble(suffix, translated) {
-  return put(comp(page, 'Speaker/Bubble/Echo' + suffix, { w: 258, dir: 'VERTICAL', pl: 14, pr: 14, pt: 13, pb: 11, gap: 9, fill: C.card, stroke: C.hair, corners: [5, 18, 18, 18] }, c => {
+  return put(comp(page, 'Speaker/Bubble/Echo' + suffix, { w: 258, dir: 'VERTICAL', pl: 14, pr: 14, pt: 13, pb: 12, gap: 8, fill: C.card, stroke: C.hair, corners: [5, 18, 18, 18] }, c => {
     t(c, 'Good morning! How did you start your day? Are you craving an Americano or something else?', { font: F.serif, size: 15, lh: 23, color: C.ink, width: 230, name: 'text' });
     if (translated) t(c, '早上好，你今天是怎么开始的？想喝美式还是别的什么？', { font: F.cn, size: 12.5, lh: 19, color: C.ink3, width: 230, name: 'gloss' });
-    const acts = frame(c, 'actions', { w: 230, h: 16, dir: 'HORIZONTAL', gap: 16, cross: 'CENTER' });
-    icon(acts, 'speaker', 16, C.ink4);
-    icon(acts, 'translate', 16, translated ? C.clayDeep : C.ink4);
-    icon(acts, translated ? 'bookmarkFilled' : 'bookmark', 16, translated ? C.clayDeep : C.ink4);
   }), 'Speaker/Bubble/Echo' + suffix, 'B');
 }
 echoBubble('', false);
@@ -210,36 +206,53 @@ const optOff = put(selectOption('/Off', false, false), 'Speaker/Select/Option/Of
 const optSceneOn = put(selectOption('/Single/On', true, true), 'Speaker/Select/Option/Single/On', 'A');
 const optSceneOff = put(selectOption('/Single/Off', false, true), 'Speaker/Select/Option/Single/Off', 'A');
 
-put(comp(page, 'Speaker/Field/Input', { w: 216, h: 48, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 14, fill: C.card, stroke: C.hair, radius: 999 }, c => {
-  t(c, '写点什么都行', { font: F.cn, size: 13, color: C.ink4, lh: 19, grow: 1, name: 'placeholder' });
-}), 'Speaker/Field/Input', 'B');
 
-put(comp(page, 'Speaker/Field/Rename', { w: 208, h: 34, dir: 'HORIZONTAL', cross: 'CENTER', pl: 10, pr: 2, fill: C.paper, stroke: C.hairStrong, radius: 8 }, c => {
-  t(c, '没睡好的早晨', { font: F.serifCnMd, size: 16, color: C.ink, lh: 22, grow: 1, name: 'value' });
-  const caret = frame(c, 'caret', { w: 1, h: 18, fill: C.clay });
-}), 'Speaker/Field/Rename', 'B');
+function voiceRow(suffix, open) {
+  return put(comp(page, 'Speaker/Row/Voice' + suffix, { w: 320, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 44, pr: 14, gap: 8 }, c => {
+    t(c, '音色', { font: F.cn, size: 12, color: C.ink4, lh: 17, name: 'label' });
+    frame(c, 'gap', { w: 1, h: 1, grow: 1 });
+    t(c, 'Aoede', { font: F.monoMd, size: 11.5, color: open ? C.clayDeep : C.ink2, lh: 16, name: 'value' });
+    icon(c, open ? 'chevUp' : 'chevDown', 12, open ? C.clayDeep : C.ink4);
+  }), 'Speaker/Row/Voice' + suffix, 'B');
+}
+voiceRow('', false);
+voiceRow('/Open', true);
 
-put(comp(page, 'Speaker/Row/Session', { w: 320, h: 62, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 12, gap: 10, fill: C.card, stroke: C.hair, radius: 16 }, c => {
-  const texts = frame(c, 'texts', { dir: 'VERTICAL', gap: 3, grow: 1 });
-  t(texts, '没睡好的早晨', { font: F.serifMd, size: 15.5, color: C.ink, lh: 22, name: 'name' });
-  t(texts, '07:40 · 12 轮 · 发音 84', { font: F.mono, size: 10.5, color: C.ink4, lh: 14, name: 'meta' });
-  icon(c, 'chevRight', 12, C.ink4);
-}), 'Speaker/Row/Session', 'B');
+/* 抽屉：检索三十起、新建会话五十二的胶囊、会话行四十四，右下角配置中心四十四 */
+put(iconBtn(36, 'search', 20, { fill: C.paper, stroke: C.paper, color: C.ink2 }), 'Speaker/IconButton/36/Search', 'A');
+put(iconBtn(44, 'settings', 22, { fill: C.card, stroke: C.hair, color: C.ink2 }), 'Speaker/IconButton/44/Settings', 'A');
+
+put(comp(page, 'Speaker/Button/NewSession', { w: 259, h: 52, dir: 'HORIZONTAL', cross: 'CENTER', pl: 18, pr: 18, gap: 10, fill: C.card, stroke: C.hair, radius: 999 }, c => {
+  icon(c, 'chatAdd', 24, C.ink);
+  t(c, '新会话', { font: F.sansMd, size: 16, color: C.ink, lh: 22, name: 'label' });
+}), 'Speaker/Button/NewSession', 'B');
+
+function drawerRow(suffix, current) {
+  return put(comp(page, 'Speaker/Row/DrawerSession' + suffix, { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 6, pr: 12, gap: 8, fill: current ? C.clayTint : '', radius: 10 }, c => {
+    icon(c, 'chat', 16, current ? C.clayDeep : C.ink4);
+    t(c, '没睡好的早晨', { font: F.sansMd, size: 14, color: current ? C.ink : C.ink2, lh: 20, name: 'name', grow: 1 });
+  }), 'Speaker/Row/DrawerSession' + suffix, 'B');
+}
+drawerRow('', false);
+drawerRow('/Current', true);
+
+put(comp(page, 'Speaker/Select/Menu/Voice', { w: 320, dir: 'VERTICAL', pl: 6, pr: 6, pt: 6, pb: 6, fill: C.card, stroke: C.hair, radius: 14 }, c => {
+  c.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: 0.07 }, offset: { x: 0, y: 6 }, radius: 18, spread: 0, blendMode: 'NORMAL', visible: true }];
+  [['Aoede', '轻快 · 默认'], ['Puck', '活泼'], ['Charon', '稳重'], ['Sulafat', '温暖']].forEach(([name, note], i) => {
+    const row = (i === 0 ? optOn : optOff).createInstance();
+    c.appendChild(row);
+    row.layoutAlign = 'STRETCH';
+    const n = row.findOne(x => x.type === 'TEXT' && x.name === 'name');
+    const d = row.findOne(x => x.type === 'TEXT' && x.name === 'note');
+    if (n) n.characters = name;
+    if (d) d.characters = note;
+  });
+}), 'Speaker/Select/Menu/Voice', 'B');
 
 put(comp(page, 'Speaker/Toast', { h: 34, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', pl: 14, pr: 14, fill: C.tint, stroke: C.hair, radius: 999 }, c => {
   t(c, '已收进生词本', { font: F.cn, size: 12.5, color: C.ink2, lh: 18, name: 'label' });
 }), 'Speaker/Toast', 'B');
 
-function actionRow(suffix, glyph, label) {
-  return put(comp(page, 'Speaker/Row/Action' + suffix, { w: 320, h: 54, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 12, gap: 12 }, c => {
-    icon(c, glyph, 18, C.ink3);
-    t(c, label, { font: F.cnMd, size: 13.5, color: C.ink, lh: 19, grow: 1, name: 'label' });
-    icon(c, 'chevRight', 12, C.ink4);
-  }), 'Speaker/Row/Action' + suffix, 'B');
-}
-actionRow('/Text', 'keyboard', '打字输入');
-actionRow('/Summary', 'gauge', '会话小结');
-actionRow('/Records', 'history', '会话记录');
 
 function menuComponent(name, opts) {
   return comp(page, name, { w: 320, dir: 'VERTICAL', pl: 6, pr: 6, pt: 6, pb: 6, fill: C.card, stroke: C.hair, radius: 14 }, c => {
@@ -274,5 +287,159 @@ put(comp(page, 'Speaker/Panel/Rewrite', { w: 320, dir: 'VERTICAL', gap: 8, pl: 1
   icon(acts, 'translate', 15, C.ink4);
   icon(acts, 'bookmark', 15, C.ink4);
 }), 'Speaker/Panel/Rewrite', 'B');
+
+
+/* ---------------- input bar atoms（尺寸取自真机实测 1080×2376 @3x） ---------------- */
+put(comp(page, 'Speaker/Mic/44', { w: 44, h: 44, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', fill: C.clay, radius: 999 }, c => {
+  icon(c, 'mic', 19, C.card);
+}), 'Speaker/Mic/44', 'A');
+
+put(comp(page, 'Speaker/Mic/87', { w: 87, h: 87, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', fill: C.clay, radius: 999 }, c => {
+  icon(c, 'mic', 33, C.card);
+}), 'Speaker/Mic/87', 'A');
+
+put(comp(page, 'Speaker/Send/44', { w: 44, h: 44, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', fill: C.ink, radius: 999 }, c => {
+  icon(c, 'send', 18, C.card);
+}), 'Speaker/Send/44', 'A');
+
+put(comp(page, 'Speaker/Send/87', { w: 87, h: 87, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', fill: C.ink, radius: 999 }, c => {
+  icon(c, 'send', 30, C.card);
+}), 'Speaker/Send/87', 'A');
+
+put(comp(page, 'Speaker/Pause/36', { w: 36, h: 36, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', fill: C.card, stroke: C.hair, radius: 999 }, c => {
+  icon(c, 'pause', 12, C.ink2);
+}), 'Speaker/Pause/36', 'A');
+
+put(comp(page, 'Speaker/Resume/36', { w: 36, h: 36, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', fill: C.card, stroke: C.hair, radius: 999 }, c => {
+  icon(c, 'mic', 13, C.ink2);
+}), 'Speaker/Resume/36', 'A');
+
+put(comp(page, 'Speaker/Trash/44', { w: 44, h: 44, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER' }, c => {
+  icon(c, 'delete', 20, C.ink3);
+}), 'Speaker/Trash/44', 'A');
+
+put(comp(page, 'Speaker/LockChip', { w: 30, h: 66, dir: 'VERTICAL', cross: 'CENTER', pt: 10, pb: 8, gap: 6, fill: C.card, stroke: C.hair, radius: 15 }, c => {
+  icon(c, 'lockOpen', 14, C.ink2);
+  icon(c, 'chevUp', 10, C.ink4);
+}), 'Speaker/LockChip', 'A');
+
+put(comp(page, 'Speaker/PreviewBar', { w: 252, h: 32, dir: 'HORIZONTAL', cross: 'CENTER', pl: 6, pr: 8, gap: 7, fill: C.ink, radius: 999 }, c => {
+  const playWrap = frame(c, 'play wrap', { h: 22, dir: 'HORIZONTAL', cross: 'CENTER', pl: 6, pr: 8, gap: 3, fill: '#FFFFFF', fillA: 0.16, radius: 999 });
+  icon(playWrap, 'play', 9, C.card);
+  t(playWrap, '0:06', { font: F.mono, size: 9.5, color: C.card, lh: 13, name: 'duration' });
+  const bars = frame(c, 'bars', { h: 20, dir: 'HORIZONTAL', cross: 'CENTER', gap: 2, grow: 1 });
+  const hs = [7, 12, 17, 9, 20, 13, 18, 8, 15, 21, 10, 17, 12, 19, 9, 14, 18, 11];
+  hs.forEach((h, i) => {
+    const b = frame(bars, 'b' + i, { w: 2, h: h, fill: C.card, radius: 1 });
+    b.opacity = 0.5 + 0.5 * (h / 21);
+  });
+}), 'Speaker/PreviewBar', 'A');
+
+/* ---------------- message menu ---------------- */
+function menuRow(name, glyph, label, danger) {
+  return put(comp(page, 'Speaker/Row/Menu/' + name, { w: 268, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 12, pr: 12, gap: 12, radius: 8 }, c => {
+    icon(c, glyph, 16, danger ? C.danger : C.ink3);
+    t(c, label, { font: F.cnMd, size: 13, color: danger ? C.danger : C.ink, lh: 19, grow: 1, name: 'label' });
+  }), 'Speaker/Row/Menu/' + name, 'A');
+}
+const mrSpeak = menuRow('Speak', 'speaker', '朗读这一轮');
+const mrTranslate = menuRow('Translate', 'translate', '翻译');
+const mrSave = menuRow('Save', 'bookmark', '收进生词本');
+const mrCopy = menuRow('Copy', 'copy', '复制原文');
+const mrRetry = menuRow('Retry', 'sync', '重新分析');
+const mrDelete = menuRow('Delete', 'delete', '删除这一轮', true);
+
+put(comp(page, 'Speaker/Menu/Message', { w: 280, dir: 'VERTICAL', pl: 6, pr: 6, pt: 6, pb: 6, gap: 2, fill: C.card, stroke: C.hair, radius: 14 }, c => {
+  c.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: 0.08 }, offset: { x: 0, y: 8 }, radius: 22, spread: 0, blendMode: 'NORMAL', visible: true }];
+  [mrSpeak, mrTranslate, mrSave, mrCopy, mrRetry, mrDelete].forEach((row, i) => {
+    if (i === 4) { const r = frame(c, 'rule', { w: 244, h: 1, fill: C.hair }); r.layoutAlign = 'CENTER'; }
+    const r = row.createInstance();
+    c.appendChild(r);
+    r.layoutAlign = 'STRETCH';
+  });
+}), 'Speaker/Menu/Message', 'B');
+
+/* ---------------- input bar ----------------
+   结构照 Telegram：胶囊始终 346×44，右端 44 是按钮槽；圆钮长到 87 时覆盖在槽上并向屏幕外溢出。
+   录音与锁定时右侧留 44 占位，读字区实际 302。真机实测：胶囊左右 7，红点 28 距左 13，圆钮 87，锁条 30×66，暂停 36。 */
+const BAR_W = 346, PILL_Y = 40, PILL_H = 44;
+
+function barShell(c) {
+  return frame(c, 'pill', { w: BAR_W, h: PILL_H, x: 7, y: PILL_Y, absolute: true, fill: C.card, stroke: C.hair, radius: 999, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 0, gap: 8 });
+}
+function ring(c, name, x, y) {
+  const src = page.children.find(n => n.type === 'COMPONENT' && String(n.name) === name);
+  const i = src.createInstance();
+  c.appendChild(i);
+  i.x = x; i.y = y;
+  return i;
+}
+/* 录音读字区：点 28、计时、提示居中，右端留 44 给按钮槽 */
+function recReadout(pill, hint, opts) {
+  opts = opts || {};
+  const dot = frame(pill, 'dot', { w: 28, h: 28, fill: C.clayDeep, radius: 999 });
+  dot.layoutAlign = 'CENTER';
+  if (opts.dotAlpha !== undefined) dot.opacity = opts.dotAlpha;
+  t(pill, '0:02,4', { font: F.monoMd, size: 12, color: C.ink2, lh: 16, name: 'timer', colorA: opts.timerAlpha });
+  const box = frame(pill, 'hint box', { w: 176, h: 1, grow: 1 });
+  if (opts.hintShift) box.x = box.x - opts.hintShift;
+  const h = t(box, hint, { font: F.cnMd, size: 12.5, color: C.ink3, lh: 18, name: 'hint', align: 'CENTER', width: 176 });
+  if (opts.hintAlpha !== undefined) h.opacity = opts.hintAlpha;
+  frame(pill, 'btn slot', { w: 44, h: 44 });
+}
+
+function inputBar(name, kind) {
+  return put(comp(page, 'Speaker/InputBar' + name, { w: 360, h: 112 }, c => {
+    if (kind === 'preview') {
+      const pill = barShell(c);
+      pill.paddingLeft = 0;
+      const trash = page.children.find(n => n.type === 'COMPONENT' && String(n.name) === 'Speaker/Trash/44');
+      const ti = trash.createInstance(); pill.appendChild(ti);
+      const pb = page.children.find(n => n.type === 'COMPONENT' && String(n.name) === 'Speaker/PreviewBar');
+      const pi = pb.createInstance(); pill.appendChild(pi);
+      frame(pill, 'btn slot', { w: 44, h: 44 });
+      ring(c, 'Speaker/Send/87', 288, 18);
+      ring(c, 'Speaker/Resume/36', 313, -34);
+      return;
+    }
+    if (kind === 'cancel') {
+      /* 左滑取消：圆钮与提示一起左移并缩到 0.4，越过 150 就地作废，不等松手 */
+      const pill = frame(c, 'pill', { w: BAR_W, h: PILL_H, x: 7, y: PILL_Y, absolute: true, fill: C.card, stroke: C.hair, radius: 999, clip: true, dir: 'HORIZONTAL', cross: 'CENTER' });
+      frame(pill, 'dot', { w: 28, h: 28, x: 13, y: 8, fill: C.clayDeep, radius: 999 });
+      const timerNode = t(pill, '0:02,4', { font: F.monoMd, size: 12, color: C.ink2, lh: 16, name: 'timer' });
+      timerNode.layoutPositioning = 'ABSOLUTE'; timerNode.x = 49; timerNode.y = 14;
+      /* 左滑到底（126）：提示淡没，圆钮缩到 0.7 并停在新位置 */
+      const hintNode = t(pill, '‹ 滑动以取消', { font: F.cnMd, size: 12.5, color: C.ink3, lh: 18, name: 'hint', width: 176, align: 'CENTER' });
+      hintNode.layoutPositioning = 'ABSOLUTE'; hintNode.x = 92; hintNode.y = 13; hintNode.opacity = 0;
+      const mini = frame(c, 'mic half', { w: 61, h: 61, x: 174, y: 32, absolute: true, fill: C.clay, radius: 999, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER' });
+      icon(mini, 'mic', 26, C.card);
+      return;
+    }
+    if (kind === 'recording' || kind === 'locked') {
+      const pill = barShell(c);
+      pill.paddingLeft = 13;
+      recReadout(pill, kind === 'locked' ? '取消' : '‹ 滑动以取消');
+      if (kind === 'locked') {
+        ring(c, 'Speaker/Send/87', 288, 18);
+        ring(c, 'Speaker/Pause/36', 313, -34);
+      } else {
+        ring(c, 'Speaker/Mic/87', 288, 18);
+        ring(c, 'Speaker/LockChip', 315, -68);
+      }
+      return;
+    }
+    const pill = barShell(c);
+    const withText = kind === 'text';
+    t(pill, withText ? '今天想聊聊工作上的事' : '说点什么', { font: F.cn, size: 13, color: withText ? C.ink : C.ink4, lh: 19, grow: 1, name: withText ? 'draft' : 'placeholder' });
+    const btn = page.children.find(n => n.type === 'COMPONENT' && String(n.name) === (withText ? 'Speaker/Send/44' : 'Speaker/Mic/44'));
+    const bi = btn.createInstance(); pill.appendChild(bi);
+  }), 'Speaker/InputBar' + name, 'A');
+}
+const barEmpty = inputBar('', 'empty');
+const barText = inputBar('/Text', 'text');
+const barRec = inputBar('/Recording', 'recording');
+const barLock = inputBar('/Locked', 'locked');
+const barCancel = inputBar('/Cancel', 'cancel');
+const barPreview = inputBar('/Preview', 'preview');
 
 return { count: Object.keys(made).length, labels: Object.keys(made) };

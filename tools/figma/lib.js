@@ -5,6 +5,7 @@ const C = {
   ink: '#141413', ink2: '#3B3934', ink3: '#6C6860', ink4: '#9C978C',
   clay: '#D97757', clayDeep: '#B85B3C', clayTint: '#F7ECE5',
   olive: '#75855A', oliveTint: '#EEF1E5',
+  amber: '#C08A3E',
   blue: '#6A9BCC', blueTint: '#ECF2F8',
   danger: '#A8503C'
 };
@@ -65,7 +66,7 @@ function frame(parent, name, o) {
     if (o.corners[3] !== undefined) f.bottomLeftRadius = o.corners[3];
   }
   if (o.grow) f.layoutGrow = 1;
-  if (o.x !== undefined) { if (o.absolute) f.layoutPositioning = 'ABSOLUTE'; f.x = o.x; f.y = o.y; }
+  if (o.x !== undefined) { if (o.absolute && parent.layoutMode && parent.layoutMode !== 'NONE') f.layoutPositioning = 'ABSOLUTE'; f.x = o.x; f.y = o.y; }
   if (o.shadow) f.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: o.shadow }, offset: { x: 0, y: o.shadowY || 2 }, radius: o.shadowR || 6, spread: 0, blendMode: 'NORMAL', visible: true }];
   return f;
 }

@@ -30,6 +30,7 @@ const colors = [
   ['clayTint', C.clayTint, '陶土浅底'],
   ['olive', C.olive, '鼠尾草 · 语法分 / 提示'],
   ['oliveTint', C.oliveTint, '提示卡底色'],
+  ['amber', C.amber, '连接中 · 呼吸点'],
   ['danger', C.danger, '取消 / 破坏性']
 ];
 const swatchRow = frame(root, 'colors', { dir: 'HORIZONTAL', w: 820, gap: 10, main: 'MIN' });
@@ -47,7 +48,7 @@ frame(root, 'sp', { w: 1, h: 32 });
 t(root, '字体', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
 frame(root, 'sp', { w: 1, h: 12 });
 const types = [
-  ['Display / Newsreader · Noto Serif SC 500', '松手发送', 20, F.serifCnMd, C.ink],
+  ['Display / Newsreader · Noto Serif SC 500', '说点什么', 20, F.serifCnMd, C.ink],
   ['Prose / Newsreader Regular 15·23', 'An Americano on a tired morning — that is a very honest choice.', 15, F.serif, C.ink],
   ['Prose Italic / Newsreader Italic 14·21', 'Actually, I didn’t sleep a wink last night.', 14, F.serifIt, C.ink2],
   ['UI / Inter Medium 13.5·19', 'Gemini Live · gemini-3.8-live', 13.5, F.sansMd, C.ink],
@@ -85,6 +86,52 @@ for (const [v, use] of spaces) {
 t(spaceCol, '列表与底栏宽 320，左右外边距 20；底栏胶囊 208×48；抽屉圆角 26。', { font: F.cn, size: 11, color: C.ink4, lh: 18, width: 320 });
 frame(root, 'sp', { w: 1, h: 32 });
 
+/* interaction states */
+t(root, '交互状态', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
+frame(root, 'sp', { w: 1, h: 12 });
+const stateRow = frame(root, 'states', { w: 820, dir: 'HORIZONTAL', gap: 10, main: 'MIN' });
+stateRow.layoutWrap = 'WRAP';
+const states = [
+  ['默认', C.card, C.hair, C.ink2, null, 1],
+  ['按压', C.tint, null, C.ink, null, 1],
+  ['选中', C.clayTint, null, C.clayDeep, 'checkMark', 1],
+  ['禁用', C.card, C.hair, C.ink4, null, 0.4],
+  ['加载', C.card, C.hair, C.ink4, 'dot', 1]
+];
+for (const [label, fill, stroke, ink, glyph, alpha] of states) {
+  const card = frame(stateRow, 'spec state ' + label, { w: 154, dir: 'VERTICAL', gap: 8, pt: 10, pb: 10, pl: 10, pr: 10, fill: C.paper, stroke: C.hair, radius: 12 });
+  const sample = frame(card, 'sample', { w: 134, h: 40, dir: 'HORIZONTAL', cross: 'CENTER', gap: 6, pl: 10, pr: 10, fill: fill, stroke: stroke, radius: 8 });
+  t(sample, '咖啡点单', { font: F.cnMd, size: 12.5, color: ink, lh: 18, grow: 1, colorA: alpha });
+  if (glyph === 'checkMark') icon(sample, 'checkMark', 12, C.clayDeep);
+  if (glyph === 'dot') {
+    const d = frame(sample, 'breath', { w: 8, h: 8, fill: C.amber, radius: 999 });
+    d.opacity = 0.55;
+  }
+  t(card, label, { font: F.monoMd, size: 10.5, color: C.ink2, lh: 14 });
+}
+frame(root, 'sp', { w: 1, h: 16 });
+const stateNotes = [
+  '按压只换底色：白卡转 tint，已选中的陶土浅底加深一档，陶土实底降到 clayDeep。涟漪、按压阴影、缩放三样一律不用。\n',
+  '禁用态不另加灰：文字降到四成不透明度，底色与描边保持原样，可点语义一并撤掉。\n',
+  '长按录音的胶囊与拾音钮没有按压态，按下去直接进收音面板。\n',
+  '阴影只属于浮层：两个半屏纸面、下拉菜单、白卡弹层各一层暖影，页面内元素一律不投影。\n'
+];
+for (const line of stateNotes) t(root, line, { font: F.cn, size: 11.5, color: C.ink3, lh: 19, width: 820 });
+frame(root, 'sp', { w: 1, h: 32 });
+
+/* performance budget */
+t(root, '性能预算', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
+frame(root, 'sp', { w: 1, h: 12 });
+const perf = [
+  '列表一律 LazyColumn 配稳定 key，滚动只重组可见行；行内状态收在最小范围，不下沉到整屏。\n',
+  '声波在单个 Canvas 里画完，三十四根柱不进组合树，电平按分贝平滑后再取帧。\n',
+  '下拉与半屏面板只在开合时重组，动画只做透明度与位移，180 毫秒收尾。\n',
+  '图标与文字样式是常量，不在组合期新建对象；菜单项数量按供应商与模型清单静态生成。\n',
+  '录音与播放的每一段各自成套，停止只作用于当前段，句柄由持有它的线程释放。\n'
+];
+for (const line of perf) t(root, line, { font: F.cn, size: 11.5, color: C.ink3, lh: 19, width: 820 });
+frame(root, 'sp', { w: 1, h: 32 });
+
 /* structure map */
 t(root, '组件结构与代码映射', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
 frame(root, 'sp', { w: 1, h: 12 });
@@ -92,22 +139,33 @@ const map = frame(root, 'structure', { w: 820, dir: 'HORIZONTAL', gap: 12, cross
 map.layoutWrap = 'WRAP';
 const groups = [
   ['原子层 atoms', [
-    'IconButton/30-32-34-44', 'Button/Primary/Talk', 'Button/Primary/Label', 'Button/Ghost',
-    'Chip/Filter/On', 'Chip/Filter/Off', 'Chip/Tag/Olive', 'Chip/Tag/Neutral', 'Chip/Word', 'Score/Value',
-    'Select/Option/On', 'Select/Option/Off', 'Select/Option/Single/On-Off', 'Row/Session', 'Toast'
+    'IconButton/30/checkMark', 'IconButton/30/dismiss', 'IconButton/30/edit', 'IconButton/30/speaker',
+    'IconButton/32/arrowLeft', 'IconButton/32/book', 'IconButton/32/Gauge', 'IconButton/34/settings',
+    'Mic/44', 'Mic/60', 'Send/44', 'Pause/40', 'Resume/40', 'Trash/44',
+    'Button/Primary/Label', 'Button/Ghost', 'Chip/Filter/On', 'Chip/Filter/Off',
+    'Chip/Tag/Olive', 'Chip/Tag/Neutral', 'Chip/Word', 'Score/Value',
+    'Select/Option/On', 'Select/Option/Off', 'Select/Option/Single/On-Off', 'Toast'
   ]],
   ['复合层 molecules', [
-    'Bubble/Echo', 'Bubble/Echo/Translated', 'Bubble/User', 'ScorePill', 'HintCard', 'SectionLabel', 'SectionLabel/Mic',
-    'Field/Search', 'Field/Input', 'Field/Rename', 'IconButton/44/mic', 'IconButton/44/arrowUp', 'IconButton/30/checkMark', 'Row/Provider', 'Row/Provider/Open', 'Row/Provider/Off', 'Row/Action/Text', 'Row/Action/Summary', 'Row/Action/Records',
-    'Select/Menu', 'Select/Menu/Scene', 'VocabCard/Collocation', 'VocabCard/Word', 'VocabCard/New',
-    'Panel/Original', 'Panel/Rewrite', 'Tab/On', 'Tab/Off', 'Waveform/Split', 'Waveform/Split/Cancel'
+    'Bubble/Echo', 'Bubble/Echo/Translated', 'Bubble/User', 'ScorePill', 'HintCard',
+    'SectionLabel', 'SectionLabel/Mic', 'Field/Search', 'Field/Rename',
+    'Row/Provider', 'Row/Provider/Open', 'Row/Provider/Off', 'Row/Voice', 'Row/Voice/Open',
+    'Row/Session', 'Row/Session/Menu', 'Row/Session/New',
+    'Row/Menu/Speak', 'Row/Menu/Translate', 'Row/Menu/Save', 'Row/Menu/Copy', 'Row/Menu/Retry', 'Row/Menu/Delete',
+    'Select/Menu', 'Select/Menu/Scene', 'Select/Menu/Voice', 'Menu/Session', 'Menu/Message',
+    'VocabCard/Collocation', 'VocabCard/Word', 'VocabCard/New',
+    'Panel/Original', 'Panel/Rewrite', 'Tab/On', 'Tab/Off'
   ]],
   ['组织层 organisms', [
-    'TopBar', 'TopBar/Open', 'TopBar/Offline', 'TopBar/Connecting', 'BottomBar', 'RecordSheet', 'RecordSheet/Cancel', 'Waveform/Cancel', 'PressButton', 'PressButton/Cancel'
+    'TopBar', 'TopBar/Named', 'TopBar/Open', 'TopBar/Session', 'TopBar/Connecting',
+    'TopBar/Offline', 'TopBar/Unconfigured', 'TopBar/Review',
+    'InputBar', 'InputBar/Text', 'InputBar/Recording', 'InputBar/Cancel', 'InputBar/Locked', 'InputBar/Preview',
+    'LockBar'
   ]],
   ['界面 screens', [
-    '01 对话', '02 收音中', '03 评测抽屉', '04 生词库', '05 配置中心',
-    '06 场景下拉', '07 模型下拉', '08 动作面板', '09 会话小结', '10 会话记录', '11 上滑取消', '12 轻提示', '13 打字输入', '14 改名', '15 未连接', '16 译文展开'
+    '01 对话', '02 有草稿', '03 按住录音', '04 左滑取消', '05 锁定录音', '06 暂停预览',
+    '07 消息菜单', '08 评测抽屉', '09 生词库', '10 配置中心', '11 模型下拉', '12 场景下拉',
+    '13 会话切换', '14 小结面板', '15 改名', '16 译文展开', '17 轻提示', '18 未连接'
   ]]
 ];
 for (const [title, lines] of groups) {
