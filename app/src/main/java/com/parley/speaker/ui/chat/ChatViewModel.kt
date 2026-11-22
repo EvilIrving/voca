@@ -14,7 +14,6 @@ import com.parley.speaker.audio.AzureCredential
 import com.parley.speaker.audio.Tts
 import com.parley.speaker.audio.TurnAudioStore
 import com.parley.speaker.data.SeedContent
-import com.parley.speaker.data.Prompts
 import com.parley.speaker.data.SessionRecord
 import com.parley.speaker.data.SessionStore
 import com.parley.speaker.data.startOfLocalDay
@@ -214,9 +213,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /** 当前这一段开场时定下的场景与系统提示词。 */
     private var plan = SegmentPlan(SeedContent.Scenarios.first(), settingsStore.settings.value.prompt)
 
-    /** 三段提示词的出处：仓库的 prompts/ 目录打包成 assets。 */
-    private val prompts = Prompts(application)
-
     /**
      * 全局记忆：跨会话保留的那一段，界面看不见也改不了。启动时从库里读，没有就拿
      * prompts/memory.md 那段口吻起头；每轮由改写请求整段重写，写库一次。
@@ -276,7 +272,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             publishCachedModels()
             // 记忆先于连接到位，第一条连接就带着上一次留下来的事。
             memory = runCatching { store.globalMemory() }.getOrDefault("").ifBlank {
-                prompts.memory.also { seed -> if (seed.isNotBlank()) store.saveMemory(seed) }
+                SeedContent.DefaultMemory.also { seed -> if (seed.isNotBlank()) store.saveMemory(seed) }
             }
             connect()
         }
@@ -327,7 +323,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     greeted = true
                     // 开场问候本身就是一条文字消息，线路不收文字就一条都不发，改弹一条说明。
                     val refusal = textRefusal(Connection.Ready, capabilities)
-                    if (refusal == null) session?.sendText(openingOf(prompts.session, GreetingPrompt)) else showNotice(refusal)
+                    if (refusal == null) session?.sendText(openingOf(SeedContent.SessionOpening, GreetingPrompt)) else showNotice(refusal)
                 }
             }
 

@@ -5,7 +5,6 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.parley.speaker.BuildConfig
-import com.parley.speaker.data.Prompts
 import com.parley.speaker.data.SeedContent
 import com.parley.speaker.data.analysis.TextProviderCatalog
 import com.parley.speaker.domain.AnalysisCredentials
@@ -35,9 +34,9 @@ class SettingsStore(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
-    // 出厂提示词要在 _settings 之前就读好：read() 一上来就拿它当 fallback，字段初始化是按声明顺序跑的。
-    /** 出厂的系统提示词从 `prompts/system.md` 来，配置中心的「恢复默认」也取这一份。 */
-    val defaultPrompt: String = Prompts(context).system
+    // 出厂提示词要在 _settings 之前就位：read() 一上来就拿它当 fallback，字段初始化是按声明顺序跑的。
+    /** 出厂的系统提示词，设置页里的「恢复默认」回到这一段。 */
+    val defaultPrompt: String = SeedContent.DefaultPrompt
 
     private val _settings = MutableStateFlow(read())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
