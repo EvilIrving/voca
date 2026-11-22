@@ -232,12 +232,12 @@ function settingsBody(root, open) {
   cardRule(g3);
   inst(g3, C_['Speaker/Row/Provider/Off'], { name: 'Gemini Flash', meta: 'gemini-flash-latest', status: '未配置' });
 
-  sectionTitle(body, '角色提示词');
+  sectionTitle(body, '系统提示词');
   const prompt = frame(body, 'prompt card', { w: 320, dir: 'VERTICAL', gap: 8, pl: 14, pr: 14, pt: 12, pb: 12, fill: C.paper, stroke: C.hair, radius: 16 });
-  t(prompt, 'You are Parley, a warm conversation partner. Keep every reply under 40 words, ask one question back, and let the learner pause as long as needed.', { font: F.serifIt, size: 13, lh: 21, color: C.ink2, width: 292 });
+  t(prompt, '你是一位精通二语习得机制与可理解性输入理论的英语口语陪练，对话对象具备大学英语四级基础，排斥死记硬背单词与语法条文，希望通过每日自然交流逐步提升至雅思六点五分以上的流利度。在每次对话中…', { font: F.serifCn, size: 13, lh: 21, color: C.ink2, width: 292 });
   const pRow = frame(prompt, 'prompt actions', { w: 292, h: 20, dir: 'HORIZONTAL', cross: 'CENTER', gap: 6 });
   frame(pRow, 'gap', { w: 1, h: 1, grow: 1 });
-  icon(pRow, 'translate', 13, C.ink4);
+  icon(pRow, 'edit', 13, C.clayDeep);
   t(pRow, '编辑提示词', { font: F.cnMd, size: 11, color: C.clayDeep, lh: 15 });
 
   const selfCheck = frame(body, 'row self check', { w: 320, h: 54, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 14, gap: 12, fill: C.card, stroke: C.hair, radius: 16 });
@@ -338,6 +338,22 @@ toast.y = TOP + 8;
 const of = screen('16 · 未连接', 6000);
 chatStack(of, { top: 'Speaker/TopBar/Offline' });
 bar(of);
+
+/* ---------------- 17 系统提示词 ------------- */
+/* 全局共享的一段提示词：所有会话建连接时都带上它，编辑入口只有配置中心这一张卡。
+   弹窗里只放正文与两个动作，全局记忆不进界面，所以这里也没有它的一行。 */
+const pr = screen('17 · 系统提示词', 6400);
+settingsBody(pr, {});
+frame(pr, 'scrim', { w: 360, h: 792, fill: C.ink, fillA: 0.18, x: 0, y: 0, absolute: true });
+const dlg = frame(pr, 'dialog', { w: 320, dir: 'VERTICAL', fill: C.card, radius: 26, pl: 20, pr: 20, pt: 20, pb: 20, gap: 12, x: 20, y: 130, absolute: true });
+dlg.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#3A2F26'), a: 0.13 }, offset: { x: 0, y: 8 }, radius: 28, spread: 0, blendMode: 'NORMAL', visible: true }];
+t(dlg, '系统提示词', { font: F.serifCnMd, size: 20, lh: 27, color: C.ink });
+const field = frame(dlg, 'field', { w: 280, h: 232, dir: 'VERTICAL', fill: C.tint, radius: 12, pl: 12, pr: 12, pt: 12, pb: 12, clip: true });
+t(field, '你是一位精通二语习得机制与可理解性输入理论的英语口语陪练，对话对象具备大学英语四级基础，排斥死记硬背单词与语法条文，希望通过每日自然交流逐步提升至雅思六点五分以上的流利度。在每次对话中，请全程使用自然地道的英语与对方展开日常或深度话题交流，每次回复控制在两至四句话以内以保证对方拥有充足的表达空间，并在结尾提出一个顺承语境的开放式问题推动对话延续。…', { font: F.serifCn, size: 12.5, lh: 20, color: C.ink2, width: 256 });
+const prRow = frame(dlg, 'actions', { w: 280, h: 20, dir: 'HORIZONTAL', cross: 'CENTER', gap: 6 });
+t(prRow, '恢复默认', { font: F.cnMd, size: 11.5, color: C.clayDeep, lh: 16 });
+const prSave = frame(dlg, 'save', { w: 280, h: 44, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', fill: C.clay, radius: 22 });
+t(prSave, '保存', { font: F.cnMd, size: 13.5, color: C.card, lh: 19 });
 
 return {
   screens: page.children.filter(n => n.name.indexOf('SPK ') === 0).length,

@@ -47,7 +47,6 @@ function iconBtn(size, glyph, iconSize, opts) {
     icon(c, glyph, iconSize, opts.color || C.ink3);
   });
 }
-put(iconBtn(34, 'settings', 18, {}), 'Speaker/IconButton/34/Gear', 'A');
 put(iconBtn(32, 'book', 18, { fill: C.paper, stroke: C.paper }), 'Speaker/IconButton/32/Book', 'A');
 put(iconBtn(30, 'dismiss', 16, { stroke: C.paper, fill: C.paper, color: C.ink4 }), 'Speaker/IconButton/30/Dismiss', 'A');
 put(iconBtn(32, 'arrowLeft', 18, { fill: C.paper, stroke: C.paper, color: C.ink2 }), 'Speaker/IconButton/32/Back', 'A');
@@ -228,8 +227,7 @@ put(comp(page, 'Speaker/Button/NewSession', { w: 259, h: 52, dir: 'HORIZONTAL', 
 }), 'Speaker/Button/NewSession', 'B');
 
 function drawerRow(suffix, current) {
-  return put(comp(page, 'Speaker/Row/DrawerSession' + suffix, { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 6, pr: 12, gap: 8, fill: current ? C.clayTint : '', radius: 10 }, c => {
-    icon(c, 'chat', 16, current ? C.clayDeep : C.ink4);
+  return put(comp(page, 'Speaker/Row/DrawerSession' + suffix, { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 4, pr: 12, fill: current ? C.clayTint : '', radius: 10 }, c => {
     t(c, '没睡好的早晨', { font: F.sansMd, size: 14, color: current ? C.ink : C.ink2, lh: 20, name: 'name', grow: 1 });
   }), 'Speaker/Row/DrawerSession' + suffix, 'B');
 }

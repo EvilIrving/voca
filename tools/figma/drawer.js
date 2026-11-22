@@ -47,7 +47,7 @@ function drawerPanel(root, x) {
   frame(panel, 'sp 2', { w: 1, h: 14 });
   const list = frame(panel, 'sessions', { w: CONTENT, dir: 'VERTICAL' });
   function group(label) {
-    const g = frame(list, 'group ' + label, { w: CONTENT, h: 31, dir: 'HORIZONTAL', cross: 'MAX', pl: 6, pt: 12, pb: 4 });
+    const g = frame(list, 'group ' + label, { w: CONTENT, h: 31, dir: 'HORIZONTAL', cross: 'MAX', pl: 4, pt: 12, pb: 4 });
     t(g, label, { font: F.sans, size: 11, color: C.ink4, lh: 15, name: 'group' });
   }
   function row(name, current) {
@@ -68,12 +68,17 @@ function drawerPanel(root, x) {
   return panel;
 }
 
+/* 主卡片圆角：前半程零到二十六，后半程二十六到三十二。中间帧落在二十六，与界面页那张抽屉同一档。 */
+function cardRadius(p) {
+  return p <= 0.5 ? Math.round(26 * (p / 0.5)) : Math.round(26 + 6 * ((p - 0.5) / 0.5));
+}
+
 /* 主卡片：右推、等比缩放、圆角与白蒙层都吃同一个进度 p */
 function card(root, p) {
   const scale = 1 - 0.06 * p;
   const w = Math.round(W * scale), h = Math.round(H * scale);
   const x = Math.round((W - w) / 2 + PANEL * p), y = Math.round((H - h) / 2);
-  const c = frame(root, 'card', { w: w, h: h, fill: C.paper, radius: Math.round(32 * p), clip: true, x: x, y: y, absolute: true });
+  const c = frame(root, 'card', { w: w, h: h, fill: C.paper, radius: cardRadius(p), clip: true, x: x, y: y, absolute: true });
   if (p > 0) c.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#3A2F26'), a: 0.16 }, offset: { x: -8, y: 0 }, radius: 24, spread: 0, blendMode: 'NORMAL', visible: true }];
   const view = frame(c, 'card view', { w: W, h: H, dir: 'VERTICAL', x: 0, y: 0, absolute: true });
   inst(view, C_['Speaker/TopBar']);
@@ -134,7 +139,7 @@ boardNote.x = 1280; boardNote.y = 152;
 boardBox('spec 尺寸', 1280, 200, '尺寸与空间', [
   ['抽屉宽度 (Drawer Width)', '屏宽 0.82 · 封顶 295'],
   ['卡片等比缩放 (Card Scale)', '0.94 · 338 × 745'],
-  ['卡片圆角 / 暖影', '32 · 向外 24'],
+  ['卡片圆角 / 暖影', '拖拽中 0 → 26 → 32 · 向外 24'],
   ['左滑露出的旧页', '54 宽的一条'],
   ['抽屉内容边距', '18 · 内容 259'],
 ]);

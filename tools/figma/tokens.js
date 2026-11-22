@@ -67,7 +67,7 @@ frame(root, 'sp', { w: 1, h: 32 });
 const twoCol = frame(root, 'radius and spacing', { dir: 'HORIZONTAL', gap: 24, cross: 'MIN' });
 const radiusCol = frame(twoCol, 'radius col', { dir: 'VERTICAL', gap: 10, w: 396 });
 t(radiusCol, '圆角', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
-const radii = [[5, '气泡尖角'], [8, '词条 / 标签 / 下拉选项'], [12, '搜索框 / 提示行'], [14, '提示卡 / 改写卡 / 下拉菜单'], [16, '生词卡'], [18, '气泡主圆角'], [26, '半屏抽屉'], [999, '胶囊 / 圆形按钮']];
+const radii = [[5, '气泡尖角'], [8, '词条 / 标签 / 下拉选项'], [10, '抽屉会话行'], [12, '搜索框 / 提示行'], [14, '提示卡 / 改写卡 / 下拉菜单'], [16, '生词卡'], [18, '气泡主圆角'], [26, '半屏抽屉 / 卡片拖到一半'], [32, '卡片推开后'], [999, '胶囊 / 圆形按钮']];
 for (const [r, use] of radii) {
   const row = frame(radiusCol, 'spec radius ' + r, { w: 380, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', gap: 12 });
   const box = frame(row, 'box', { w: 44, h: 44, fill: C.card, stroke: C.hairStrong, radius: r === 999 ? 22 : r });
@@ -83,7 +83,7 @@ for (const [v, use] of spaces) {
   t(row, String(v) + ' px', { font: F.monoMd, size: 11, color: C.ink2, lh: 16, width: 56 });
   t(row, use, { font: F.cn, size: 11, color: C.ink4, lh: 16 });
 }
-t(spaceCol, '列表与底栏宽 320，左右外边距 20；底栏胶囊 208×48；抽屉圆角 26。', { font: F.cn, size: 11, color: C.ink4, lh: 18, width: 320 });
+t(spaceCol, '列表与底栏宽 320，左右外边距 20；底栏胶囊 208×48；半屏抽屉 26，被推走的主卡片推开后 32。', { font: F.cn, size: 11, color: C.ink4, lh: 18, width: 320 });
 frame(root, 'sp', { w: 1, h: 32 });
 
 /* interaction states */
@@ -140,7 +140,7 @@ map.layoutWrap = 'WRAP';
 const groups = [
   ['原子层 atoms', [
     'IconButton/30/checkMark', 'IconButton/30/dismiss', 'IconButton/30/edit', 'IconButton/30/speaker',
-    'IconButton/32/arrowLeft', 'IconButton/32/book', 'IconButton/32/Gauge', 'IconButton/34/settings',
+    'IconButton/32/arrowLeft', 'IconButton/32/book', 'IconButton/36/search', 'IconButton/44/settings',
     'Mic/44', 'Mic/60', 'Send/44', 'Pause/40', 'Resume/40', 'Trash/44',
     'Button/Primary/Label', 'Button/Ghost', 'Chip/Filter/On', 'Chip/Filter/Off',
     'Chip/Tag/Olive', 'Chip/Tag/Neutral', 'Chip/Word', 'Score/Value',
@@ -148,16 +148,16 @@ const groups = [
   ]],
   ['复合层 molecules', [
     'Bubble/Echo', 'Bubble/Echo/Translated', 'Bubble/User', 'ScorePill', 'HintCard',
-    'SectionLabel', 'SectionLabel/Mic', 'Field/Search', 'Field/Rename',
+    'SectionLabel', 'SectionLabel/Mic', 'Field/Search',
     'Row/Provider', 'Row/Provider/Open', 'Row/Provider/Off', 'Row/Voice', 'Row/Voice/Open',
-    'Row/Session', 'Row/Session/Menu', 'Row/Session/New',
+    'Row/DrawerSession', 'Row/DrawerSession/Current', 'Button/NewSession',
     'Row/Menu/Speak', 'Row/Menu/Translate', 'Row/Menu/Save', 'Row/Menu/Copy', 'Row/Menu/Retry', 'Row/Menu/Delete',
-    'Select/Menu', 'Select/Menu/Scene', 'Select/Menu/Voice', 'Menu/Session', 'Menu/Message',
+    'Select/Menu', 'Select/Menu/Scene', 'Select/Menu/Voice', 'Menu/Message',
     'VocabCard/Collocation', 'VocabCard/Word', 'VocabCard/New',
     'Panel/Original', 'Panel/Rewrite', 'Tab/On', 'Tab/Off'
   ]],
   ['组织层 organisms', [
-    'TopBar', 'TopBar/Named', 'TopBar/Open', 'TopBar/Session', 'TopBar/Connecting',
+    'TopBar', 'TopBar/Named', 'TopBar/Open', 'TopBar/Connecting',
     'TopBar/Offline', 'TopBar/Unconfigured', 'TopBar/Review',
     'InputBar', 'InputBar/Text', 'InputBar/Recording', 'InputBar/Cancel', 'InputBar/Locked', 'InputBar/Preview',
     'LockBar'
@@ -165,7 +165,7 @@ const groups = [
   ['界面 screens', [
     '01 对话', '02 有草稿', '03 按住录音', '04 左滑取消', '05 锁定录音', '06 暂停预览',
     '07 消息菜单', '08 评测抽屉', '09 生词库', '10 配置中心', '11 模型下拉', '12 场景下拉',
-    '13 会话切换', '14 小结面板', '15 改名', '16 译文展开', '17 轻提示', '18 未连接'
+    '13 侧边抽屉', '14 译文展开', '15 轻提示', '16 未连接'
   ]]
 ];
 for (const [title, lines] of groups) {
