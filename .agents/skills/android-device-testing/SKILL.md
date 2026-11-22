@@ -94,7 +94,7 @@ Compose 声明式界面采用全屏覆盖浮层呈现，层叠组件在底层语
 | `review` | 快速打开本轮评测分析抽屉 |
 | `selfcheck` | 在设置内触发模型连接自检测试 |
 | `shot [名称]` | 截取当前设备屏幕并保存至 `/tmp/parley-<名称>.png` |
-| `build` | 调用 `./gradlew assembleDebug` 执行构建（内置 Java 17 环境支持） |
+| `build` | 调用 `android/gradlew assembleDebug` 执行构建（内置 Java 17 环境支持） |
 | `install [apk]` | 推送安装包并调用系统安装服务，内置 vivo 拦截弹窗自动点按处理 |
 | `launch` | 冷启动或唤醒应用主界面 |
 | `home` | 模拟物理 Home 键回桌面 |

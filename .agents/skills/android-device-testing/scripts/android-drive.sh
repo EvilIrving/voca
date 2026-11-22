@@ -281,13 +281,13 @@ PY
 # 编译并打包应用
 build_app() {
   echo "执行 Gradle 调试包构建..."
-  ./gradlew assembleDebug
+  android/gradlew -p android assembleDebug
 }
 
 # 推包安装与安装拦截确认自适应处置
 install_app() {
-  local apk="${1:-app/build/outputs/apk/debug/app-debug.apk}" dry=0 out
-  [ "$apk" = "--dry" ] && { dry=1; apk="app/build/outputs/apk/debug/app-debug.apk"; }
+  local apk="${1:-android/app/build/outputs/apk/debug/app-debug.apk}" dry=0 out
+  [ "$apk" = "--dry" ] && { dry=1; apk="android/app/build/outputs/apk/debug/app-debug.apk"; }
   [ -f "$apk" ] || { echo "未找到目标安装包：${apk}，请先执行 .agents/skills/android-device-testing/scripts/android-drive.sh build 构建"; return 1; }
 
   if [ "$dry" = 1 ]; then

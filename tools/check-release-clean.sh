@@ -4,7 +4,8 @@
 set -uo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-app="$root/app"
+android="$root/android"
+app="$android/app"
 failed=0
 
 fail() { printf 'FAIL  %s\n' "$*"; failed=1; }
@@ -43,15 +44,15 @@ if [ -z "$apk" ]; then
   apk=$(ls -1 "$app"/build/outputs/apk/release/*.apk 2>/dev/null | head -1 || true)
 fi
 if [ -z "$apk" ] || [ ! -f "$apk" ]; then
-  printf 'skip  没找到 release apk，安装包层面未查。先跑 ./gradlew :app:assembleRelease，再用同一个脚本带上 apk 路径\n'
+  printf 'skip  没找到 release apk，安装包层面未查。先跑 android/gradlew :app:assembleRelease，再用同一个脚本带上 apk 路径\n'
   exit "$failed"
 fi
 
 aapt2=${AAPT2:-}
 if [ -z "$aapt2" ]; then
   sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
-  if [ -z "$sdk" ] && [ -f "$root/local.properties" ]; then
-    sdk=$(sed -n 's/^sdk\.dir=//p' "$root/local.properties")
+  if [ -z "$sdk" ] && [ -f "$android/local.properties" ]; then
+    sdk=$(sed -n 's/^sdk\.dir=//p' "$android/local.properties")
   fi
   [ -n "$sdk" ] && aapt2=$(ls -1 "$sdk"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)
 fi
