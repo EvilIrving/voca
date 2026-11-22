@@ -887,7 +887,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val turn = turnById(turnId) ?: return
         viewModelScope.launch {
             val pcm = turnAudio.read(turnId)
-            if (pcm != null) player.enqueue(pcm) else tts.speak(turn.text)
+            if (pcm != null) player.enqueue(pcm) else speakText(turn.text)
         }
     }
 
@@ -939,7 +939,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun speakText(text: String) {
         if (text.isBlank()) return
-        viewModelScope.launch { tts.speak(text) }
+        // 没填评测密钥就别去撞一次失败：先在界面上说清楚要去哪里填。
+        val assessor = settingsStore.settings.value.assessor
+        if (assessor.azureKey.isBlank() || assessor.azureRegion.isBlank()) {
+            showNotice(FillAssessorKey)
+            return
+        }
+        viewModelScope.launch {
+            val ok = tts.speak(text)
+            if (!ok) showNotice(TtsFailed)
+        }
     }
 
     /**
@@ -1468,6 +1477,12 @@ internal const val FillLiveKey = "请填写语音模型 apikey"
 
 /** 线路不收文字时的提示语。开场问候与打字输入共用同一句。 */
 internal const val TextUnsupported = "当前语音模型不支持打字"
+
+/** 发音朗读缺凭证时的提示语。指向设置页发音评测那一栏。 */
+internal const val FillAssessorKey = "请填写发音评测密钥"
+
+/** 发音网络请求失败时的提示语。 */
+internal const val TtsFailed = "发音服务连接失败"
 
 /** 删一轮只从这一轮身上动手，别的轮次原样留着。 */
 internal fun List<Turn>.minusTurn(turnId: String): List<Turn> = filterNot { it.id == turnId }

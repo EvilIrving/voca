@@ -32,6 +32,8 @@ protocol RealtimeSession: AnyObject, Sendable {
 
 enum Copy {
     static let fillLiveKey = "请填写语音模型 apikey"
+    static let fillAssessorKey = "请填写发音评测密钥"
+    static let ttsFailed = "发音服务连接失败"
     static let textUnsupported = "当前语音模型不支持打字"
     static let greeting = "用一句自然的英文开场，问我今天过得怎么样，不要解释你是模型。"
 }

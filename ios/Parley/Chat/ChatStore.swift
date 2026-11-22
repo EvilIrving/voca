@@ -280,7 +280,17 @@ final class ChatStore: ObservableObject, ParleySession {
 
     func speakText(_ text: String) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        Task { _ = await tts.speak(text) }
+        let assessor = settingsStore.settings.assessor
+        let configured = !assessor.azureKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !assessor.azureRegion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if !configured {
+            showNotice(Copy.fillAssessorKey)
+            return
+        }
+        Task {
+            let ok = await tts.speak(text)
+            if !ok { showNotice(Copy.ttsFailed) }
+        }
     }
 
     /// 左滑删掉的词先拿掉再落库：等库回来再改界面会先闪一下那一行。
