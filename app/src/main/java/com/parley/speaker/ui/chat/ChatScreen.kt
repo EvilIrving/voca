@@ -215,7 +215,6 @@ fun ChatScreen(
                     when (turn.speaker) {
                         Speaker.Echo -> EchoRow(
                             turn = turn,
-                            turns = turns,
                             translation = translations[turn.id] ?: turn.translation,
                             expanded = expanded[turn.id] == true,
                             translating = turn.id in asking,
@@ -224,7 +223,11 @@ fun ChatScreen(
                             onTranslate = { translate(turn) },
                             onSave = { onSaveTurn(turn.id, !turn.saved) },
                             onCopy = { onCopyTurn(turn.id) },
-                            onRetry = onRetryAnalysis,
+                            onRetry = {
+                                if (!reviewing) {
+                                    retryTargetOf(turns, turn.id)?.let(onRetryAnalysis)
+                                }
+                            },
                             onDelete = { onDeleteTurn(turn.id) },
                         )
 
@@ -339,7 +342,7 @@ private fun EchoRow(
     onTranslate: () -> Unit,
     onSave: () -> Unit,
     onCopy: () -> Unit,
-    onRetry: (String) -> Unit,
+    onRetry: () -> Unit,
     onDelete: () -> Unit,
 ) {
     // 菜单开在气泡自己这一条上：锚点就是这一条的实际位置，滚出屏幕就跟着消失。
@@ -352,7 +355,6 @@ private fun EchoRow(
             onLongPress = { menuOpen = true },
         )
         if (menuOpen) {
-            val retryAt = if (reviewing) null else retryTargetOf(turns, turn.id)
             MessageMenu(
                 actions = messageMenu(
                     MessageMenuState(
@@ -360,7 +362,7 @@ private fun EchoRow(
                         saved = turn.saved,
                         expanded = expanded,
                         translating = translating,
-                        retryable = retryAt != null,
+                        retryable = !reviewing,
                     ),
                 ),
                 onDismiss = { menuOpen = false },
@@ -371,7 +373,7 @@ private fun EchoRow(
                         MessageCommand.Translate -> onTranslate()
                         MessageCommand.Save -> onSave()
                         MessageCommand.Copy -> onCopy()
-                        MessageCommand.Retry -> retryAt?.let(onRetry)
+                        MessageCommand.Retry -> onRetry()
                         MessageCommand.Delete -> onDelete()
                     }
                 },
