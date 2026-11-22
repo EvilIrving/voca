@@ -3,6 +3,7 @@ package com.parley.speaker.data.realtime.gemini
 import android.util.Base64
 import android.util.Log
 import com.parley.speaker.data.realtime.Capabilities
+import com.parley.speaker.data.realtime.ProviderFault
 import com.parley.speaker.data.realtime.RealtimeEvent
 import com.parley.speaker.data.realtime.RealtimeSession
 import kotlinx.coroutines.CoroutineScope
@@ -103,6 +104,14 @@ class GeminiLiveSession(
     @Volatile
     private var rotationJob: Job? = null
 
+    /** 握手看门狗：socket 开出来之后迟迟等不到 setupComplete，就当这条连接废掉，交给退避重连。 */
+    @Volatile
+    private var setupJob: Job? = null
+
+    /** 服务端主动关连接时带的原因，配额用尽、模型无权限这类话只有它说得清。 */
+    @Volatile
+    private var serverReason: String? = null
+
     /** 下一次开连接要带上的 handle，只在 onOpen 里读一次。 */
     private var resumeWith: String? = null
 
@@ -121,17 +130,51 @@ class GeminiLiveSession(
         resumeWith = resumeHandle
         this.seed = seed
         ready = false
+        // 上一条连接留下的那句话说的是上一次的事，新连接不该带着它。
+        serverReason = null
         socket = client.newWebSocket(Request.Builder().url(url()).build(), listener)
     }
 
     private fun classify(t: Throwable, response: Response?): String = when {
-        response?.code == 401 || response?.code == 403 -> "密钥被拒绝，检查配置中心的实时语音密钥"
-        response?.code == 404 -> "模型不可用，换一个实时语音模型"
-        t is java.net.SocketTimeoutException -> "连不上语音服务，检查网络与代理"
-        t is java.net.UnknownHostException -> "域名解析失败，检查网络与代理"
-        t is javax.net.ssl.SSLException -> "安全连接失败，检查网络与代理"
-        else -> "连接中断，重新连接后会接着聊"
+        response?.code == 401 || response?.code == 403 -> ProviderFault.Key
+        response?.code == 404 -> ProviderFault.Config
+        response != null && response.code >= 400 -> ProviderFault.message("${response.code}", handshakeBody(response))
+            ?: "服务异常，正在重连"
+        t is java.net.SocketTimeoutException -> "网络异常，正在重连"
+        t is java.net.UnknownHostException -> "网络异常，正在重连"
+        t is javax.net.ssl.SSLException -> "网络异常，正在重连"
+        else -> "服务异常，正在重连"
     }
+
+    /**
+     * socket 建起来不等于握手完成：服务端可能收了 setup 却不回话，界面就会一直停在连接中。
+     * 到点没等到 setupComplete 就主动关掉这条连接，走与握手失败同一条退避与提示。
+     */
+    private fun watchSetup(webSocket: WebSocket) {
+        setupJob?.cancel()
+        setupJob = scope.launch {
+            delay(SetupTimeoutMs)
+            if (webSocket !== socket || ready) return@launch
+            Log.w(TAG, "setup timeout")
+            ready = false
+            socket = null
+            webSocket.close(1000, "setup timeout")
+            onEvent(RealtimeEvent.Failed(reasonOrFail("网络异常，正在重连")))
+        }
+    }
+
+    /** 服务端说过原因就归一次类，说过一次就清掉，免得挂在下一轮无关的失败上。 */
+    private fun reasonOrFail(fallback: String): String {
+        val said = serverReason
+        serverReason = null
+        if (said.isNullOrBlank()) return fallback
+        Log.w(TAG, "server said ${said.take(200)}")
+        return ProviderFault.message(said) ?: fallback
+    }
+
+    /** 握手失败时 OkHttp 只给状态码，配额、地区这类原因全在响应体里，读一小段回来归类。 */
+    private fun handshakeBody(response: Response): String? =
+        runCatching { response.peekBody(PeekBytes).string() }.getOrNull()
 
     private fun url(): String =
         "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=$apiKey"
@@ -139,6 +182,7 @@ class GeminiLiveSession(
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.i(TAG, "open ${response.code}")
+            watchSetup(webSocket)
             webSocket.send(
                 GeminiWire.setup(
                     model = model,
@@ -160,6 +204,9 @@ class GeminiLiveSession(
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             Log.i(TAG, "closing $code $reason")
+            // 正常收尾（自己挂断、换连接）不带这套代码；服务端因为配额或权限关连接时会把原因写在这里，
+            // 后面跟的 onFailure 只会给一个笼统的网络异常，所以这句话要在它之前留住。
+            if (webSocket === socket && !closed && reason.isNotBlank()) serverReason = reason.trim()
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -168,7 +215,7 @@ class GeminiLiveSession(
             socket = null
             Log.w(TAG, "socket failed: ${t.message}", t)
             if (closed || resume()) return
-            onEvent(RealtimeEvent.Failed(classify(t, response)))
+            onEvent(RealtimeEvent.Failed(reasonOrFail(classify(t, response))))
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -177,7 +224,7 @@ class GeminiLiveSession(
             socket = null
             Log.i(TAG, "closed $code $reason")
             if (closed || resume()) return
-            onEvent(RealtimeEvent.Failed("会话已结束，重新连接后会接着聊"))
+            onEvent(RealtimeEvent.Failed(reasonOrFail("正在重连")))
         }
     }
 
@@ -275,6 +322,8 @@ class GeminiLiveSession(
         awaitingTurn = false
         rotationJob?.cancel()
         rotationJob = null
+        setupJob?.cancel()
+        setupJob = null
         val current = socket
         socket = null
         current?.close(1000, "bye")
@@ -320,6 +369,8 @@ class GeminiLiveSession(
         root["setupComplete"]?.let {
             ready = true
             reconnectAttempts = 0
+            setupJob?.cancel()
+            setupJob = null
             scheduleRotation()
             // 先把上一段历史灌进去，再报 Ready：界面收到 Ready 之后发的第一句话必须排在历史后面。
             val history = seed
@@ -345,8 +396,16 @@ class GeminiLiveSession(
 
         root["serverContent"]?.jsonObject?.let { content -> serverContent(content) }
 
-        root["error"]?.let { error ->
-            onEvent(RealtimeEvent.Failed(error.toString()))
+        root["error"]?.jsonObject?.let { error ->
+            val code = error["code"]?.jsonPrimitive?.contentOrNull
+            val status = error["status"]?.jsonPrimitive?.contentOrNull
+            val said = error["message"]?.jsonPrimitive?.contentOrNull
+            Log.w(TAG, "server error $code $status ${said?.take(200)}")
+            onEvent(
+                RealtimeEvent.Failed(
+                    ProviderFault.message(code, status, said) ?: "服务异常，正在重连",
+                ),
+            )
         }
     }
 
@@ -472,6 +531,12 @@ class GeminiLiveSession(
 
         /** 取消之后的观察窗，够覆盖服务端一轮生成的往返时间。 */
         private const val CANCEL_WINDOW_MS = 1_500L
+
+        /** 握手看门狗：实测握手通常一秒内回 setupComplete，八秒还没回就是这条连接废了。 */
+        private const val SetupTimeoutMs = 8_000L
+
+        /** 握手失败的响应体只看头部这几百字节，够放下一条配额或区域的说明。 */
+        private const val PeekBytes = 1_024L
 
         private const val MAX_RESUME_ATTEMPTS = 2
         private const val RESUME_BASE_MS = 400L

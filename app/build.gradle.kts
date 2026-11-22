@@ -46,6 +46,8 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // 报文层用 android.util.Log 记供应商原文，单测里让它退成空实现，不然解析路径一进日志就抛。
+        unitTests.isReturnDefaultValues = true
     }
 
     compileOptions {
