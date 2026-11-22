@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.airbnb.lottie.LottieComposition
+import com.airbnb.lottie.compose.LottieClipSpec
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.animateLottieCompositionAsState
@@ -130,7 +131,13 @@ object InputBarSpec {
     val LockHeight = 56.dp
     val LockRadius = 18.dp
 
-    /** 悬浮键底边离胶囊顶的距离，锁条本身也贴着这一条。 */
+    /** 锁条底边浮在八十二圆钮顶上方这么高，不再贴着胶囊顶压着圆钮。 */
+    val LockGap = 16.dp
+
+    /** 锁条底边：圆钮圆心往下减半径就是它的顶，再往上让出 [LockGap]。 */
+    val LockBottom = PillTop + PillHeight / 2 - RecordSize / 2 - LockGap
+
+    /** 悬浮键底边离胶囊顶的距离。 */
     val FloatGap = 8.dp
     val TooltipWidth = 96.dp
     val TooltipHeight = 32.dp
@@ -178,6 +185,9 @@ private const val CaptureGraceMs = 250L
 /** 垃圾桶那支 json 是五十二帧六十帧每秒，读不到合成时长时按它收尾。 */
 private const val BinFallbackMs = 870L
 
+/** 那支 json 前十四帧是灰桶，十四帧起才是红桶与往下吸的线；滑动到红桶之后就从红桶起播。 */
+private val RedPhase = LottieClipSpec.Frame(min = 14, max = 52)
+
 /** 未播的波形柱压到四成五。 */
 private const val UnplayedAlpha = 0.45f
 
@@ -189,8 +199,7 @@ private const val WobbleMs = 500
 private const val StageMs = 160
 private const val StageDrop = 12f
 
-/** 锁条没动时的倾角与跟着手指抬升的上限，抬到四十就不再跟，免得飞出条外。 */
-private const val LockTilt = 9f
+/** 锁条跟着手指抬升的上限，抬到四十就不再跟，免得飞出条外。 */
 private val MaxLockRise = 40.dp
 
 /** 提示气泡走过两成就淡掉，源码里也是在 moveProgress 掉到零点八以下时收。 */
@@ -517,7 +526,7 @@ fun VoiceInputBar(
                 travel = gesture.raw.up.dp,
                 modifier = Modifier.offset(
                     x = centerX - InputBarSpec.LockWidth / 2,
-                    y = InputBarSpec.PillTop - InputBarSpec.LockHeight,
+                    y = InputBarSpec.LockBottom - InputBarSpec.LockHeight,
                 ),
             )
 
@@ -526,7 +535,7 @@ fun VoiceInputBar(
                 dim = 1f - ((lockProgress - TooltipFadeAt) / (1f - TooltipFadeAt)).coerceIn(0f, 1f),
                 modifier = Modifier.offset(
                     x = centerX - InputBarSpec.LockWidth / 2 - InputBarSpec.TooltipGap - InputBarSpec.TooltipWidth,
-                    y = InputBarSpec.PillTop - InputBarSpec.LockHeight / 2 - InputBarSpec.TooltipHeight / 2,
+                    y = InputBarSpec.LockBottom - InputBarSpec.LockHeight / 2 - InputBarSpec.TooltipHeight / 2,
                 ),
             )
 
@@ -773,6 +782,7 @@ private fun RecordingRow(
                 tint = tone,
                 playing = binPlaying,
                 composition = binComposition,
+                fromRed = staged,
                 modifier = Modifier.offset(y = InputBarSpec.TrashSlotTop),
             )
             Text(
@@ -951,11 +961,13 @@ private fun TrashSlot(
     playing: Boolean,
     composition: LottieComposition?,
     modifier: Modifier = Modifier,
+    fromRed: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
-    // 动效画布一百见方，杯子本体只占左上那一块；铺到四十五 dp 再往右下挪几格，
-    // 杯口才正好落在旁边那颗图元的位置上，起手不跳。
-    val binSize = 45.dp
+    // 桶体在画布里只占七成宽与八成四高、正居中（100 见方的画布，实体落在 15～85 与 8～92）。
+    // 所以画布摆多大，桶体就以画布中心为准长多大：铺成二十四、与二十二那颗图元同中心，
+    // 图元换成动效时不跳，也不会被胶囊的下边缘切掉。
+    val binSize = 24.dp
     Box(
         modifier = modifier
             .offset(x = left)
@@ -967,14 +979,16 @@ private fun TrashSlot(
                 iterations = 1,
                 isPlaying = true,
                 restartOnPlay = true,
+                // 滑动那一刻桶已经是陶土深色了，从红桶那一段起播，别让它先灰一下再红。
+                clipSpec = if (fromRed) RedPhase else null,
             )
             LottieAnimation(
                 composition = composition,
                 progress = { frame },
                 modifier = Modifier
                     .offset(
-                        x = (InputBarSpec.TrashGlyph - binSize) / 2 + 7.dp,
-                        y = (InputBarSpec.TrashGlyph - binSize) / 2 + 6.dp,
+                        x = (InputBarSpec.TrashGlyph - binSize) / 2,
+                        y = (InputBarSpec.TrashGlyph - binSize) / 2,
                     )
                     .size(binSize),
             )
@@ -1190,9 +1204,8 @@ private fun HoldKey(
 }
 
 /**
- * 锁条：上边一枚折角箭头，下边一把陶土锁，底边贴着胶囊顶。
- * 上滑的过程全在这块上：锁条跟着手指往上走、从偏九度摆正、同时收窄，
- * 与源码里 lockRotation 与 lockSize 那两条随 moveProgress 走的算式同一个意思，只是换成画板这套壳。
+ * 锁条：上边一枚折角箭头，下边一把陶土锁，底边浮在八十二圆钮顶上十六。
+ * 上滑的过程全在这块上：锁条始终正放，跟着手指往上走，同时收窄一成六。
  */
 @Composable
 private fun LockChip(visible: Boolean, progress: Float, travel: Dp, modifier: Modifier = Modifier) {
@@ -1207,7 +1220,6 @@ private fun LockChip(visible: Boolean, progress: Float, travel: Dp, modifier: Mo
             modifier = Modifier
                 .size(InputBarSpec.LockWidth, InputBarSpec.LockHeight)
                 .graphicsLayer {
-                    rotationZ = LockTilt * (1f - progress)
                     val shrink = 1f - 0.16f * progress
                     scaleX = shrink
                     scaleY = shrink

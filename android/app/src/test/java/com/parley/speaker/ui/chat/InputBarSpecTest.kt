@@ -40,9 +40,14 @@ class InputBarSpecTest {
     }
 
     @Test
-    fun `悬浮件都从胶囊顶上让出来，锁条贴顶、暂停键留八`() {
-        // 锁条底边贴着胶囊顶，顶边落在容器里第八行；暂停与恢复两枚底边各让八。
-        assertEquals(8.dp, InputBarSpec.PillTop - InputBarSpec.LockHeight)
+    fun `悬浮件都从胶囊顶上让出来，锁条浮在圆钮上、暂停键留八`() {
+        // 锁条底边离八十二圆钮顶十六，顶边因而落到容器上方；暂停与恢复两枚底边各让八。
+        val micTop = InputBarSpec.PillTop + InputBarSpec.PillHeight / 2 - InputBarSpec.RecordSize / 2
+        assertEquals(47.dp, micTop)
+        assertEquals(16.dp, InputBarSpec.LockGap)
+        assertEquals(micTop - InputBarSpec.LockGap, InputBarSpec.LockBottom)
+        assertEquals(31.dp, InputBarSpec.LockBottom)
+        assertEquals(-25.dp, InputBarSpec.LockBottom - InputBarSpec.LockHeight)
         assertEquals(16.dp, InputBarSpec.PillTop - InputBarSpec.FloatGap - InputBarSpec.PauseSize)
         assertEquals(20.dp, InputBarSpec.PillTop - InputBarSpec.FloatGap - InputBarSpec.ResumeSize)
         assertEquals(36.dp, InputBarSpec.LockWidth)

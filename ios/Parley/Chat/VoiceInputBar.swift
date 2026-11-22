@@ -20,6 +20,14 @@ enum InputBarSpec {
     static let lockWidth: CGFloat = 36
     static let lockHeight: CGFloat = 56
     static let lockRadius: CGFloat = 18
+
+    /// 锁条底边浮在八十二圆钮顶上方这么高，不再贴着胶囊顶压着圆钮。
+    static let lockGap: CGFloat = 16
+
+    /// 锁条底边：圆钮圆心往下减半径就是它的顶，再往上让出 `lockGap`。
+    static let lockBottom: CGFloat = pillTop + pillHeight / 2 - recordSize / 2 - lockGap
+
+    /// 悬浮键底边离胶囊顶的距离。
     static let floatGap: CGFloat = 8
     static let tooltipWidth: CGFloat = 96
     static let tooltipHeight: CGFloat = 32
@@ -53,7 +61,6 @@ private let wobbleSpan: CGFloat = 3.6
 private let wobbleMs = 0.5
 private let stageMs = 0.16
 private let stageDrop: CGFloat = 12
-private let lockTilt: CGFloat = 9
 private let maxLockRise: CGFloat = 40
 private let tooltipFadeAt: Float = 0.8
 
@@ -284,7 +291,7 @@ struct VoiceInputBar: View {
         let tone = staged ? Palette.clayDeep : Palette.ink3
         return ZStack(alignment: .leading) {
             if sliding {
-                trashSlot(playing: binPlaying, tint: tone, left: 16, onClick: nil)
+                trashSlot(playing: binPlaying, tint: tone, left: 16, fromRed: staged, onClick: nil)
                     .offset(y: InputBarSpec.trashSlotTop)
                 MeterClock(meter: meter, staged: staged)
                     .offset(x: 48)
@@ -366,13 +373,14 @@ struct VoiceInputBar: View {
     }
 
     @ViewBuilder
-    private func trashSlot(playing: Bool, tint: Color, left: CGFloat, onClick: (() -> Void)?) -> some View {
-        let size: CGFloat = 45
+    private func trashSlot(playing: Bool, tint: Color, left: CGFloat, fromRed: Bool = false, onClick: (() -> Void)?) -> some View {
+        // 桶体在画布里只占七成宽与八成四高、正居中，画布铺成二十四、与图元同中心。
+        let size: CGFloat = 24
         Group {
             if playing {
-                LottieTrashOnce()
+                LottieTrashOnce(fromRed: fromRed)
                     .frame(width: size, height: size)
-                    .offset(x: (InputBarSpec.trashGlyph - size) / 2 + 7, y: (InputBarSpec.trashGlyph - size) / 2 + 6)
+                    .offset(x: (InputBarSpec.trashGlyph - size) / 2, y: (InputBarSpec.trashGlyph - size) / 2)
             } else if let onClick {
                 Pressable(shape: AnyShape(Rectangle()), contentDescription: "丢掉这段录音", onClick: onClick) {
                     GlyphIcon(icon: .delete, tint: tint).frame(width: InputBarSpec.trashGlyph, height: InputBarSpec.trashGlyph)
@@ -395,9 +403,11 @@ struct VoiceInputBar: View {
             .frame(width: InputBarSpec.lockWidth, height: InputBarSpec.lockHeight)
             .background(Palette.card, in: RoundedRectangle(cornerRadius: InputBarSpec.lockRadius))
             .overlay(RoundedRectangle(cornerRadius: InputBarSpec.lockRadius).stroke(Palette.hair, lineWidth: 1))
-            .rotationEffect(.degrees(Double(lockTilt * (1 - progress))))
             .scaleEffect(1 - 0.16 * progress)
-            .offset(x: centerX - InputBarSpec.lockWidth / 2, y: InputBarSpec.pillTop - InputBarSpec.lockHeight - lift)
+            .offset(
+                x: centerX - InputBarSpec.lockWidth / 2,
+                y: InputBarSpec.lockBottom - InputBarSpec.lockHeight - lift
+            )
         }
     }
 
@@ -412,7 +422,7 @@ struct VoiceInputBar: View {
                 .opacity(dim)
                 .offset(
                     x: centerX - InputBarSpec.lockWidth / 2 - InputBarSpec.tooltipGap - InputBarSpec.tooltipWidth,
-                    y: InputBarSpec.pillTop - InputBarSpec.lockHeight / 2 - InputBarSpec.tooltipHeight / 2
+                    y: InputBarSpec.lockBottom - InputBarSpec.lockHeight / 2 - InputBarSpec.tooltipHeight / 2
                 )
         }
     }
@@ -515,11 +525,14 @@ private struct HoldKey: View {
 }
 
 private struct LottieTrashOnce: UIViewRepresentable {
+    /// 那支 json 前十四帧是灰桶，十四帧起才是红桶与往下吸的线。
+    var fromRed: Bool
+
     func makeUIView(context: Context) -> LottieAnimationView {
         let view = LottieAnimationView(name: "chat_audio_record_delete")
         view.contentMode = .scaleAspectFit
         view.loopMode = .playOnce
-        view.play()
+        view.play(fromProgress: fromRed ? 14.0 / 52.0 : 0, toProgress: 1)
         return view
     }
     func updateUIView(_ uiView: LottieAnimationView, context: Context) {}

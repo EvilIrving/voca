@@ -390,7 +390,7 @@ put(comp(page, 'Speaker/Trash/22', { w: 22, h: 22, dir: 'HORIZONTAL', main: 'CEN
   icon(c, 'delete', 22, C.ink3);
 }), 'Speaker/Trash/22', 'A');
 
-/* 锁条：上一枚折角箭头、下一把陶土锁，底边贴胶囊顶，上滑时整块摆正收窄 */
+/* 锁条：上一枚折角箭头、下一把陶土锁，浮在圆钮顶上十六，上滑时整块收窄 */
 put(comp(page, 'Speaker/LockChip', { w: 36, h: 56, dir: 'VERTICAL', cross: 'CENTER', pt: 10, gap: 6, fill: C.card, stroke: C.hair, radius: 18 }, c => {
   icon(c, 'chevUp', 12, C.ink3);
   icon(c, 'lockOpen', 16, C.clay);
@@ -527,8 +527,8 @@ function inputBar(name, kind) {
       dialOf(a, 'tinyWaveDrawable', 94, 282, 41, C.clay, null, 0, null, 0.28);
       ringIn(a, 'Speaker/Mic/82', 288, 47);
       const f = floatLayer(c);
-      ringIn(f, 'Speaker/LockChip', 311, 8);
-      ringIn(f, 'Speaker/Tooltip', 205, 20);
+      ringIn(f, 'Speaker/LockChip', 311, -25);
+      ringIn(f, 'Speaker/Tooltip', 205, -13);
       return;
     }
     const withText = kind === 'text';
