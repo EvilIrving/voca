@@ -3,7 +3,7 @@ package com.parley.speaker.debug
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.parley.speaker.audio.AudioCapture
+import com.parley.speaker.audio.VoiceRecorder
 import java.io.File
 
 /**
@@ -14,6 +14,6 @@ class CaptureProbeReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         File(context.filesDir, "capture_state.txt")
-            .writeText(if (AudioCapture.isCapturing()) "capturing" else "idle")
+            .writeText(if (VoiceRecorder.isCapturing()) "capturing" else "idle")
     }
 }

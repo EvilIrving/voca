@@ -8,11 +8,13 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
-import com.parley.speaker.audio.AudioCapture
+import com.parley.speaker.audio.ClipPlayer
 import com.parley.speaker.audio.AudioPlayer
 import com.parley.speaker.audio.AzureCredential
 import com.parley.speaker.audio.Tts
 import com.parley.speaker.audio.TurnAudioStore
+import com.parley.speaker.audio.VoiceClip
+import com.parley.speaker.audio.VoiceRecorder
 import com.parley.speaker.data.SeedContent
 import com.parley.speaker.data.SessionRecord
 import com.parley.speaker.data.SessionStore
@@ -69,6 +71,7 @@ import com.parley.speaker.domain.memoryMaterial
 import com.parley.speaker.domain.systemPromptOf
 import com.parley.speaker.domain.transcriptLine
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
@@ -112,7 +115,8 @@ data class ChatState(
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val capture = AudioCapture(viewModelScope)
+    private val recorder = VoiceRecorder(viewModelScope)
+    private val clipPlayer = ClipPlayer()
     private val player = AudioPlayer(application)
     private val settingsStore = SettingsStore(application)
     private val connectivity = ConnectivityProbe()
@@ -182,6 +186,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _elapsedMs = MutableStateFlow(0L)
     val elapsedMs: StateFlow<Long> = _elapsedMs.asStateFlow()
+
+    /** 暂停态摊在输入条上的那一段：波形、时长与播到哪儿。空表示没有预览。 */
+    private val _voicePreview = MutableStateFlow<VoicePreview?>(null)
+    val voicePreview: StateFlow<VoicePreview?> = _voicePreview.asStateFlow()
+    private var previewClip: VoiceClip? = null
+    private var previewJob: Job? = null
 
     // 只存扁平的卡片：分档、计数与排序由 `vocabPage` 一处算，界面与角标不会各用一份「今天」。
 
@@ -345,7 +355,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 TurnEffect.StopCapture -> {
                     timerJob?.cancel()
                     timerJob = null
-                    capture.stop()
+                    stopPreview()
+                    // 这一段是发出去还是作废，落到文件上的那只 OGG 都不再有人用，封口之后删掉。
+                    viewModelScope.launch {
+                        recorder.finish()?.let { clip -> runCatching { File(clip.path).delete() } }
+                    }
                     java.util.Arrays.fill(levelBuffer, 0f)
                     _levelFrame.value += 1
                 }
@@ -408,7 +422,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val current = session ?: return false
         resetGate()
         uplink.reset()
-        val started = capture.start(
+        val started = recorder.start(
+            getApplication<Application>().cacheDir,
             onFrame = { frame ->
                 recordFrame(frame)
                 appendUplink(frame)
@@ -721,12 +736,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onRecordPressEnd(cancelled: Boolean) {
         if (cancelled) {
+            recorder.cancel()
+            stopPreview()
             dispatch(TurnEvent.Cancel)
             dropUplink()
             return
         }
         // 太短或者整段没高过环境底噪的一轮在这里就结束：本地回 Idle，不发收尾、不落气泡、也不弹提示。
         if (SpeechGate.shouldDrop(gateFrames())) {
+            recorder.cancel()
+            stopPreview()
             dispatch(TurnEvent.SilentTurn)
             // 这一轮不会走到评测，攒下的上行音频也就没有归属，当场丢掉，免得起下一轮评错人。
             dropUplink()
@@ -735,28 +754,83 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         dispatch(TurnEvent.Commit)
     }
 
+    /**
+     * 暂停与恢复。暂停把采集停在原地并封住这一段，波形与时长交给输入条的预览；
+     * 中途不能再开一段新的，所以这里只认 hold 与 resume，新的一段要等 StopCapture 收完。
+     */
+    fun onRecordHold(held: Boolean) {
+        if (held) {
+            timerJob?.cancel()
+            timerJob = null
+            stopPreview()
+            viewModelScope.launch {
+                val clip = recorder.hold() ?: return@launch
+                previewClip = clip
+                _voicePreview.value = VoicePreview(clip.waveform, clip.durationMs, 0f, false)
+            }
+            return
+        }
+        stopPreview()
+        if (!recorder.resume()) {
+            // 麦克风没抢回来这一段就继续不下去，当场收掉，界面不留在锁定态。
+            showNotice("麦克风被占用")
+            dispatch(TurnEvent.Cancel)
+            dropUplink()
+            return
+        }
+        startedAt = SystemClock.elapsedRealtime() - _elapsedMs.value
+        startTimer()
+    }
+
+    /** 预览条上的播放键：在放就停下，停下再点从头放。 */
+    fun togglePreviewPlayback() {
+        val preview = _voicePreview.value ?: return
+        val clip = previewClip ?: return
+        if (preview.playing) {
+            clipPlayer.pause()
+            previewJob?.cancel()
+            previewJob = null
+            _voicePreview.value = preview.copy(playing = false, progress = clipPlayer.progress())
+            return
+        }
+        viewModelScope.launch {
+            if (!clipPlayer.prepare(clip.path) || !clipPlayer.start()) return@launch
+            _voicePreview.value = (_voicePreview.value ?: preview).copy(playing = true)
+            previewJob?.cancel()
+            previewJob = viewModelScope.launch {
+                while (isActive) {
+                    delay(PreviewTickMs)
+                    val progress = clipPlayer.progress()
+                    val playing = clipPlayer.isPlaying()
+                    _voicePreview.value = _voicePreview.value?.copy(progress = progress, playing = playing)
+                    if (!playing) break
+                }
+            }
+        }
+    }
+
+    /** 预览只在暂停态存在：放掉播放器、清掉波形，回到录音态与收尾都不该留着它。 */
+    private fun stopPreview() {
+        previewJob?.cancel()
+        previewJob = null
+        clipPlayer.release()
+        previewClip = null
+        _voicePreview.value = null
+    }
+
     /** 打字发送：不收音也不开新的 activity，落一条用户轮之后直接送文本。 */
     fun sendText(text: String) {
         if (text.isBlank()) return
-        textRefusal(connection, capabilities)?.let { message ->
-            showNotice(message)
-            return
+        when (textGate(connection, capabilities)) {
+            TextGate.Allowed -> dispatch(TurnEvent.TextTurn(text))
+            TextGate.Unconfigured -> showNotice(FillLiveKey)
+            TextGate.Unsupported -> showNotice(TextUnsupported)
+            // 连接没就绪时这一句根本发不出去，界面不出声，日志里留一行。
+            TextGate.Waiting -> Log.i(Tag, "连接未就绪，文字没有发出")
         }
-        dispatch(TurnEvent.TextTurn(text))
     }
 
     fun retryAnalysis(turnId: String) = dispatch(TurnEvent.RetryAnalysis(turnId))
-
-    /**
-     * 切场景：先把这一段收掉再换下一段。场景换成新选的，角色提示词原样留着，
-     * 选了同一个场景就什么都不动。
-     */
-    fun setScenario(name: String) {
-        if (name == plan.scenario) return
-        plan = plan.withScenario(name)
-        ledger.touch()
-        if (ledger.current.closed) beginSegment() else rollSegment()
-    }
 
     /** 气泡译文：库里已有就直接给，没有才请求一次，回来先显示再随轮落库。 */
     suspend fun translate(text: String): String? {
@@ -868,7 +942,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         cancelReconnect()
         timerJob?.cancel()
         timerJob = null
-        capture.stop()
+        recorder.cancel()
+        stopPreview()
         player.stop()
         dropSession()
         attachAudioPaths()
@@ -1174,7 +1249,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         events.close()
         audioWrites.close()
-        capture.stop()
+        recorder.cancel()
+        stopPreview()
         player.stop()
         timerJob?.cancel()
         session?.close()
@@ -1204,6 +1280,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         const val BarCount = 34
         private const val NOTICE_MS = 2_000L
+
+        /** 预览进度八十毫秒读一次，跟得上耳朵又不至于每帧问一次播放器。 */
+        private const val PreviewTickMs = 80L
         private const val Tag = "ChatViewModel"
         private const val CopyLabel = "Parley"
         private const val AssessorLocale = "en-US"

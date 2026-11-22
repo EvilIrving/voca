@@ -91,7 +91,7 @@ class Resampler {
             val window = 0.42 - 0.5 * cos(phase) + 0.08 * cos(2.0 * phase)
             (ideal * window).toFloat()
         }.let { raw ->
-            val total = raw.sum()
+            val total = raw.sumOf { it.toDouble() }
             FloatArray(raw.size) { index -> (raw[index] / total).toFloat() }
         }
 

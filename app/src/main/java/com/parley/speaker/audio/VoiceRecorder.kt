@@ -94,6 +94,7 @@ class VoiceRecorder(private val scope: CoroutineScope) {
             }
             val owner = Session(file, out, writer, codec, Resampler())
             session = owner
+            active = this
             record = created
             this.onFrame = onFrame
             this.onLevel = onLevel
@@ -600,8 +601,14 @@ class VoiceRecorder(private val scope: CoroutineScope) {
         var windowCount = 0
     }
 
-    private companion object {
-        const val TAG = "VoiceRecorder"
+    companion object {
+        /** 调试探针要问「现在是不是在收音」，与界面无关，留一个进程级入口。 */
+        @Volatile
+        private var active: VoiceRecorder? = null
+
+        fun isCapturing(): Boolean = active?.isRunning == true
+
+        private const val TAG = "VoiceRecorder"
         const val Directory = "voice"
         const val MIME_OPUS = "audio/opus"
         const val SAMPLE_RATE = 48_000

@@ -13,7 +13,7 @@ import kotlin.math.sqrt
  */
 object SpeechGate {
 
-    /** 与 AudioCapture 的帧长一致，二十毫秒一帧。 */
+    /** 与上行的帧长一致，二十毫秒一帧。 */
     const val FrameMs = 20L
 
     const val MinSpeechMs = 400L
