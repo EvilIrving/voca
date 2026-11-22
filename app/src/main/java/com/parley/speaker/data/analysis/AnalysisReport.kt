@@ -2,6 +2,7 @@ package com.parley.speaker.data.analysis
 
 import com.parley.speaker.domain.Register
 import com.parley.speaker.domain.VocabCard
+import com.parley.speaker.domain.withoutAnnotation
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -93,7 +94,7 @@ internal fun vocabCards(items: JsonArray?, turnId: String): List<VocabCard> {
             id = "$turnId-$word",
             word = word,
             phonetic = item.text("phonetic").orEmpty(),
-            meaning = item.text("meaning").orEmpty(),
+            meaning = item.text("meaning").orEmpty().withoutAnnotation(),
             example = example,
             highlight = highlightOf(item.text("highlight"), word, example),
             repeats = 1,

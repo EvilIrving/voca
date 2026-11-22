@@ -279,7 +279,7 @@ internal fun analysisPrompt(text: String): String = """
     1. vocab 至少一条、最多三条，取学生这句话里真实出现的表达，或它对应的地道英文说法；不许留空数组。
     2. 学生用中文说的部分，把最自然的英文说法收进 vocab。
     3. 每条 highlight 必须是同一条 example 的子串，逐字一致。
-    4. phonetic 写在两个斜杠之间，meaning 用中文。
+    4. phonetic 写在两个斜杠之间，meaning 用中文，只写释义本身，不加括号注释，不写语体、场景与用法说明。
 
     {"score": 0 到 100 的整数,
      "note": "一句中文点评，指出最关键的一处问题，不超过二十字",

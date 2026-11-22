@@ -17,6 +17,7 @@ import com.parley.speaker.domain.Review
 import com.parley.speaker.domain.Speaker
 import com.parley.speaker.domain.Turn
 import com.parley.speaker.domain.VocabCard
+import com.parley.speaker.domain.withoutAnnotation
 import android.content.Context
 import kotlin.math.roundToInt
 import kotlinx.serialization.json.Json
@@ -197,7 +198,7 @@ class SessionStore(context: Context) {
         id = word,
         word = word,
         phonetic = phonetic,
-        meaning = meaning,
+        meaning = meaning.withoutAnnotation(),
         example = example,
         highlight = highlight,
         repeats = repeats,

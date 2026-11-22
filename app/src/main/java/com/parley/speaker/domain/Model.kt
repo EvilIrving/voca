@@ -84,6 +84,16 @@ data class VocabCard(
     val lastSeenAt: Long = 0,
 )
 
+/**
+ * 释义只要一句中文：模型爱在后面跟一条「（日常随口问候）」这类场景注释，
+ * 收词与读库两头都过这一道，旧词条不用重新分析也干净了。
+ */
+fun String.withoutAnnotation(): String = replace(Regex("[（(][^（()）]*[）)]"), "")
+    .trim()
+    .trimEnd('，', ',', '；', ';', '、', ' ')
+    .replace(Regex("\\s+"), " ")
+    .trim()
+
 /** 生词按复习状态分档：今天新收录的、该回看的、以及更早收下但还不用复习的。 */
 enum class VocabBucket(val label: String) {
     Today("今天"),
