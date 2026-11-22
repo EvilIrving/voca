@@ -47,12 +47,19 @@ data class Review(
 )
 
 @Serializable
+enum class AnalysisStatus { None, Pending, Ready, Failed }
+
+@Serializable
 data class Turn(
     val id: String,
     val speaker: Speaker,
     val text: String,
     val review: Review? = null,
     val audioPath: String? = null,
+    val analysis: AnalysisStatus = AnalysisStatus.None,
+    val saved: Boolean = false,
+    /** 气泡译文的落库位。非空表示这一轮已经译过，重开对话不再请求文本模型。 */
+    val translation: String? = null,
 )
 
 @Serializable
@@ -64,6 +71,8 @@ data class VocabCard(
     val example: String,
     val highlight: String,
     val repeats: Int,
+    /** 0 表示这份词条还没从库里读出来，写入时由存储层盖上当下时间。 */
+    val lastSeenAt: Long = 0,
 )
 
 data class VocabGroup(
@@ -73,10 +82,13 @@ data class VocabGroup(
 
 data class Scenario(val name: String)
 
-enum class LinkStatus { Connected, Configured, Unconfigured, Failed }
+enum class LinkStatus { Connected, Configured, Unconfigured, Failed, NotSupported }
 
 data class ProviderLine(
+    val key: String,
+    val group: String,
     val name: String,
     val detail: String,
     val status: LinkStatus,
+    val editable: Boolean = false,
 )
