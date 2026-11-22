@@ -508,7 +508,7 @@ private fun SearchField(
             .fillMaxWidth()
             .height(SessionDrawerSpec.SearchFieldHeight)
             .background(Palette.card, RoundedCornerShape(Radius.pill))
-            .border(BorderStroke(1.dp, Palette.hair), RoundedCornerShape(Radius.pill))
+            .border(BorderStroke(1.dp, Palette.hairSoft), RoundedCornerShape(Radius.pill))
             .padding(start = 12.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -556,7 +556,7 @@ private fun NewSessionPill(onClick: () -> Unit) {
             .height(SessionDrawerSpec.NewRowHeight),
         shape = RoundedCornerShape(Radius.pill),
         resting = Palette.card,
-        border = BorderStroke(1.dp, Palette.hair),
+        border = BorderStroke(1.dp, Palette.hairSoft),
         onClick = onClick,
     ) {
         Row(

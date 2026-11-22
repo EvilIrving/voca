@@ -268,7 +268,7 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
                     Surface(
                         color = Palette.tint,
                         shape = RoundedCornerShape(Radius.pill),
-                        border = BorderStroke(1.dp, Palette.hair),
+                        border = BorderStroke(1.dp, Palette.hairSoft),
                         modifier = Modifier
                             .padding(top = 52.dp)
                             .clickable { vm.dismissNotice() },

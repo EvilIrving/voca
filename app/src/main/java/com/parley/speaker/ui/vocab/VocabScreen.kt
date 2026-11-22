@@ -88,7 +88,7 @@ fun VocabScreen(
         Surface(
             color = Palette.card,
             shape = RoundedCornerShape(Radius.control),
-            border = BorderStroke(1.dp, Palette.hair),
+            border = BorderStroke(1.dp, Palette.hairSoft),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = Spacing.screen)
@@ -176,7 +176,7 @@ private fun VocabRow(card: VocabCard, onSpeak: (VocabCard) -> Unit) {
     Surface(
         color = Palette.card,
         shape = RoundedCornerShape(Radius.vocabCard),
-        border = BorderStroke(1.dp, Palette.hair),
+        border = BorderStroke(1.dp, Palette.hairSoft),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(14.dp)) {

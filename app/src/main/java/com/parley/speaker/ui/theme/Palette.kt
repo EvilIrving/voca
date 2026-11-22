@@ -9,6 +9,8 @@ object Palette {
     val tint = Color(0xFFF0EEE6)
     val hair = Color(0xFFE8E3D6)
     val hairStrong = Color(0xFFD8D2C0)
+    /** 纸面描边：实底细边线压到一半透明度，白卡落在羊皮纸上只剩一层淡边。 */
+    val hairSoft = hair.copy(alpha = 0.5f)
 
     val ink = Color(0xFF141413)
     val ink2 = Color(0xFF3B3934)

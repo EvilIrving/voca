@@ -255,7 +255,7 @@ private fun RegisterTab(label: String, selected: Boolean, onClick: () -> Unit) {
     Pressable(
         shape = RoundedCornerShape(Radius.pill),
         resting = if (selected) Palette.clay else Palette.card,
-        border = if (selected) null else BorderStroke(1.dp, Palette.hair),
+        border = if (selected) null else BorderStroke(1.dp, Palette.hairSoft),
         onClick = onClick,
     ) {
         Text(
@@ -277,7 +277,7 @@ private fun OutlinedAction(
         modifier = modifier,
         shape = RoundedCornerShape(Radius.pill),
         resting = if (primary) Palette.clay else Palette.card,
-        border = if (primary) null else BorderStroke(1.dp, Palette.hair),
+        border = if (primary) null else BorderStroke(1.dp, Palette.hairSoft),
         onClick = onClick,
     ) {
         Row(

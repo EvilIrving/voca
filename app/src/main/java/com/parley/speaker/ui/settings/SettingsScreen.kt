@@ -237,7 +237,7 @@ private fun GroupDivider() {
             .fillMaxWidth()
             .padding(horizontal = 14.dp)
             .height(1.dp)
-            .background(Palette.hair),
+            .background(Palette.hairSoft),
     )
 }
 
@@ -247,7 +247,7 @@ private fun GroupCard(label: String, lines: List<ProviderLine>, onEdit: (String)
     Surface(
         color = Palette.card,
         shape = RoundedCornerShape(Radius.card),
-        border = BorderStroke(1.dp, Palette.hair),
+        border = BorderStroke(1.dp, Palette.hairSoft),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {
@@ -342,7 +342,7 @@ private fun PromptCard(prompt: String, onEdit: () -> Unit) {
     Surface(
         color = Palette.card,
         shape = RoundedCornerShape(Radius.card),
-        border = BorderStroke(1.dp, Palette.hair),
+        border = BorderStroke(1.dp, Palette.hairSoft),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Pressable(modifier = Modifier.fillMaxWidth(), onClick = onEdit) {
@@ -382,7 +382,7 @@ private fun ProbeCard(
     Surface(
         color = Palette.card,
         shape = RoundedCornerShape(Radius.card),
-        border = BorderStroke(1.dp, Palette.hair),
+        border = BorderStroke(1.dp, Palette.hairSoft),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Pressable(modifier = Modifier.fillMaxWidth(), onClick = onProbe) {
@@ -524,7 +524,7 @@ private fun AnalysisGroup(
     Surface(
         color = Palette.card,
         shape = RoundedCornerShape(Radius.card),
-        border = BorderStroke(1.dp, Palette.hair),
+        border = BorderStroke(1.dp, Palette.hairSoft),
         // 展开的模型清单要盖住后面的角色提示词与自检卡，靠 zIndex 把它整体抬到同层兄弟之上。
         modifier = Modifier
             .fillMaxWidth()

@@ -424,7 +424,7 @@ fun VoiceInputBar(
                     .size(pillWidth, InputBarSpec.PillHeight)
                     .clip(PillShape)
                     .background(Palette.card)
-                    .border(1.dp, Palette.hair, PillShape),
+                    .border(1.dp, Palette.hairSoft, PillShape),
             ) {
                 when (phase) {
                     VoicePhase.Idle -> DraftRow(
