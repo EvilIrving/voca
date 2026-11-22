@@ -9,6 +9,10 @@ enum InputBarSpec {
     static let pillGap: CGFloat = 10
     static let actionSize: CGFloat = 48
     static let baseBottom: CGFloat = 8
+
+    /// 常态占位：胶囊行加上贴底的八。手势与胶囊都长在这一条里，条上方的留白归列表。
+    static let rowHeight: CGFloat = pillHeight + baseBottom
+
     static let pillTop: CGFloat = height - baseBottom - pillHeight
     static let recordSize: CGFloat = 82
     static let micGlyph: CGFloat = 24
@@ -241,10 +245,8 @@ struct VoiceInputBar: View {
                     onPressEnd(false)
                 }
             case .openDraft:
-                if draft.isEmpty {
-                    editing = true
-                    focused = true
-                }
+                editing = true
+                focused = true
             }
         }
     }
@@ -272,7 +274,7 @@ struct VoiceInputBar: View {
                     .focused($focused)
                     .onSubmit(sendDraft)
             } else {
-                Pressable(shape: AnyShape(Rectangle()), contentDescription: "编辑草稿", onClick: { editing = true; focused = true }) {
+                Pressable(shape: AnyShape(Rectangle()), pressing: .clear, contentDescription: "编辑草稿", onClick: { editing = true; focused = true }) {
                     Text(draft.isEmpty ? "说点什么..." : draft)
                         .font(Type.uiFont)
                         .foregroundStyle(draft.isEmpty ? Palette.ink3 : Palette.ink)

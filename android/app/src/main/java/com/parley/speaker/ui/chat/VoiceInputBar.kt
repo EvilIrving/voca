@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,11 +68,13 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -103,8 +107,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 画板定稿的几何，单位都是 dp、坐标相对各自的父层。
- * 容器三百六乘一百二十，胶囊行从六十四起（底下留八），五档状态共用这一条基座：
+ * 整块画布三百六乘一百二十，胶囊行从六十四起（底下留八），五档状态共用这一条基座：
  * 圆钮长到八十二、锁条浮上来，胶囊的宽高与位置一格都不动。
+ * 画布只是渲染与悬浮件的范围，常态占位只算底下那一条 [RowHeight]，条上方的留白归会话列表。
  */
 object InputBarSpec {
     val Height = 120.dp
@@ -114,6 +119,9 @@ object InputBarSpec {
     val PillGap = 10.dp
     val ActionSize = 48.dp
     val BaseBottom = 8.dp
+
+    /** 常态占位：胶囊行加上贴底的八。手势层与胶囊都长在这一条里，共五十六。 */
+    val RowHeight = PillHeight + BaseBottom
 
     /** 胶囊行的顶边：一百二十减八再减四十八，悬浮件都以它为准往上让。 */
     val PillTop = Height - BaseBottom - PillHeight
@@ -273,6 +281,7 @@ fun VoiceInputBar(
     var discardToken by remember { mutableLongStateOf(0L) }
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
 
     // 指针循环只起一次，中途重建会把按到一半的手势掐断。四个回调借 rememberUpdatedState
     // 拿最新一份，状态本身放在同一个 MutableState 里，老闭包读写的也是它。
@@ -324,7 +333,7 @@ fun VoiceInputBar(
                     ended.value(false)
                 }
 
-                VoiceEffect.OpenDraft -> if (draft.isEmpty()) editing = true
+                VoiceEffect.OpenDraft -> editing = true
             }
         }
     }
@@ -356,8 +365,12 @@ fun VoiceInputBar(
         onDispose { if (pendingDiscard.value != null) ended.value(true) }
     }
 
+    // 焦点要等输入框挂上去、摆好那一帧再要：同一帧里连键盘一起叫，部分机型只认后者不认前者。
     LaunchedEffect(editing) {
-        if (editing) focus.requestFocus()
+        if (!editing) return@LaunchedEffect
+        withFrameNanos { }
+        focus.requestFocus()
+        keyboard?.show()
     }
 
     // 返回键先把键盘收掉，焦点未必跟着走：在草稿态里按返回就直接退回空态，
@@ -409,82 +422,92 @@ fun VoiceInputBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(InputBarSpec.Height)
-            // 手势必须挂在整条栏的最外层：命中测试碰到圆钮自己那枚 clickable 就停了，
-            // 挂在栏里面那层时手指压在圆钮上等于什么都没按。
-            .then(
-                if (gestureLive) {
-                    Modifier.pointerInput(span) { trackVoiceGesture(span, dispatch) }
-                } else {
-                    Modifier
-                },
-            ),
+            .height(InputBarSpec.Height),
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val band = maxWidth
             val centerX = InputBarSpec.circleCenter(band)
             val pillWidth = InputBarSpec.pillWidth(band)
 
-            // 中：胶囊基座。宽度只由可用宽度算出，五档状态共用同一条，永不被圆钮挤动。
+            // 常态占位只有贴底这一条：手势与胶囊长在里面。条上方那段留白是给会话列表用的，
+            // 指针在这里什么也没按到，列表照常滚得动。
+            // 圆钮画在画布那1 层，与这一条并列：常态与按住时它没有 click，按下自然落回这一条的手势；
+            // 只剩发送那一档带 click，那时按下去只发不录。
             Box(
                 modifier = Modifier
-                    .offset(x = InputBarSpec.SideInset, y = InputBarSpec.PillTop)
-                    .size(pillWidth, InputBarSpec.PillHeight)
-                    .clip(PillShape)
-                    .background(Palette.card)
-                    .border(1.dp, Palette.hairSoft, PillShape),
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(InputBarSpec.RowHeight)
+                    .then(
+                        if (gestureLive) {
+                            Modifier.pointerInput(span) { trackVoiceGesture(span, dispatch) }
+                        } else {
+                            Modifier
+                        },
+                    ),
             ) {
-                when (phase) {
-                    VoicePhase.Idle -> DraftRow(
-                        draft = draft,
-                        editing = editing,
-                        onChange = { draft = it },
-                        onSend = sendDraft,
-                        onTap = { editing = true },
-                        onExitEdit = { editing = false },
-                        focus = focus,
-                    )
+                // 中：胶囊基座。宽度只由可用宽度算出，五档状态共用同一条，永不被圆钮挤动。
+                Box(
+                    modifier = Modifier
+                        .offset(x = InputBarSpec.SideInset, y = 0.dp)
+                        .size(pillWidth, InputBarSpec.PillHeight)
+                        .clip(PillShape)
+                        .background(Palette.card)
+                        .border(1.dp, Palette.hairSoft, PillShape),
+                ) {
+                    when (phase) {
+                        VoicePhase.Idle -> DraftRow(
+                            draft = draft,
+                            editing = editing,
+                            onChange = { draft = it },
+                            onSend = sendDraft,
+                            onTap = { editing = true },
+                            onExitEdit = { editing = false },
+                            focus = focus,
+                        )
 
-                    VoicePhase.Holding, VoicePhase.Cancelling -> RecordingRow(
-                        progress = if (frozen != null) 0f else progress,
-                        leftShift = leftShift,
-                        pillWidth = pillWidth,
-                        elapsedMs = elapsedMs,
-                        binPlaying = frozen != null,
-                        binComposition = binComposition,
-                    )
+                        VoicePhase.Holding, VoicePhase.Cancelling -> RecordingRow(
+                            progress = if (frozen != null) 0f else progress,
+                            leftShift = leftShift,
+                            pillWidth = pillWidth,
+                            elapsedMs = elapsedMs,
+                            binPlaying = frozen != null,
+                            binComposition = binComposition,
+                        )
 
-                    VoicePhase.Locked -> LockedRow(
-                        elapsedMs = elapsedMs,
-                        levels = levels,
-                        levelFrame = levelFrame,
-                        onCancel = { dispatch(VoiceInputEvent.Cancel) },
-                    )
+                        VoicePhase.Locked -> LockedRow(
+                            elapsedMs = elapsedMs,
+                            levels = levels,
+                            levelFrame = levelFrame,
+                            onCancel = { dispatch(VoiceInputEvent.Cancel) },
+                        )
 
-                    VoicePhase.Paused -> PausedRow(
-                        preview = preview,
-                        levels = levels,
-                        levelFrame = levelFrame,
-                        elapsedMs = elapsedMs,
-                        binPlaying = frozen != null,
-                        binComposition = binComposition,
-                        onDiscard = { dispatch(VoiceInputEvent.Cancel) },
-                        onToggle = onPreviewToggle,
-                    )
+                        VoicePhase.Paused -> PausedRow(
+                            preview = preview,
+                            levels = levels,
+                            levelFrame = levelFrame,
+                            elapsedMs = elapsedMs,
+                            binPlaying = frozen != null,
+                            binComposition = binComposition,
+                            onDiscard = { dispatch(VoiceInputEvent.Cancel) },
+                            onToggle = onPreviewToggle,
+                        )
+                    }
                 }
+
+                // 光晕压在胶囊之上：按住时那一圈呼吸要从输入框上面淌过去，不能被纸白胶囊切掉。
+                Blobs(
+                    visible = dragging && frozen == null,
+                    progress = progress,
+                    levels = levels,
+                    levelFrame = levelFrame,
+                    centerX = centerX,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
 
-            // 光晕压在胶囊之上：按住时那一圈呼吸要从输入框上面淌过去，不能被纸白胶囊切掉。
-            Blobs(
-                visible = dragging && frozen == null,
-                progress = progress,
-                levels = levels,
-                levelFrame = levelFrame,
-                centerX = centerX,
-                modifier = Modifier.fillMaxSize(),
-            )
-
-            // 圆钮叠在光晕这一层：尺寸由状态算出，长大时向右溢出条外，胶囊一格不动。
+            // 圆钮落在整块画布上，不跟胶囊那条排在一起：常态四十八落回胶囊行、与胶囊同心，
+            // 录音期长到八十二，上半圈得溢出到胶囊上方去，而那条只有五十六，装不下。
             ActionCircle(
                 diameter = diameter,
                 scale = scale,
@@ -516,6 +539,7 @@ fun VoiceInputBar(
             )
 
             // 顶：悬浮层。锁条、提示气泡、暂停键、恢复键都按固定纵向偏移漂着，不参与布局。
+            // 这几件浮在常态占位那条之上，宿主是整块一百二十的画布，所以照样点得到。
             // 手指一往左挪，锁条与提示就收掉：这时候往上滑本就不该再锁，画板上那一帧这块也是空的。
             val holding = phase == VoicePhase.Holding && gesture.raw.left <= 0f
 
@@ -594,7 +618,11 @@ private fun Blobs(
         val reveal = (progress / VoiceGesture.LockableProgress).coerceIn(0f, 1f)
         if (reveal <= 0f) return@Canvas
         val amplitude = levels.maxOrNull()?.coerceIn(0f, 1f) ?: 0f
-        val center = Offset(centerX.toPx(), InputBarSpec.PillTop.toPx() + InputBarSpec.PillHeight.toPx() / 2f)
+        // 圆心按画布底边量：底留八，再往上半个胶囊。放在底下那一条里也是同一个点。
+        val center = Offset(
+            centerX.toPx(),
+            size.height - InputBarSpec.BaseBottom.toPx() - InputBarSpec.PillHeight.toPx() / 2f,
+        )
         big.draw(this, center, levelFrame, amplitude, reveal, Palette.clay.copy(alpha = 0.18f), density)
         tiny.draw(this, center, levelFrame, amplitude, reveal, Palette.clay.copy(alpha = 0.28f), density)
     }
@@ -703,6 +731,7 @@ private fun DraftRow(
     // 编辑态由焦点决定：输入框真拿到过焦点之后的失焦才算退出。
     // 刚挂上去那一帧报的失焦不算，否则草稿态一进去就自己弹回来。
     var hadFocus by remember { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -729,6 +758,16 @@ private fun DraftRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focus)
+                    // 返回键只收键盘不收焦点，输入框还握着焦点时再点一下不会再要一次键盘，
+                    // 于是光标在闪、键盘不来。这里只读不消费，点一下就把键盘请回来。
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            if (waitForUpOrCancellation(pass = PointerEventPass.Initial) != null) {
+                                keyboard?.show()
+                            }
+                        }
+                    }
                     .onFocusChanged { state ->
                         if (state.isFocused) {
                             hadFocus = true
@@ -748,10 +787,12 @@ private fun DraftRow(
                 )
             }
             // 有草稿时圆钮是纸飞机，点它就是发出去；要改就得点这一行字，把输入框拉回来。
+            // 这一行只负责点开输入框，按下不铺任何底色：底色一出现整条胶囊就在指下变色。
             Pressable(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.CenterStart,
                 contentDescription = "编辑草稿",
+                pressing = Color.Transparent,
                 onClick = onTap,
             ) { text() }
         }

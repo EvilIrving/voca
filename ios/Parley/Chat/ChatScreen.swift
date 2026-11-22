@@ -1,6 +1,6 @@
 import SwiftUI
 
-private let listBottomPadding: CGFloat = 18
+private let listBottomPadding: CGFloat = InputBarSpec.rowHeight + 18
 
 enum TopBarSpec {
     static let iconButton: CGFloat = 32
@@ -45,52 +45,57 @@ struct ChatScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            if turns.isEmpty {
-                NewSessionHero().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: Spacing.bubble) {
-                            ForEach(turns) { turn in
-                                row(for: turn)
-                                    .id(turn.id)
+            // 列表与输入条叠在同一块里：输入条只占底下胶囊那一条，上方那段留白归列表，
+            // 滚到末尾时气泡停在胶囊上沿外十八。
+            ZStack(alignment: .bottom) {
+                if turns.isEmpty {
+                    NewSessionHero().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: Spacing.bubble) {
+                                ForEach(turns) { turn in
+                                    row(for: turn)
+                                        .id(turn.id)
+                                }
+                                if let hint = state.hint {
+                                    HintCard(text: hint).id("hint")
+                                }
                             }
-                            if let hint = state.hint {
-                                HintCard(text: hint).id("hint")
-                            }
+                            .padding(.horizontal, Spacing.screen)
+                            .padding(.top, Spacing.bubble)
+                            .padding(.bottom, listBottomPadding)
                         }
-                        .padding(.horizontal, Spacing.screen)
-                        .padding(.top, Spacing.bubble)
-                        .padding(.bottom, listBottomPadding)
-                    }
-                    .onScrollGeometryChange(for: Bool.self) { geo in
-                        geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 48
-                    } action: { _, atBottom in
-                        if atBottom { followTail = true }
-                    }
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 8).onChanged { _ in followTail = false }
-                    )
-                    .onChange(of: scrollSignature) { _, _ in
-                        guard followTail, let last = turns.last?.id else { return }
-                        var transaction = Transaction()
-                        transaction.animation = nil
-                        withTransaction(transaction) { proxy.scrollTo(last, anchor: .bottom) }
+                        .onScrollGeometryChange(for: Bool.self) { geo in
+                            geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 48
+                        } action: { _, atBottom in
+                            if atBottom { followTail = true }
+                        }
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 8).onChanged { _ in followTail = false }
+                        )
+                        .onChange(of: scrollSignature) { _, _ in
+                            guard followTail, let last = turns.last?.id else { return }
+                            var transaction = Transaction()
+                            transaction.animation = nil
+                            withTransaction(transaction) { proxy.scrollTo(last, anchor: .bottom) }
+                        }
                     }
                 }
+                VoiceInputBar(
+                    meter: meter,
+                    recording: state.recording,
+                    preview: voicePreview,
+                    clipPlayer: clipPlayer,
+                    onPressStart: onRecordPressStart,
+                    onArmed: onRecordArmed,
+                    onPressEnd: onRecordPressEnd,
+                    onHold: onRecordHold,
+                    onPreviewToggle: onPreviewToggle,
+                    onSendText: onSendText
+                )
             }
-            VoiceInputBar(
-                meter: meter,
-                recording: state.recording,
-                preview: voicePreview,
-                clipPlayer: clipPlayer,
-                onPressStart: onRecordPressStart,
-                onArmed: onRecordArmed,
-                onPressEnd: onRecordPressEnd,
-                onHold: onRecordHold,
-                onPreviewToggle: onPreviewToggle,
-                onSendText: onSendText
-            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Palette.paper)
     }
@@ -191,7 +196,8 @@ struct NewSessionHero: View {
             }
             Spacer().frame(maxHeight: .infinity).layoutPriority(0.62)
             DoubleChevronDown()
-            Spacer().frame(height: 100)
+            // 箭头压在胶囊行上沿外一百：输入条浮在列表底上，不再占掉一百二。
+            Spacer().frame(height: InputBarSpec.rowHeight + 100)
         }
     }
 }

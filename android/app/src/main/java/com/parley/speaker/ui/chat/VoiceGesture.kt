@@ -130,7 +130,7 @@ sealed interface VoiceInputEvent {
         val span: Float = VoiceGesture.CancelSpan,
     ) : VoiceInputEvent
 
-    /** 锁定后点圆钮上的纸飞机。 */
+    /** 锁定后点圆钮上的发送键。 */
     data object Send : VoiceInputEvent
 
     /** 锁定后点「取消」或预览态的垃圾桶。 */

@@ -48,7 +48,7 @@ class VoiceGestureTest {
     }
 
     @Test
-    fun `锁定态点纸飞机收尾，点取消作废，两条都回 Idle`() {
+    fun `锁定态点发送键收尾，点取消作废，两条都回 Idle`() {
         val locked = holding().play(VoiceInputEvent.Move(0f, VoiceGesture.LockSpan, 0f, 0f))
         val sent = locked.reduce(VoiceInputEvent.Send)
         assertEquals(listOf(VoiceEffect.Finish(cancelled = false)), sent.effects)

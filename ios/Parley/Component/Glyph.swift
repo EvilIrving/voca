@@ -27,7 +27,7 @@ enum Glyph {
 
     var systemName: String {
         switch self {
-        case .send: "paperplane.fill"
+        case .send: "arrow.up"
         case .lockOpen: "lock.open"
         case .settings: "gearshape"
         case .mic: "mic.fill"

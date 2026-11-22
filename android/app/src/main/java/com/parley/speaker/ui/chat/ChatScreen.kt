@@ -78,9 +78,9 @@ import com.parley.speaker.ui.theme.Type
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
-// 列表底部只留这一道 18。底栏让位的高度由输入条自己的 InputBarSpec.Height 决定，
+// 列表底只留这一道 18 加胶囊行的高度：输入条浮在列表之上，只占底下 56，条上方那段留给列表看。
 // 这条 18 是气泡之间的呼吸，不是底栏的占位。
-private val ListBottomPadding = 18.dp
+private val ListBottomPadding = InputBarSpec.RowHeight + 18.dp
 
 @Composable
 fun ChatScreen(
@@ -185,71 +185,74 @@ fun ChatScreen(
             onSessionNameTap = onSessionNameTap,
         )
 
-        // 空态留给首屏那三段字，有了第一轮就换成列表。
-        if (turns.isEmpty()) {
-            NewSessionHero(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            )
-        } else {
-            // 列表让位给输入条：底栏自己报多高，列表就拿剩下的多高，草稿输入与录音态同样高。
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentPadding = PaddingValues(
-                    start = Spacing.screen,
-                    end = Spacing.screen,
-                    top = Spacing.bubble,
-                    bottom = ListBottomPadding,
-                ),
-                verticalArrangement = Arrangement.spacedBy(Spacing.bubble),
-            ) {
-                items(
-                    items = turns,
-                    key = { it.id },
-                    contentType = { it.speaker },
-                ) { turn ->
-                    when (turn.speaker) {
-                        Speaker.Echo -> EchoRow(
-                            turn = turn,
-                            translation = translations[turn.id] ?: turn.translation,
-                            expanded = expanded[turn.id] == true,
-                            translating = turn.id in asking,
-                            onPlay = { onPlayTurn(turn.id) },
-                            onTranslate = { translate(turn) },
-                            onSave = { onSaveTurn(turn.id, !turn.saved) },
-                            onCopy = { onCopyTurn(turn.id) },
-                            onRetry = { retryTargetOf(turns, turn.id)?.let(onRetryAnalysis) },
-                            onDelete = { onDeleteTurn(turn.id) },
-                        )
+        // 列表与输入条叠在同一块里：输入条只占底下胶囊那一条，上方那七十几的留白归列表，
+        // 滚到末尾时气泡停在胶囊上沿外十八，不再按整块一百二给底栏让位。
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        ) {
+            // 空态留给首屏那三段字，有了第一轮就换成列表。
+            if (turns.isEmpty()) {
+                NewSessionHero(Modifier.fillMaxSize())
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = Spacing.screen,
+                        end = Spacing.screen,
+                        top = Spacing.bubble,
+                        bottom = ListBottomPadding,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.bubble),
+                ) {
+                    items(
+                        items = turns,
+                        key = { it.id },
+                        contentType = { it.speaker },
+                    ) { turn ->
+                        when (turn.speaker) {
+                            Speaker.Echo -> EchoRow(
+                                turn = turn,
+                                translation = translations[turn.id] ?: turn.translation,
+                                expanded = expanded[turn.id] == true,
+                                translating = turn.id in asking,
+                                onPlay = { onPlayTurn(turn.id) },
+                                onTranslate = { translate(turn) },
+                                onSave = { onSaveTurn(turn.id, !turn.saved) },
+                                onCopy = { onCopyTurn(turn.id) },
+                                onRetry = { retryTargetOf(turns, turn.id)?.let(onRetryAnalysis) },
+                                onDelete = { onDeleteTurn(turn.id) },
+                            )
 
-                        Speaker.User -> UserBubble(
-                            turn = turn,
-                            onOpenReview = { onReviewClick(turn) },
-                            onRetryAnalysis = { onRetryAnalysis(turn.id) },
-                        )
+                            Speaker.User -> UserBubble(
+                                turn = turn,
+                                onOpenReview = { onReviewClick(turn) },
+                                onRetryAnalysis = { onRetryAnalysis(turn.id) },
+                            )
+                        }
+                    }
+                    state.hint?.let { hint ->
+                        item(key = "hint", contentType = "hint") { HintCard(hint) }
                     }
                 }
-                state.hint?.let { hint ->
-                    item(key = "hint", contentType = "hint") { HintCard(hint) }
-                }
             }
-        }
 
-        // 一条输入条顶掉原来那三段式底栏：挂断、加号、动作面板、整屏收音面板都不在了。
-        VoiceInputBar(
-            elapsedMs = elapsedMs,
-            levels = levels,
-            levelFrame = levelFrame,
-            recording = state.recording,
-            onPressStart = onRecordPressStart,
-            onArmed = onRecordArmed,
-            onPressEnd = onRecordPressEnd,
-            onSendText = onSendText,
-        )
+            // 一条输入条顶掉原来那三段式底栏：挂断、加号、动作面板、整屏收音面板都不在了。
+            // 浮在列表底上，按压、锁定与溢出的悬浮件都在这层，不把列表顶上去。
+            VoiceInputBar(
+                elapsedMs = elapsedMs,
+                levels = levels,
+                levelFrame = levelFrame,
+                recording = state.recording,
+                onPressStart = onRecordPressStart,
+                onArmed = onRecordArmed,
+                onPressEnd = onRecordPressEnd,
+                onSendText = onSendText,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
     }
 }
 
@@ -275,7 +278,8 @@ private fun NewSessionHero(modifier: Modifier = Modifier) {
         }
         Spacer(modifier = Modifier.weight(0.62f))
         DoubleChevronDownIndicator()
-        Spacer(modifier = Modifier.height(100.dp))
+        // 箭头压在胶囊行上沿外一百：输入条浮在列表底上，不再占掉一百二。
+        Spacer(modifier = Modifier.height(InputBarSpec.RowHeight + 100.dp))
     }
 }
 
@@ -470,9 +474,3 @@ object TopBarSpec {
     val NameMin = 76.dp
     val Badge = 16.dp
 }
-
-/**
- * 连接状态只剩一枚八像素圆点：已连接鼠尾草绿、未连接取消态深红、未配置四级灰，
- * 连接中做透明度呼吸。退避等待期仍算未连接，所以圆点不会先黄后红来回跳。
- * 触控区按 44dp 计，状态文案全交给无障碍标签，不只靠颜色分辨。
- */
