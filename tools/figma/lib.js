@@ -5,7 +5,6 @@ const C = {
   ink: '#141413', ink2: '#3B3934', ink3: '#6C6860', ink4: '#9C978C',
   clay: '#D97757', clayDeep: '#B85B3C', clayTint: '#F7ECE5',
   olive: '#75855A', oliveTint: '#EEF1E5',
-  amber: '#C08A3E',
   blue: '#6A9BCC', blueTint: '#ECF2F8',
   danger: '#A8503C'
 };
@@ -35,7 +34,7 @@ function frame(parent, name, o) {
   f.name = name;
   parent.appendChild(f);
   f.fills = o.fill ? [p(o.fill, o.fillA)] : [];
-  f.strokes = o.stroke ? [p(o.stroke)] : [];
+  f.strokes = o.stroke ? [p(o.stroke, o.strokeA)] : [];
   if (o.stroke) { f.strokeWeight = 1; f.strokeAlign = o.strokeAlign || 'INSIDE'; }
   f.clipsContent = o.clip === undefined ? false : o.clip;
   const vert = o.dir === 'VERTICAL';
@@ -129,7 +128,7 @@ function comp(page, name, o, build) {
     }
   }
   if (o.fill) c.fills = [p(o.fill, o.fillA)];
-  if (o.stroke) { c.strokes = [p(o.stroke)]; c.strokeWeight = 1; c.strokeAlign = 'INSIDE'; }
+  if (o.stroke) { c.strokes = [p(o.stroke, o.strokeA)]; c.strokeWeight = 1; c.strokeAlign = 'INSIDE'; }
   if (o.radius) c.cornerRadius = o.radius;
   if (o.rad) c.cornerRadius = o.rad;
   if (o.corners) { c.topLeftRadius = o.corners[0]; c.topRightRadius = o.corners[1]; c.bottomRightRadius = o.corners[2]; c.bottomLeftRadius = o.corners[3]; }
@@ -137,7 +136,8 @@ function comp(page, name, o, build) {
   return c;
 }
 function inst(parent, component, overrides) {
-  const i = component.createInstance();
+  const comp = component.type === 'COMPONENT_SET' ? component.defaultVariant : component;
+  const i = comp.createInstance();
   parent.appendChild(i);
   if (overrides) {
     for (const key of Object.keys(overrides)) {
