@@ -172,10 +172,11 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
                 levels = levels,
                 levelFrame = levelFrame,
                 reviewing = reviewing,
-                // 切会话只有一条路：从屏幕左沿往右滑拉出抽屉。
+                // 切会话有两条路：底栏以上向右横滑拉出抽屉；或者看不见的那一块——点会话名。
                 onExitReview = closeReview,
                 onScenarioClick = { if (!reviewing) scenarioOpen = !scenarioOpen },
                 onVocabClick = { panel = Panel.Vocab },
+                onSessionNameTap = { drawer.open() },
                 onReviewClick = { reviewTurn = it },
                 onRetryAnalysis = vm::retryAnalysis,
                 vocabToday = vocabToday,

@@ -82,6 +82,7 @@ fun ChatScreen(
     turns: List<Turn>,
     onScenarioClick: () -> Unit,
     onVocabClick: () -> Unit,
+    onSessionNameTap: () -> Unit = {},
     onReviewClick: (Turn) -> Unit,
     onRetryAnalysis: (String) -> Unit,
     vocabToday: Int,
@@ -178,6 +179,7 @@ fun ChatScreen(
             onScenarioClick = onScenarioClick,
             onExitReview = onExitReview,
             onVocabClick = onVocabClick,
+            onSessionNameTap = onSessionNameTap,
             onRetry = onRetry,
         )
 
@@ -303,6 +305,7 @@ private fun TopBar(
     onScenarioClick: () -> Unit,
     onExitReview: () -> Unit,
     onVocabClick: () -> Unit,
+    onSessionNameTap: () -> Unit,
     onRetry: () -> Unit,
 ) {
     Row(
@@ -350,16 +353,25 @@ private fun TopBar(
             connection = state.connection,
             onRetry = if (reviewing) null else onRetry,
         )
-        // 会话名只是一段只读文字：切会话走屏幕左沿往右滑，这里不再承担入口。
-        Text(
-            text = sessionName.ifBlank { UntitledSession },
-            style = Type.uiStrong,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        // 会话名看着就是一段文字：没有箭头、按下也不换底色，但那一小块仍然收得下点击，
+        // 点它就是拉出抽屉——入口留着，界面上不出现。
+        Pressable(
             modifier = Modifier
                 .widthIn(min = TopBarSpec.NameMin, max = TopBarSpec.NameMax)
-                .padding(start = 2.dp, end = 2.dp),
-        )
+                .padding(horizontal = 2.dp, vertical = 5.dp),
+            shape = RoundedCornerShape(Radius.pill),
+            resting = Color.Transparent,
+            pressing = Color.Transparent,
+            contentDescription = "会话记录",
+            onClick = onSessionNameTap,
+        ) {
+            Text(
+                text = sessionName.ifBlank { UntitledSession },
+                style = Type.uiStrong,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Spacer(Modifier.weight(1f))
         // 顶栏只剩生词本一枚，靠最右；配置中心收在左侧抽屉右下角。
         Box {

@@ -98,6 +98,22 @@ class SessionDrawerTest {
     }
 
     @Test
+    fun `卡片圆角前半程收到二十六、推开后定格在三十二`() {
+        assertEquals(0.dp, SessionDrawerSpec.cardRadius(0f))
+        assertEquals(" 拖到一半就是画板 02 那一帧的值", 26.dp, SessionDrawerSpec.cardRadius(0.5f))
+        assertEquals(32.dp, SessionDrawerSpec.cardRadius(1f))
+        assertEquals("拖过头不超三十二", 32.dp, SessionDrawerSpec.cardRadius(1.4f))
+        assertEquals("往回收不落负值", 0.dp, SessionDrawerSpec.cardRadius(-0.2f))
+
+        var last = -1f
+        for (step in 0..10) {
+            val radius = SessionDrawerSpec.cardRadius(step / 10f).value
+            assertTrue("圆角只涨不回落", radius >= last)
+            last = radius
+        }
+    }
+
+    @Test
     fun `检索三十起、新会话五十二、会话行四十四，配置中心收在四十四`() {
         assertEquals(36.dp, SessionDrawerSpec.SearchButton)
         assertEquals("标题与检索同一行，高四十四", 44.dp, SessionDrawerSpec.HeaderHeight)

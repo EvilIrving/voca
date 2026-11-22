@@ -44,6 +44,10 @@ object Radius {
     val sheet = 26.dp
     val pill = 999.dp
     val drawerRow = 10.dp
+
+    /** 被推走的那张主卡片：推开后定格在三十二，拖到一半是二十六。 */
+    val drawerCard = 32.dp
+    val drawerCardMid = 26.dp
 }
 
 object Spacing {

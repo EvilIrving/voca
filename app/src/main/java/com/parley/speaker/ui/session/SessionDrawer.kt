@@ -6,8 +6,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -55,6 +57,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
@@ -84,7 +88,7 @@ private const val UntitledSession = "本次会话"
 /**
  * 抽屉照「侧边抽屉交互原型」取：右侧一枚检索，下面一条新建会话的白胶囊，
  * 再往下按今天、7天内、更早摊开会话，右下角只剩配置中心。
- * 主卡片右推一个抽屉宽、等比缩到 0.94、圆角长到 32 并垫一层暖影，白蒙层压到六成。
+ * 主卡片右推一个抽屉宽、等比缩到 0.94、圆角跟着进度长到 32 并垫一层暖影，白蒙层压到六成。
  */
 object SessionDrawerSpec {
     val WidthRatio = 0.82f
@@ -99,7 +103,6 @@ object SessionDrawerSpec {
     val NewGlyph = 24.dp
 
     val RowHeight = 44.dp
-    val RowIcon = 16.dp
 
     val SettingsButton = 44.dp
     val SettingsIcon = 22.dp
@@ -118,11 +121,21 @@ object SessionDrawerSpec {
     const val ContentScale = 0.94f
     const val VeilAlpha = 0.6f
 
-    /** 收起时抽屉只提前让出半个身位，推开过程中它跟着卡片一起走，不是原地等露出。 */
-    const val Parallax = 0.5f
-
-    val CardRadius = 32.dp
     val CardShadow = 20.dp
+
+    /**
+     * 卡片圆角只跟进度走：前半程零到二十六，后半程二十六到三十二。
+     * 中间帧落在二十六，与画板 02 同一档；直接把三十二按进度摊开的话中间帧只有十六，
+     * 那是生词卡的档位，推到一半的这张纸看着还不像一张卡。
+     */
+    fun cardRadius(progress: Float): Dp {
+        val p = progress.coerceIn(0f, 1f)
+        return if (p <= 0.5f) {
+            Radius.drawerCardMid * (p / 0.5f)
+        } else {
+            Radius.drawerCardMid + (Radius.drawerCard - Radius.drawerCardMid) * ((p - 0.5f) / 0.5f)
+        }
+    }
 }
 
 /** 原型给的曲线：起步快、收尾长，cubic-bezier(0.16, 1, 0.3, 1)。 */
@@ -168,9 +181,11 @@ class DrawerState internal constructor(private val scope: CoroutineScope) {
 
     fun close() = animateTo(0f, SessionDrawerSpec.CloseMs)
 
-    fun drag(deltaFraction: Float) {
+    /** 拖动抢在动画前头：原地掐掉在跑的那一段，从当前进度接着走，不回跳也不多跑一帧。 */
+    fun dragTo(progress: Float) {
         animation?.cancel()
-        fraction.floatValue = (fraction.floatValue + deltaFraction).coerceIn(0f, 1f)
+        animation = null
+        fraction.floatValue = progress.coerceIn(0f, 1f)
     }
 
     private fun animateTo(target: Float, durationMs: Int) {
@@ -195,7 +210,7 @@ fun rememberDrawerState(): DrawerState {
 
 /**
  * 抽屉外壳：抽屉垫在底层，主卡片带着白蒙层向右推，露出左边这一条。
- * 点卡片或朝左拖都能收起；收起状态下不留任何整屏的手势层。
+ * 往右拉出来与往左推回去是同一段手势，卡片与抽屉上都算数；点卡片、按返回键也能收起。
  */
 @Composable
 fun DrawerScaffold(
@@ -203,16 +218,11 @@ fun DrawerScaffold(
     drawer: @Composable () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .clipToBounds(),
-    ) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val width = drawerWidth(maxWidth)
         val density = LocalDensity.current
         val widthPx = with(density) { width.toPx() }
         val velocityPx = with(density) { SessionDrawerSpec.VelocityThreshold.toPx() }
-        val radiusPx = with(density) { SessionDrawerSpec.CardRadius.toPx() }
         val guardPx = with(density) { SessionDrawerSpec.SwipeGuardBottom.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
         val shadowPx = with(density) { SessionDrawerSpec.CardShadow.toPx() }
@@ -222,80 +232,87 @@ fun DrawerScaffold(
         // 遮罩只跟着抽屉一起生灭：收起状态下不留任何指针节点，主界面的顶栏、气泡与输入条照常响应。
         val shown = remember(state) { derivedStateOf { state.fraction.floatValue > 0f } }
 
-        // 抽屉垫在最底下，收起时只让出半个身位，推开过程中跟着卡片一起挪。
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .width(width)
-                .fillMaxHeight()
-                .offset {
-                    val p = state.fraction.floatValue
-                    IntOffset((widthPx * (p - 1f) * SessionDrawerSpec.Parallax).roundToInt(), 0)
-                },
-        ) {
-            drawer()
-        }
-
-        // 主卡片：右移一个抽屉宽，等比缩到 0.94，圆角与暖影随进度长出来，白蒙层压到六成。
-        // 拉开抽屉的横滑挂在这张卡片的祖先上：它是内容自己的父节点，不是盖在上面的兄弟，
-        // 所以底下的气泡、列表照常收到事件，抽屉里的行也不受它牵连。
+        // 手势层挂在没被变换的这一层上，抽屉与卡片都是它的孩子：指针坐标因此就是屏幕坐标。
+        // 挂在卡片自己身上时，坐标要过一遍那一层的位移与缩放，拖得越快卡片跟得越少，
+        // 手指与卡片互相拖，手感就是推不动、一碰就弹回去。手指走出一段横滑之前这一层不收事件。
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .clipToBounds()
                 .pointerInput(controls, guardPx, heightPx) {
                     awaitEachGesture {
+                        // 必须先取到按下再判状态：循环体返回后 awaitEachGesture 会去等所有手指抬起，
+                        // 抽屉收起时没有手指，这一步立即返回，整段就成了主线程上不释放的死转。
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        // 底栏那条带子留给录音，抽屉开着时也不归这一层管。
+                        // 底栏那条带子归录音，从它上面起手不拉抽屉。
                         if (down.position.y > heightPx - guardPx) return@awaitEachGesture
-                        if (controls.state.current > 0.001f) return@awaitEachGesture
-                        val tracker = VelocityTracker().apply { addPosition(down.uptimeMillis, down.position) }
-                        var last = down.position.x
-                        var dragged = false
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed) {
-                                if (dragged) change.consume()
-                                break
+                        var origin = 0f
+                        var anchored = false
+                        val (dragged, velocity) = trackHorizontal(
+                            down = down,
+                            canDragLeft = controls.state.current > 0.001f,
+                        ) { dx ->
+                            // 真正拖起来的那一刻才掐动画：点一下不该把还在走的那一段停死。
+                            if (!anchored) {
+                                origin = controls.state.current
+                                anchored = true
                             }
-                            val dx = change.position.x - last
-                            last = change.position.x
-                            if (!dragged && change.position.x - down.position.x > viewConfiguration.touchSlop) {
-                                dragged = true
-                            }
-                            if (dragged) {
-                                tracker.addPosition(change.uptimeMillis, change.position)
-                                controls.drag(dx)
-                                change.consume()
-                            }
+                            controls.dragTo(origin, dx)
                         }
-                        if (dragged) controls.settle(tracker.calculateVelocity().x)
+                        if (dragged) controls.settle(velocity)
                     }
-                }
-                .graphicsLayer {
-                    val p = state.fraction.floatValue
-                    translationX = widthPx * p
-                    val scale = 1f - (1f - SessionDrawerSpec.ContentScale) * p
-                    scaleX = scale
-                    scaleY = scale
-                    transformOrigin = TransformOrigin(0.5f, 0.5f)
-                    shape = RoundedCornerShape(radiusPx * p)
-                    clip = p > 0.001f
-                    shadowElevation = shadowPx * p
-                    spotShadowColor = Palette.shade
-                    ambientShadowColor = Palette.shade
                 },
         ) {
-            content()
+            // 抽屉垫在最底下，收起时整个藏在卡片身后；推开时与卡片同一个位移，
+            // 露出来的那一条永远正好是卡片右侧让出的宽度。
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .width(width)
+                    .fillMaxHeight()
+                    .offset { IntOffset((widthPx * (state.fraction.floatValue - 1f)).roundToInt(), 0) },
+            ) {
+                drawer()
+            }
+
+            // 主卡片：右移一个抽屉宽，等比缩到 0.94，圆角与暖影随进度长出来，白蒙层压到六成。
+            // 纸底写在图层里面：写在图层外面就是一块不动的整屏纸，把抽屉整个盖掉；
+            // 写在里面则跟着缩放与位移一起走，抽屉什么时候也不会从卡片里透出来。
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .drawBehind {
-                        val alpha = SessionDrawerSpec.VeilAlpha * state.fraction.floatValue
-                        if (alpha > 0f) drawRect(Palette.card.copy(alpha = alpha))
+                    .graphicsLayer {
+                        val p = state.fraction.floatValue
+                        translationX = widthPx * p
+                        val scale = 1f - (1f - SessionDrawerSpec.ContentScale) * p
+                        scaleX = scale
+                        scaleY = scale
+                        transformOrigin = TransformOrigin(0.5f, 0.5f)
+                        shape = RoundedCornerShape(SessionDrawerSpec.cardRadius(p))
+                        clip = p > 0.001f
+                        shadowElevation = shadowPx * p
+                        spotShadowColor = Palette.shade
+                        ambientShadowColor = Palette.shade
                     }
-                    .then(if (shown.value) Modifier.drawerGesture(controls) else Modifier),
-            )
+                    .background(Palette.paper),
+            ) {
+                content()
+                if (shown.value) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .drawBehind {
+                                val alpha = SessionDrawerSpec.VeilAlpha * state.fraction.floatValue
+                                if (alpha > 0f) drawRect(Palette.card.copy(alpha = alpha))
+                            }
+                            // 抽屉开着时卡片整块让位：点一下收起，卡片里的按钮不再被按到。
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { state.close() },
+                    )
+                }
+            }
         }
     }
 }
@@ -306,9 +323,9 @@ private class DrawerControls(
     private val widthPx: Float,
     private val velocityPx: Float,
 ) {
-    fun drag(pixels: Float) {
+    fun dragTo(origin: Float, pixels: Float) {
         if (widthPx <= 0f) return
-        state.drag(pixels / widthPx)
+        state.dragTo(origin + pixels / widthPx)
     }
 
     fun settle(velocity: Float) {
@@ -318,48 +335,52 @@ private class DrawerControls(
 }
 
 /**
- * 卡片上的一层手势：点一下收起，横向拖动跟手把抽屉拖回去，松手按速度与行程落档。
- * 抽屉里的行与卡片不相交，这里不抢它们的按压。
+ * 一段横滑：判定成横滑之后把位移喂给进度，抬手按速度与行程落档。
+ * 竖向上先破的那一下属于列表滚动；抽屉收起时往左推也没有东西可推，两种都当没发生。
+ * 抬手那一帧的新坐标也照算——手指快的时候中间一个移动事件都没有，位置只在抬手时换过，
+ * 少算这一帧，快甩就会像什么都没发生。
  */
-private fun Modifier.drawerGesture(controls: DrawerControls): Modifier = pointerInput(controls) {
-    awaitEachGesture {
-        // 必须先等一次按下再判，不能先看状态就返回：awaitEachGesture 的循环体返回后会去等所有手指抬起，
-        // 抽屉收起时没有手指，这一步立即返回，整个循环变成主线程上不释放的旋转。
-        val down = awaitFirstDown(requireUnconsumed = false)
-        if (controls.state.current <= 0.001f) return@awaitEachGesture
-        down.consume()
-        val tracker = VelocityTracker().apply { addPosition(down.uptimeMillis, down.position) }
-        var last = down.position.x
-        var dragged = false
-        while (true) {
-            val event = awaitPointerEvent()
-            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-            if (!change.pressed) {
-                change.consume()
-                break
-            }
-            val dx = change.position.x - last
-            last = change.position.x
-            if (!dragged && abs(change.position.x - down.position.x) > viewConfiguration.touchSlop) {
+private suspend fun AwaitPointerEventScope.trackHorizontal(
+    down: PointerInputChange,
+    canDragLeft: Boolean,
+    onDrag: (Float) -> Unit,
+): Pair<Boolean, Float> {
+    val tracker = VelocityTracker().apply { addPosition(down.uptimeMillis, down.position) }
+    var last = down.position.x
+    var dragged = false
+    var velocity = 0f
+    while (true) {
+        val event = awaitPointerEvent()
+        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+        val dx = change.position.x - last
+        last = change.position.x
+        if (!dragged) {
+            val travelX = change.position.x - down.position.x
+            val travelY = change.position.y - down.position.y
+            if (abs(travelX) > viewConfiguration.touchSlop || abs(travelY) > viewConfiguration.touchSlop) {
+                if (abs(travelY) > abs(travelX)) return false to 0f
+                if (travelX < 0f && !canDragLeft) return false to 0f
                 dragged = true
-            }
-            if (dragged) {
-                tracker.addPosition(change.uptimeMillis, change.position)
-                controls.drag(dx)
-                change.consume()
             }
         }
         if (dragged) {
-            controls.settle(tracker.calculateVelocity().x)
-        } else {
-            controls.state.close()
+            tracker.addPosition(change.uptimeMillis, change.position)
+            if (dx != 0f) {
+                onDrag(change.position.x - down.position.x)
+                change.consume()
+            }
+        }
+        if (!change.pressed) {
+            velocity = tracker.calculateVelocity().x
+            break
         }
     }
+    return dragged to velocity
 }
 
 /**
  * 抽屉正文：右侧检索、新建会话、按天摊开的会话，右下角配置中心。
- * 正在看的那条垫陶土浅底；这里不放改名、删除这类管理动作。
+ * 正在看的那条垫陶土浅底；这里不放删除这类管理动作。
  */
 @Composable
 fun SessionDrawer(
@@ -430,7 +451,7 @@ fun SessionDrawer(
             Text(
                 text = if (query.isBlank()) "还没有会话" else "没有匹配的会话",
                 style = Type.captionInk4,
-                modifier = Modifier.padding(start = 6.dp, top = 12.dp),
+                modifier = Modifier.padding(start = 4.dp, top = 12.dp),
             )
             Spacer(Modifier.weight(1f))
         } else {
@@ -561,7 +582,7 @@ private fun GroupLabel(group: SessionGroup) {
     Text(
         group.label,
         style = Type.captionInk4,
-        modifier = Modifier.padding(start = 6.dp, top = 12.dp, bottom = 4.dp),
+        modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
     )
 }
 
@@ -576,26 +597,13 @@ private fun SessionRow(record: SessionRecord, current: Boolean, onClick: () -> U
         onClick = onClick,
         contentAlignment = Alignment.CenterStart,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 6.dp, end = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                FluentIcons.Chat,
-                contentDescription = null,
-                modifier = Modifier.size(SessionDrawerSpec.RowIcon),
-                tint = if (current) Palette.clayDeep else Palette.ink4,
-            )
-            Spacer(Modifier.width(Spacing.iconText))
-            Text(
-                text = record.name.ifBlank { UntitledSession },
-                style = if (current) Type.uiStrong else Type.uiStrongInk2,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            text = record.name.ifBlank { UntitledSession },
+            style = if (current) Type.uiStrong else Type.uiStrongInk2,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 4.dp, end = 12.dp),
+        )
     }
 }
 
