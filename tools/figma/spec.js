@@ -1,3 +1,4 @@
+// 这一份必须排在 tokens 之后跑：tokens 按 SPK 前缀清本页，先跑会被整块抹掉。
 let page = figma.root.children.find(pn => pn.name === '00 · 规范');
 if (!page) { page = figma.createPage(); page.name = '00 · 规范'; }
 await figma.setCurrentPageAsync(page);

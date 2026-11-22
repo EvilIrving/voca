@@ -23,10 +23,17 @@ private fun notoSerif(weight: Int) = Font(
     variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
 )
 
-private fun newsreader(weight: Int, italic: Boolean = false) = Font(
+private fun newsreader(weight: Int) = Font(
     resId = R.font.newsreader,
     weight = FontWeight(weight),
-    style = if (italic) FontStyle.Italic else FontStyle.Normal,
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
+)
+
+// 罗马体那只可变字重里没有斜体字形，标成 italic 只会原样直立。斜体另取一只 Newsreader Italic。
+private fun newsreaderItalic(weight: Int) = Font(
+    resId = R.font.newsreader_italic,
+    weight = FontWeight(weight),
+    style = FontStyle.Italic,
     variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
 )
 
@@ -34,10 +41,13 @@ val InterFamily = FontFamily(inter(400), inter(500), inter(600))
 val NewsreaderFamily = FontFamily(
     newsreader(400),
     newsreader(500),
-    newsreader(400, italic = true),
+    newsreaderItalic(400),
     notoSerif(400),
     notoSerif(500),
 )
+
+// Newsreader 里没有一个汉字，中文行单独指名 Noto Serif SC，靠系统兜底会掉到无衬线。
+val NotoSerifFamily = FontFamily(notoSerif(400), notoSerif(500))
 val MonoFamily = FontFamily(Font(R.font.ibm_plex_mono, FontWeight.Normal))
 
 object Type {
@@ -56,6 +66,28 @@ object Type {
         color = Palette.ink,
     )
     val proseItalic = prose.copy(fontStyle = FontStyle.Italic)
+
+    /** 新会话首屏那三段：产品名二十八、英文标语十六斜体、中文标语十三，行高照画板。 */
+    val hero = TextStyle(
+        fontFamily = NewsreaderFamily,
+        fontSize = 28.sp,
+        lineHeight = 34.sp,
+        fontWeight = FontWeight.Medium,
+        color = Palette.ink,
+    )
+    val heroTagline = TextStyle(
+        fontFamily = NewsreaderFamily,
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
+        fontStyle = FontStyle.Italic,
+        color = Palette.ink2,
+    )
+    val heroCn = TextStyle(
+        fontFamily = NotoSerifFamily,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+        color = Palette.ink4,
+    )
 
     /** 系统提示词与全局记忆都是中文叙述，比正文小一号、行高紧一点。 */
     val promptProse = prose.copy(fontSize = 13.sp, lineHeight = 21.sp, color = Palette.ink2)

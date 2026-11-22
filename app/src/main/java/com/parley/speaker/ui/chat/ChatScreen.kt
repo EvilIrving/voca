@@ -1,11 +1,13 @@
 package com.parley.speaker.ui.chat
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.DragInteraction
@@ -50,8 +52,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -180,47 +187,56 @@ fun ChatScreen(
             onSessionNameTap = onSessionNameTap,
         )
 
-        // 列表让位给输入条：底栏自己报多高，列表就拿剩下的多高，草稿输入与录音态同样高。
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(
-                start = Spacing.screen,
-                end = Spacing.screen,
-                top = Spacing.bubble,
-                bottom = ListBottomPadding,
-            ),
-            verticalArrangement = Arrangement.spacedBy(Spacing.bubble),
-        ) {
-            items(turns, key = { it.id }) { turn ->
-                when (turn.speaker) {
-                    Speaker.Echo -> EchoRow(
-                        turn = turn,
-                        turns = turns,
-                        translation = translations[turn.id] ?: turn.translation,
-                        expanded = expanded[turn.id] == true,
-                        translating = turn.id in asking,
-                        reviewing = reviewing,
-                        onPlay = { onPlayTurn(turn.id) },
-                        onTranslate = { translate(turn) },
-                        onSave = { onSaveTurn(turn.id, !turn.saved) },
-                        onCopy = { onCopyTurn(turn.id) },
-                        onRetry = onRetryAnalysis,
-                        onDelete = { onDeleteTurn(turn.id) },
-                    )
+        // 空态留给首屏那三段字，有了第一轮就换成列表。
+        if (turns.isEmpty()) {
+            NewSessionHero(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            )
+        } else {
+            // 列表让位给输入条：底栏自己报多高，列表就拿剩下的多高，草稿输入与录音态同样高。
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(
+                    start = Spacing.screen,
+                    end = Spacing.screen,
+                    top = Spacing.bubble,
+                    bottom = ListBottomPadding,
+                ),
+                verticalArrangement = Arrangement.spacedBy(Spacing.bubble),
+            ) {
+                items(turns, key = { it.id }) { turn ->
+                    when (turn.speaker) {
+                        Speaker.Echo -> EchoRow(
+                            turn = turn,
+                            turns = turns,
+                            translation = translations[turn.id] ?: turn.translation,
+                            expanded = expanded[turn.id] == true,
+                            translating = turn.id in asking,
+                            reviewing = reviewing,
+                            onPlay = { onPlayTurn(turn.id) },
+                            onTranslate = { translate(turn) },
+                            onSave = { onSaveTurn(turn.id, !turn.saved) },
+                            onCopy = { onCopyTurn(turn.id) },
+                            onRetry = onRetryAnalysis,
+                            onDelete = { onDeleteTurn(turn.id) },
+                        )
 
-                    Speaker.User -> UserBubble(
-                        turn = turn,
-                        onOpenReview = { onReviewClick(turn) },
-                        onRetryAnalysis = if (reviewing) ({}) else ({ onRetryAnalysis(turn.id) }),
-                    )
+                        Speaker.User -> UserBubble(
+                            turn = turn,
+                            onOpenReview = { onReviewClick(turn) },
+                            onRetryAnalysis = if (reviewing) ({}) else ({ onRetryAnalysis(turn.id) }),
+                        )
+                    }
                 }
-            }
-            if (!reviewing) {
-                state.hint?.let { hint ->
-                    item(key = "hint") { HintCard(hint) }
+                if (!reviewing) {
+                    state.hint?.let { hint ->
+                        item(key = "hint") { HintCard(hint) }
+                    }
                 }
             }
         }
@@ -240,10 +256,79 @@ fun ChatScreen(
     }
 }
 
+/** 新会话首屏：产品名与双语标语居中上调，下方以双箭头循环往复下跳动效牵引底部输入区。 */
+@Composable
+private fun NewSessionHero(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(modifier = Modifier.weight(0.38f))
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(text = "Parley", style = Type.hero)
+            Text(
+                text = "Speak freely, learn naturally.",
+                style = Type.heroTagline,
+                textAlign = TextAlign.Center,
+            )
+            Text(text = "自由开口，自然习得", style = Type.heroCn)
+        }
+        Spacer(modifier = Modifier.weight(0.62f))
+        DoubleChevronDownIndicator()
+        Spacer(modifier = Modifier.height(100.dp))
+    }
+}
+
+@Composable
+private fun DoubleChevronDownIndicator(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "doubleChevronBounce")
+    val bounceProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "chevronBounce",
+    )
+
+    val bounceOffset = bounceProgress * 6f
+    val topAlpha = 0.35f + bounceProgress * 0.40f
+    val bottomAlpha = 0.85f + bounceProgress * 0.15f
+
+    Canvas(
+        modifier = modifier.size(width = 20.dp, height = 32.dp),
+    ) {
+        val stroke = Stroke(
+            width = 2.dp.toPx(),
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round,
+        )
+
+        fun drawChevron(yOffset: Float, alpha: Float) {
+            val path = Path().apply {
+                moveTo(3.dp.toPx(), (yOffset + 3f).dp.toPx())
+                lineTo(10.dp.toPx(), (yOffset + 10f).dp.toPx())
+                lineTo(17.dp.toPx(), (yOffset + 3f).dp.toPx())
+            }
+            drawPath(
+                path = path,
+                color = Palette.clay.copy(alpha = alpha),
+                style = stroke,
+            )
+        }
+
+        drawChevron(yOffset = bounceOffset, alpha = topAlpha)
+        drawChevron(yOffset = bounceOffset + 8f, alpha = bottomAlpha)
+    }
+}
+
 @Composable
 private fun EchoRow(
     turn: Turn,
-    turns: List<Turn>,
     translation: String?,
     expanded: Boolean,
     translating: Boolean,
