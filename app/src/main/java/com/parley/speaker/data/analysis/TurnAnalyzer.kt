@@ -15,7 +15,7 @@ data class TurnAnalysis(
 /**
  * 异步文本分析：语法分、母语者改写、语境生词。与主音频链路隔离，不阻塞回合。
  * 气泡译文与会话名是同一套端点、鉴权与思考参数的另外两个追问，放在同一个接口上，
- * 调用方拿到的永远是一台按配置中心装配好的引擎，不在本地拼端点与密钥。
+ * 调用方拿到的永远是一台按设置页装配好的引擎，不在本地拼端点与密钥。
  */
 interface TurnAnalyzer {
     suspend fun analyze(text: String, turnId: String): TurnAnalysis?

@@ -17,7 +17,7 @@ import org.robolectric.RuntimeEnvironment
 
 /**
  * 存取往返用的是进程内的普通 SharedPreferences，不碰真机上的加密存储。
- * 断言的是界面上填完凭据再进配置中心看到的状态：哪家齐备就哪家启用。
+ * 断言的是界面上填完凭据再进设置页看到的状态：哪家齐备就哪家启用。
  */
 @RunWith(RobolectricTestRunner::class)
 class AssessorSettingsStoreTest {

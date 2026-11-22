@@ -73,7 +73,7 @@ data class TextEngineConfig(
             modelMeta = meta,
         )
 
-        /** 配置中心的设置是唯一来源：供应商、端点、鉴权、思考参数都从这里进管道。 */
+        /** 设置页的设置是唯一来源：供应商、端点、鉴权、思考参数都从这里进管道。 */
         fun of(settings: AnalysisSettings, models: List<TextModel> = emptyList()): TextEngineConfig {
             val provider = TextProviderCatalog.of(settings.provider) ?: TextProviderCatalog.gemini
             val model = settings.model.ifBlank { models.firstOrNull()?.id.orEmpty() }
@@ -260,7 +260,7 @@ class OpenAiCompatibleEngine(
 }
 
 /**
- * 组装入口：配置中心的文本分析设置加该模型在清单缓存里的元数据换成一台引擎。
+ * 组装入口：设置页的文本分析设置加该模型在清单缓存里的元数据换成一台引擎。
  * 清单可以不给，那样请求只按设置的开关发思考参数，不带上限与档位。
  */
 object TurnAnalyzerFactory {
@@ -303,7 +303,7 @@ internal fun sessionNamePrompt(transcript: String): String = """
 """.trimIndent()
 
 /**
- * 记忆维护的提示词。这一段是产品机制的一部分，不跟角色提示词走、不进配置中心：
+ * 记忆维护的提示词。这一段是产品机制的一部分，不跟角色提示词走、不进设置页：
  * 记忆怎么合并、什么该留、留多长都由这里定，用户能改的只是角色与场景。
  */
 internal fun memoryPrompt(memory: String, material: String): String = """

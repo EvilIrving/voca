@@ -15,7 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 配置中心的读数：实时对话三行按各自凭据齐备显示，评测两行取工厂产物，
+ * 设置页的读数：实时对话三行按各自凭据齐备显示，评测两行取工厂产物，
  * 文本分析每家的清单是注入进来的那一份，不是静态目录。
  */
 class ProviderLinesTest {

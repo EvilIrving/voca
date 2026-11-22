@@ -114,7 +114,7 @@ class SessionDrawerTest {
     }
 
     @Test
-    fun `检索三十起、新会话五十二、会话行四十四，配置中心收在四十四`() {
+    fun `检索三十起、新会话五十二、会话行四十四，设置页收在四十四`() {
         assertEquals(36.dp, SessionDrawerSpec.SearchButton)
         assertEquals("标题与检索同一行，高四十四", 44.dp, SessionDrawerSpec.HeaderHeight)
         assertEquals("新会话那一行单独高一档", 52.dp, SessionDrawerSpec.NewRowHeight)

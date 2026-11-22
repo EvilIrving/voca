@@ -17,7 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 配置中心这屏读的是现成的数据：实时对话三行按各家自己的凭据齐备判定，
+ * 设置页这屏读的是现成的数据：实时对话三行按各家自己的凭据齐备判定，
  * 文本分析的模型清单只从传进来的供应商清单里取，评测两行归到参数齐备的那家。
  */
 class SettingsRowsTest {

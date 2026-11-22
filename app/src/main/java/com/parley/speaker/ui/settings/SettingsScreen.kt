@@ -143,7 +143,7 @@ fun SettingsScreen(
                 tint = Palette.ink2,
             )
             Spacer(Modifier.width(4.dp))
-            Text("配置中心", style = Type.display, modifier = Modifier.weight(1f))
+            Text("设置", style = Type.display, modifier = Modifier.weight(1f))
         }
         Column(
             modifier = Modifier

@@ -135,7 +135,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     val settings: StateFlow<AppSettings> = settingsStore.settings
 
-    /** 出厂的系统提示词，配置中心那个「恢复默认」要向它回来。 */
+    /** 出厂的系统提示词，设置页那个「恢复默认」要向它回来。 */
     val defaultPrompt: String get() = settingsStore.defaultPrompt
 
     private val _state = MutableStateFlow(
@@ -1177,7 +1177,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 文本分析一律按配置中心当下的设置现装配，供应商、端点、鉴权与思考参数都从那里取，
+     * 文本分析一律按设置页当下的设置现装配，供应商、端点、鉴权与思考参数都从那里取，
      * 清单条目一并带上，上下文窗口、输出上限与思考档位才进得了请求体。
      */
     private suspend fun analyzer(): TurnAnalyzer {
@@ -1329,7 +1329,7 @@ internal fun analysisRoute(turns: List<Turn>, turnId: String): AnalysisRoute =
     if (turns.any { it.id == turnId }) AnalysisRoute.Flow else AnalysisRoute.Store
 
 /**
- * 配置中心每行的读数。状态是判定结果，不是密钥填满与否的代理：
+ * 设置页每行的读数。状态是判定结果，不是密钥填满与否的代理：
  * 实时对话三行看该家自己的凭据，评测两行看 [assessorOf] 出来的实际产物，两家互斥只有一家算已配置。
  */
 internal fun providerLines(settings: AppSettings, status: Map<String, LinkStatus>): List<ProviderLine> {

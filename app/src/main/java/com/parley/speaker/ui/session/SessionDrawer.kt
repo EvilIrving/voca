@@ -87,7 +87,7 @@ private const val UntitledSession = "本次会话"
 
 /**
  * 抽屉照「侧边抽屉交互原型」取：右侧一枚检索，下面一条新建会话的白胶囊，
- * 再往下按今天、7天内、更早摊开会话，右下角只剩配置中心。
+ * 再往下按今天、7天内、更早摊开会话，右下角只剩设置页。
  * 主卡片右推一个抽屉宽、等比缩到 0.94、圆角跟着进度长到 32 并垫一层暖影，白蒙层压到六成。
  */
 object SessionDrawerSpec {
@@ -379,7 +379,7 @@ private suspend fun AwaitPointerEventScope.trackHorizontal(
 }
 
 /**
- * 抽屉正文：右侧检索、新建会话、按天摊开的会话，右下角配置中心。
+ * 抽屉正文：右侧检索、新建会话、按天摊开的会话，右下角设置页。
  * 正在看的那条垫陶土浅底；这里不放删除这类管理动作。
  */
 @Composable
@@ -618,13 +618,11 @@ private fun DrawerDock(onSettings: () -> Unit) {
     ) {
         ParleyIconButton(
             icon = FluentIcons.Settings,
-            contentDescription = "配置中心",
+            contentDescription = "设置",
             onClick = onSettings,
             size = SessionDrawerSpec.SettingsButton,
             iconSize = SessionDrawerSpec.SettingsIcon,
             tint = Palette.ink2,
-            container = Palette.card,
-            borderColor = Palette.hair,
         )
     }
 }
