@@ -1,8 +1,8 @@
 package com.parley.speaker.data.analysis
 
-import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AuthKind
 import com.parley.speaker.domain.LinkStatus
+import com.parley.speaker.domain.analysisOf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
@@ -41,7 +41,7 @@ class TextEngineRequestTest {
 
     @Test
     fun `选了哪家就走哪家，与模型 id 属于谁的清单无关`() {
-        val settings = AnalysisSettings(
+        val settings = analysisOf(
             apiKey = "sk-deep",
             model = "gemini-flash-latest",
             provider = TextProviderCatalog.deepseek.id,
@@ -55,7 +55,7 @@ class TextEngineRequestTest {
 
     @Test
     fun `清单里的元数据按模型 id 挂到请求配置上`() {
-        val settings = AnalysisSettings(
+        val settings = analysisOf(
             apiKey = "sk-deep",
             model = "deepseek-reasoner",
             provider = TextProviderCatalog.deepseek.id,
@@ -70,7 +70,7 @@ class TextEngineRequestTest {
 
     @Test
     fun `会话名的请求也走配置里的端点与鉴权`() {
-        val settings = AnalysisSettings(
+        val settings = analysisOf(
             apiKey = "sk-kimi",
             model = "kimi-k2",
             provider = TextProviderCatalog.kimi.id,
@@ -211,7 +211,7 @@ class TextEngineRequestTest {
 
     @Test
     fun `设置里的自定义鉴权压过目录默认值`() {
-        val settings = AnalysisSettings(
+        val settings = analysisOf(
             apiKey = "sk-9",
             model = "local",
             provider = TextProviderCatalog.CustomId,
@@ -228,7 +228,7 @@ class TextEngineRequestTest {
 
     @Test
     fun `没填自定义项时回落到目录默认`() {
-        val settings = AnalysisSettings(apiKey = "sk-gem", model = "gemini-flash-latest")
+        val settings = analysisOf(apiKey = "sk-gem", model = "gemini-flash-latest")
         val config = TextEngineConfig.of(settings)
 
         assertEquals("gemini", config.provider.id)

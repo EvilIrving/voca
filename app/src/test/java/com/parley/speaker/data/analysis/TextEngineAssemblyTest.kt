@@ -1,7 +1,7 @@
 package com.parley.speaker.data.analysis
 
-import com.parley.speaker.domain.AnalysisSettings
 import kotlinx.coroutines.runBlocking
+import com.parley.speaker.domain.analysisOf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
@@ -105,7 +105,7 @@ class TextEngineAssemblyTest {
 
     @Test
     fun `没带清单条目就不带上限也不裁`() = runBlocking {
-        val settings = AnalysisSettings(
+        val settings = analysisOf(
             apiKey = "sk-deep",
             model = "deepseek-chat",
             provider = TextProviderCatalog.deepseek.id,
@@ -118,7 +118,7 @@ class TextEngineAssemblyTest {
     }
 
     private fun engineFor(thinking: Boolean, meta: TextModel = reasoner): OpenAiCompatibleEngine {
-        val settings = AnalysisSettings(
+        val settings = analysisOf(
             apiKey = "sk-deep",
             model = meta.id,
             provider = TextProviderCatalog.deepseek.id,
@@ -128,7 +128,7 @@ class TextEngineAssemblyTest {
     }
 
     private fun engineOf(thinking: Boolean): TextEngineConfig {
-        val settings = AnalysisSettings(
+        val settings = analysisOf(
             apiKey = "sk-deep",
             model = reasoner.id,
             provider = TextProviderCatalog.deepseek.id,
