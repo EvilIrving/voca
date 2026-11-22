@@ -64,7 +64,6 @@ import com.parley.speaker.domain.TurnFlow
 import com.parley.speaker.domain.TurnFlowState
 import com.parley.speaker.domain.TurnPhase
 import com.parley.speaker.domain.VocabCard
-import com.parley.speaker.domain.admitMemory
 import com.parley.speaker.domain.liveChange
 import com.parley.speaker.domain.memoryMaterial
 import com.parley.speaker.domain.systemPromptOf
@@ -214,14 +213,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var plan = SegmentPlan(SeedContent.Scenarios.first(), settingsStore.settings.value.prompt)
 
     /**
-     * 全局记忆：跨会话保留的那一段，界面看不见也改不了。启动时从库里读，没有就拿
-     * prompts/memory.md 那段口吻起头；每轮由改写请求整段重写，写库一次。
+     * 全局记忆：跨会话保留的那一段，界面看不见也改不了。库里留着上一场写下的那份就接着用，
+     * 库是空的时候才种下 [SeedContent.DefaultMemory] 那段口吻；每轮由改写请求整段重写并写库。
      * 建连接时它接在系统提示词后面进 setup，换连接、断线重连都能把最新的那份带上。
      */
-    private var memory = ""
-
-    /** 改写请求排成一条队列：前一段没写完就只留最后一轮，不把同一件事在排队里叠几份。 */
-    private val memoryRequests = Channel<String>(Channel.CONFLATED)
+    private val memory = MemoryLedger(persist = { store.saveMemory(it) })
 
     /** 当前连接自报的能力清单，打字输入与开场问候按它开关。 */
     private var capabilities: Capabilities? = null
@@ -271,14 +267,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             refreshProviders()
             publishCachedModels()
             // 记忆先于连接到位，第一条连接就带着上一次留下来的事。
-            memory = runCatching { store.globalMemory() }.getOrDefault("").ifBlank {
-                SeedContent.DefaultMemory.also { seed -> if (seed.isNotBlank()) store.saveMemory(seed) }
-            }
+            memory.seedWith(
+                runCatching { store.globalMemory() }.getOrDefault("").ifBlank { SeedContent.DefaultMemory },
+            )
             connect()
         }
         // 改写一条一条走，每条都读当下这份记忆，并进去的东西不会互相覆盖。
         viewModelScope.launch {
-            for (turnId in memoryRequests) rewriteMemory(turnId)
+            memory.drain(
+                materialOf = { turnId -> memoryMaterial(flow.turns, turnId) },
+                rewrite = { current, material -> analyzer().memorize(current, material) },
+            )
         }
         viewModelScope.launch { turnAudio.prune() }
         viewModelScope.launch { backfillSessionNames() }
@@ -468,7 +467,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val seq = connectSeq
         // 记忆每一轮都在变，连接却只在开场、换连接与重连时建，系统提示与全局记忆在这里一起进 setup。
         // 正在进行的那条连接上下文里本来就有这段对话，中途再灌一份只会把上下文撑大。
-        val instructions = systemPromptOf(plan.prompt, memory)
+        val instructions = systemPromptOf(plan.prompt, memory.text)
         val created = when (live.provider) {
             LiveVendor.Gemini -> GeminiLiveSession(
                 apiKey = live.geminiKey,
@@ -598,19 +597,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         // 记忆与评测各跑各的：评测回来说的是这一句说的对不对，记忆说的是这一场还该记住什么。
-        memoryRequests.trySend(turnId)
-    }
-
-    /**
-     * 记忆改写：材料是这一轮前后那几句话，输出是整段新记忆，收下来就写库。
-     * 记忆是全局的，收段与切会话都不清它；改写不碰音频链路，也不进任何界面。
-     */
-    private suspend fun rewriteMemory(turnId: String) {
-        val material = memoryMaterial(flow.turns, turnId) ?: return
-        val current = memory
-        val next = admitMemory(current, analyzer().memorize(current, material)) ?: return
-        memory = next
-        runCatching { store.saveMemory(next) }
+        memory.offer(turnId)
     }
 
     /**
