@@ -23,12 +23,12 @@ class InputBarSpecTest {
     }
 
     @Test
-    fun `圆钮与四十八同心，长到八十二右缘越过屏幕十四`() {
+    fun `圆钮与四十八同心，长到八十二右缘越过屏幕十`() {
         val band = 360.dp
         val center = InputBarSpec.circleCenter(band)
         assertEquals(329.dp, center)
         assertEquals(center, band - InputBarSpec.SideInset - InputBarSpec.ActionSize / 2)
-        assertEquals(14.dp, center + InputBarSpec.RecordSize / 2 - band)
+        assertEquals(10.dp, center + InputBarSpec.RecordSize / 2 - band)
     }
 
     @Test
@@ -41,10 +41,10 @@ class InputBarSpecTest {
 
     @Test
     fun `悬浮件都从胶囊顶上让出来，锁条贴顶、暂停键留八`() {
-        // 锁条底边贴着胶囊顶，顶边落在容器里第八行。
+        // 锁条底边贴着胶囊顶，顶边落在容器里第八行；暂停与恢复两枚底边各让八。
         assertEquals(8.dp, InputBarSpec.PillTop - InputBarSpec.LockHeight)
-        assertEquals(8.dp, InputBarSpec.PillTop - InputBarSpec.FloatGap - InputBarSpec.PauseSize)
-        assertEquals(16.dp, InputBarSpec.PillTop - InputBarSpec.FloatGap - InputBarSpec.ResumeSize)
+        assertEquals(16.dp, InputBarSpec.PillTop - InputBarSpec.FloatGap - InputBarSpec.PauseSize)
+        assertEquals(20.dp, InputBarSpec.PillTop - InputBarSpec.FloatGap - InputBarSpec.ResumeSize)
         assertEquals(36.dp, InputBarSpec.LockWidth)
         assertEquals(96.dp, InputBarSpec.TooltipWidth)
     }

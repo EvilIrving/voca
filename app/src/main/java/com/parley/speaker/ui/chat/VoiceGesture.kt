@@ -36,8 +36,11 @@ object VoiceGesture {
     const val CancelSpan = 126f
     fun cancelSpan(bandWidth: Float): Float = min(bandWidth * CancelSpanRatio, CancelSpanMax)
 
-    /** 上移 57 且左滑没走过量才锁，先滑再上滑不给锁。 */
-    const val LockSpan = 57f
+    /**
+     * 上移九十六且左滑没走过量才锁，先滑再上滑不给锁。
+     * Telegram 那边是五十七，按住时中指拇指都在屏底，五十七太容易蹭上去，这里拉长到接近两倍。
+     */
+    const val LockSpan = 96f
 
     /** 左滑超过三成就不许锁，避免边滑边锁。 */
     const val LockableProgress = 0.7f

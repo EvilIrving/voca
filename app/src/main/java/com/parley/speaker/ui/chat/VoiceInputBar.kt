@@ -3,8 +3,13 @@ package com.parley.speaker.ui.chat
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -164,6 +169,9 @@ private const val SettleMs = 180
 /** 锁定后隔这么久浮出暂停键，留出抬手的时间。 */
 private const val PauseKeyDelayMs = 560L
 
+/** 暂停键的淡入比其余进出长一点，与画板上的 250 毫秒一致。 */
+private const val PauseKeyFadeMs = 250
+
 /** 收音在别处失败时先宽限这么久再收回输入条：刚开录那一帧 recording 还没翻真。 */
 private const val CaptureGraceMs = 250L
 
@@ -172,6 +180,21 @@ private const val BinFallbackMs = 870L
 
 /** 未播的波形柱压到四成五。 */
 private const val UnplayedAlpha = 0.45f
+
+/** 提示在原地左右摆的幅度与单程时长，三个 dp 摆到六个 dp，五百毫秒走完一趟。 */
+private const val WobbleSpan = 3.6f
+private const val WobbleMs = 500
+
+/** 提示从「滑动以取消」换到「松手取消」的交叉时长，换的时候一上一下挪十二。 */
+private const val StageMs = 160
+private const val StageDrop = 12f
+
+/** 锁条没动时的倾角与跟着手指抬升的上限，抬到四十就不再跟，免得飞出条外。 */
+private const val LockTilt = 9f
+private val MaxLockRise = 40.dp
+
+/** 提示气泡走过两成就淡掉，源码里也是在 moveProgress 掉到零点八以下时收。 */
+private const val TooltipFadeAt = 0.8f
 
 private val PillShape = RoundedCornerShape(InputBarSpec.PillRadius)
 private val ClockStyle = TextStyle(
@@ -213,8 +236,8 @@ private val DurationStyle = TextStyle(
 private data class DiscardVisual(val phase: VoicePhase, val scale: Float, val left: Float, val token: Long)
 
 /**
- * 底部语音输入条。外面一只一百二十高的容器，里面三层：最底下是双层 blob 光晕，
- * 中间是贴底的胶囊行与右侧圆钮，最上面是锁条、提示气泡与暂停恢复两枚悬浮键。
+ * 底部语音输入条。外面一只一百二十高的容器，里面三层：贴底的胶囊行在最下，
+ * 双层 blob 光晕压在胶囊之上，圆钮又压在光晕之上，最上面是锁条、提示气泡与暂停恢复两枚悬浮键。
  * 三层都按固定坐标摆，任何状态都不让胶囊基座重排。
  */
 @Composable
@@ -254,8 +277,9 @@ fun VoiceInputBar(
     val span = VoiceGesture.cancelSpan(LocalConfiguration.current.screenWidthDp.toFloat())
 
     val dispatch: (VoiceInputEvent) -> Unit = { event ->
-        // 上一段作废还在播垃圾桶：新的按压一到就先把它收干净，免得两次作废叠在一起。
-        if (discard != null) {
+        // 上一段作废还在播垃圾桶：只有新的按压才算接管，抬手与移动不能把动效打断——
+        // 取消那一按的抬手事件紧跟着 onClick 到，早先按「任何事件」收会当场把垃圾桶掐掉。
+        if (event is VoiceInputEvent.Down && discard != null) {
             discard = null
             ended.value(true)
         }
@@ -268,6 +292,7 @@ fun VoiceInputBar(
         reduction.effects.forEach { effect ->
             when (effect) {
                 VoiceEffect.StartRecording -> {
+                    editing = false
                     focusManager.clearFocus()
                     // 线路没就绪时 vm 只弹一条提示，机器当场退回 Idle，界面不装作在收音。
                     if (!startRecording.value()) {
@@ -291,7 +316,7 @@ fun VoiceInputBar(
                     ended.value(false)
                 }
 
-                VoiceEffect.OpenDraft -> editing = true
+                VoiceEffect.OpenDraft -> if (draft.isEmpty()) editing = true
             }
         }
     }
@@ -347,7 +372,8 @@ fun VoiceInputBar(
     // 作废动效播放期间界面读冻结的那一帧，手势机器本身已经回到 Idle。
     val frozen = discard
     val phase = frozen?.phase ?: gesture.phase
-    val gestureLive = enabled && (gesture.phase != VoicePhase.Idle || !editing)
+    // 草稿空着时仍要能按住录：空输入框没有可编辑的东西，挡住手势只会让人以为麦克风坏了。
+    val gestureLive = enabled && (gesture.phase != VoicePhase.Idle || !editing || draft.isEmpty())
     val dragging = phase == VoicePhase.Holding || phase == VoicePhase.Cancelling
 
     // 圆钮左移每帧吃进目标的 0.3：图形始终落后手指一截，松手自己追上来。
@@ -391,16 +417,6 @@ fun VoiceInputBar(
             val centerX = InputBarSpec.circleCenter(band)
             val pillWidth = InputBarSpec.pillWidth(band)
 
-            // 底：双层 blob 光晕，整片一张 Canvas 画完，不进组合树。
-            Blobs(
-                visible = dragging && frozen == null,
-                progress = progress,
-                levels = levels,
-                levelFrame = levelFrame,
-                centerX = centerX,
-                modifier = Modifier.fillMaxSize(),
-            )
-
             // 中：胶囊基座。宽度只由可用宽度算出，五档状态共用同一条，永不被圆钮挤动。
             Box(
                 modifier = Modifier
@@ -417,12 +433,15 @@ fun VoiceInputBar(
                         enabled = enabled,
                         onChange = { draft = it },
                         onSend = sendDraft,
+                        onTap = { editing = true },
                         onExitEdit = { editing = false },
                         focus = focus,
                     )
 
                     VoicePhase.Holding, VoicePhase.Cancelling -> RecordingRow(
-                        progress = progress,
+                        progress = if (frozen != null) 0f else progress,
+                        leftShift = leftShift,
+                        pillWidth = pillWidth,
                         elapsedMs = elapsedMs,
                         binPlaying = frozen != null,
                         binComposition = binComposition,
@@ -447,6 +466,16 @@ fun VoiceInputBar(
                     )
                 }
             }
+
+            // 光晕压在胶囊之上：按住时那一圈呼吸要从输入框上面淌过去，不能被纸白胶囊切掉。
+            Blobs(
+                visible = dragging && frozen == null,
+                progress = progress,
+                levels = levels,
+                levelFrame = levelFrame,
+                centerX = centerX,
+                modifier = Modifier.fillMaxSize(),
+            )
 
             // 圆钮叠在光晕这一层：尺寸由状态算出，长大时向右溢出条外，胶囊一格不动。
             ActionCircle(
@@ -482,10 +511,14 @@ fun VoiceInputBar(
             )
 
             // 顶：悬浮层。锁条、提示气泡、暂停键、恢复键都按固定纵向偏移漂着，不参与布局。
-            val holding = phase == VoicePhase.Holding
+            // 手指一往左挪，锁条与提示就收掉：这时候往上滑本就不该再锁，画板上那一帧这块也是空的。
+            val holding = phase == VoicePhase.Holding && gesture.raw.left <= 0f
 
+            val lockProgress = VoiceGesture.lockProgress(gesture.raw.up)
             LockChip(
                 visible = holding,
+                progress = lockProgress,
+                travel = gesture.raw.up.dp,
                 modifier = Modifier.offset(
                     x = centerX - InputBarSpec.LockWidth / 2,
                     y = InputBarSpec.PillTop - InputBarSpec.LockHeight,
@@ -494,6 +527,7 @@ fun VoiceInputBar(
 
             Tooltip(
                 visible = holding,
+                dim = 1f - ((lockProgress - TooltipFadeAt) / (1f - TooltipFadeAt)).coerceIn(0f, 1f),
                 modifier = Modifier.offset(
                     x = centerX - InputBarSpec.LockWidth / 2 - InputBarSpec.TooltipGap - InputBarSpec.TooltipWidth,
                     y = InputBarSpec.PillTop - InputBarSpec.LockHeight / 2 - InputBarSpec.TooltipHeight / 2,
@@ -503,6 +537,7 @@ fun VoiceInputBar(
             HoldKey(
                 visible = phase == VoicePhase.Locked,
                 delayMs = PauseKeyDelayMs,
+                enterMs = PauseKeyFadeMs,
                 size = InputBarSpec.PauseSize,
                 glyph = FluentIcons.Pause,
                 glyphSize = 18.dp,
@@ -577,6 +612,7 @@ private class BlobRing(
     private val progress = FloatArray(vertices)
     private val speed = FloatArray(vertices)
     private val random = Random(vertices * 7919)
+    private val path = Path()
     private val control = ((4.0 / 3.0) * tan(PI / (2 * vertices))).toFloat()
     private var smoothed = 0f
     private var lastFrame = Long.MIN_VALUE
@@ -619,7 +655,8 @@ private class BlobRing(
             }
         }
         val expand = (scaleBase + 1.4f * smoothed) * reveal
-        val path = Path()
+        // 路径每帧复用同一条，五十一帧每秒不再给垃圾回收添活。
+        path.reset()
         for (i in 0 until vertices) {
             val next = if (i + 1 < vertices) i + 1 else 0
             val r1 = lerp(radius[i], nextRadius[i], progress[i]) * expand * density
@@ -655,6 +692,7 @@ private fun DraftRow(
     enabled: Boolean,
     onChange: (String) -> Unit,
     onSend: () -> Unit,
+    onTap: () -> Unit,
     onExitEdit: () -> Unit,
     focus: FocusRequester,
 ) {
@@ -677,6 +715,14 @@ private fun DraftRow(
                 cursorBrush = SolidColor(Palette.clayDeep),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { onSend() }),
+                decorationBox = { field ->
+                    // 输入框一挂上去，占位那句就得由它自己画：空草稿只留一条光秃秃的纸白胶囊，
+                    // 看不出这一行是干什么的。
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (draft.isEmpty()) Text(text = "说点什么...", style = PlaceholderStyle, maxLines = 1)
+                        field()
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focus)
@@ -690,12 +736,25 @@ private fun DraftRow(
                     },
             )
         } else {
-            Text(
-                text = draft.ifEmpty { "说点什么..." },
-                style = if (draft.isEmpty()) PlaceholderStyle else DraftStyle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            val text: @Composable () -> Unit = {
+                Text(
+                    text = draft.ifEmpty { "说点什么..." },
+                    style = if (draft.isEmpty()) PlaceholderStyle else DraftStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // 有草稿时圆钮是纸飞机，点它就是发出去；要改就得点这一行字，把输入框拉回来。
+            if (enabled) {
+                Pressable(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.CenterStart,
+                    contentDescription = "编辑草稿",
+                    onClick = onTap,
+                ) { text() }
+            } else {
+                text()
+            }
         }
     }
 }
@@ -707,12 +766,15 @@ private fun DraftRow(
 @Composable
 private fun RecordingRow(
     progress: Float,
+    leftShift: Float,
+    pillWidth: Dp,
     elapsedMs: Long,
     binPlaying: Boolean,
     binComposition: LottieComposition?,
 ) {
     val staged = progress < VoiceGesture.ReleaseCancelBelow
-    val sliding = progress < 1f
+    // 锁定态点「取消」与按住时滑出去一样，都落进垃圾桶：只要在播那支动效，左端就换成桶位。
+    val sliding = progress < 1f || binPlaying
     val tone = if (staged) Palette.clayDeep else Palette.ink3
     Box(modifier = Modifier.fillMaxSize()) {
         if (sliding) {
@@ -746,28 +808,66 @@ private fun RecordingRow(
                     .offset(x = 36.dp),
             )
         }
-        Row(
+        // 提示跟手指走：位移取「整条胶囊宽度的四分之一乘上走掉的比例，再叠三成圆钮位移」，
+        // 与源码里 slideDelta 那条算式同一个口径；没动的时候原地轻轻摆，一眼看出这一行可以滑。
+        val wobble by rememberInfiniteTransition(label = "slideWobble").animateFloat(
+            initialValue = -WobbleSpan,
+            targetValue = WobbleSpan,
+            animationSpec = infiniteRepeatable(
+                animation = tween(WobbleMs, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "slideWobbleOffset",
+        )
+        val drifting = !sliding && !staged
+        val hintShift = -(pillWidth / 4) * (1f - progress) + leftShift.dp * 0.3f +
+            if (drifting) wobble.dp else 0.dp
+        val stage by animateFloatAsState(
+            targetValue = if (staged) 1f else 0f,
+            animationSpec = tween(StageMs),
+            label = "slideStage",
+        )
+        Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .offset(x = 156.dp)
+                .offset(x = 156.dp + hintShift)
                 .graphicsLayer { alpha = VoiceGesture.hintAlpha(progress) },
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                FluentIcons.ChevRight,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(14.dp)
-                    .rotate(180f),
-                tint = tone,
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = "滑动以取消",
-                style = SlideStyle.copy(color = tone),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    FluentIcons.ChevRight,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(14.dp)
+                        .rotate(180f)
+                        .graphicsLayer { alpha = 1f - stage },
+                    tint = tone,
+                )
+                Spacer(Modifier.width(4.dp))
+                Box {
+                    Text(
+                        text = "滑动以取消",
+                        style = SlideStyle.copy(color = tone),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.graphicsLayer {
+                            alpha = 1f - stage
+                            translationY = stage * StageDrop * density
+                        },
+                    )
+                    if (stage > 0f) {
+                        Text(
+                            text = "松手取消",
+                            style = SlideStyle.copy(color = Palette.clayDeep, fontWeight = FontWeight.SemiBold),
+                            maxLines = 1,
+                            modifier = Modifier.graphicsLayer {
+                                alpha = stage
+                                translationY = -(1f - stage) * StageDrop * density
+                            },
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -812,7 +912,7 @@ private fun LockedRow(
             levelFrame = levelFrame,
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .offset(x = 162.dp, y = InputBarSpec.PillHeight / 2 - InputBarSpec.LiveBarMax / 2)
+                .offset(x = 162.dp)
                 .width(InputBarSpec.LiveBarStep * (InputBarSpec.LiveBarCount - 1) + InputBarSpec.LiveBarWidth)
                 .height(InputBarSpec.LiveBarMax),
         )
@@ -1067,6 +1167,7 @@ private fun HoldKey(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enterMs: Int = SettleMs,
 ) {
     // 入场是延迟淡入，内容却当帧就挂进树：点击要等延迟走完才开，
     // 否则锁定之后第二下会隔着看不见的键静默切进暂停。
@@ -1079,7 +1180,7 @@ private fun HoldKey(
     }
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(SettleMs, delayMillis = delayMs.toInt())),
+        enter = fadeIn(tween(enterMs, delayMillis = delayMs.toInt())),
         exit = fadeOut(tween(SettleMs)),
         modifier = modifier,
     ) {
@@ -1097,9 +1198,14 @@ private fun HoldKey(
     }
 }
 
-/** 锁条：上边一枚折角箭头，下边一把陶土锁，底边贴着胶囊顶。 */
+/**
+ * 锁条：上边一枚折角箭头，下边一把陶土锁，底边贴着胶囊顶。
+ * 上滑的过程全在这块上：锁条跟着手指往上走、从偏九度摆正、同时收窄，
+ * 与源码里 lockRotation 与 lockSize 那两条随 moveProgress 走的算式同一个意思，只是换成画板这套壳。
+ */
 @Composable
-private fun LockChip(visible: Boolean, modifier: Modifier = Modifier) {
+private fun LockChip(visible: Boolean, progress: Float, travel: Dp, modifier: Modifier = Modifier) {
+    val lift = (travel * 0.45f).coerceAtMost(MaxLockRise)
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(SettleMs)),
@@ -1109,6 +1215,13 @@ private fun LockChip(visible: Boolean, modifier: Modifier = Modifier) {
         Column(
             modifier = Modifier
                 .size(InputBarSpec.LockWidth, InputBarSpec.LockHeight)
+                .graphicsLayer {
+                    rotationZ = LockTilt * (1f - progress)
+                    val shrink = 1f - 0.16f * progress
+                    scaleX = shrink
+                    scaleY = shrink
+                    translationY = -lift.toPx()
+                }
                 .clip(RoundedCornerShape(InputBarSpec.LockRadius))
                 .background(Palette.card)
                 .border(1.dp, Palette.hair, RoundedCornerShape(InputBarSpec.LockRadius))
@@ -1132,9 +1245,9 @@ private fun LockChip(visible: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
-/** 锁条左边的墨色气泡，纵向与锁条同中心，左滑作废时整层清空。 */
+/** 锁条左边的墨色气泡，纵向与锁条同中心，走过两成往上就淡掉。 */
 @Composable
-private fun Tooltip(visible: Boolean, modifier: Modifier = Modifier) {
+private fun Tooltip(visible: Boolean, dim: Float, modifier: Modifier = Modifier) {
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(SettleMs)),
@@ -1144,6 +1257,7 @@ private fun Tooltip(visible: Boolean, modifier: Modifier = Modifier) {
         Box(
             modifier = Modifier
                 .size(InputBarSpec.TooltipWidth, InputBarSpec.TooltipHeight)
+                .graphicsLayer { alpha = dim }
                 .clip(RoundedCornerShape(6.dp))
                 .background(Palette.ink),
             contentAlignment = Alignment.Center,

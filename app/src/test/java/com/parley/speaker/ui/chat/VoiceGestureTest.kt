@@ -8,7 +8,7 @@ import org.junit.Test
 /**
  * 输入条的手势机器。数值来自 Telegram Android 的 `ChatActivityEnterView`：
  * 左滑可走距离 min(屏宽×0.35, 140dp)，进度 1→0，滑满当场作废，圆钮随进度缩到 0.7，
- * 锁定要纵向 57 且左滑没超过三成。每条用例都从一次真实按压走起，断言档位与副作用。
+ * 锁定要纵向走满一条 LockSpan 且左滑没超过三成。每条用例都从一次真实按压走起，断言档位与副作用。
  */
 class VoiceGestureTest {
 
@@ -39,7 +39,7 @@ class VoiceGestureTest {
 
     @Test
     fun `锁定之后抬手不改档位，收音自己继续`() {
-        val locked = holding().play(VoiceInputEvent.Move(0f, 57f, 0f, 0f))
+        val locked = holding().play(VoiceInputEvent.Move(0f, VoiceGesture.LockSpan, 0f, 0f))
         assertEquals(VoicePhase.Locked, locked.phase)
 
         val lifted = locked.reduce(VoiceInputEvent.Up(0f, 0f))
@@ -49,7 +49,7 @@ class VoiceGestureTest {
 
     @Test
     fun `锁定态点纸飞机收尾，点取消作废，两条都回 Idle`() {
-        val locked = holding().play(VoiceInputEvent.Move(0f, 57f, 0f, 0f))
+        val locked = holding().play(VoiceInputEvent.Move(0f, VoiceGesture.LockSpan, 0f, 0f))
         val sent = locked.reduce(VoiceInputEvent.Send)
         assertEquals(listOf(VoiceEffect.Finish(cancelled = false)), sent.effects)
         assertEquals(VoicePhase.Idle, sent.state.phase)
@@ -61,7 +61,7 @@ class VoiceGestureTest {
 
     @Test
     fun `收音在别处结束时锁定态当场收回 Idle，不再补一次收尾`() {
-        val locked = holding().play(VoiceInputEvent.Move(0f, 57f, 0f, 0f))
+        val locked = holding().play(VoiceInputEvent.Move(0f, VoiceGesture.LockSpan, 0f, 0f))
         val ended = locked.reduce(VoiceInputEvent.TurnEnded)
 
         assertEquals(VoiceGestureState(lastPressAtMs = ended.state.lastPressAtMs), ended.state)
@@ -134,7 +134,7 @@ class VoiceGestureTest {
 
     @Test
     fun `上移五十七就锁上，五十六还在录`() {
-        val locked = holding().reduce(VoiceInputEvent.Move(0f, 57f, 0f, 0f))
+        val locked = holding().reduce(VoiceInputEvent.Move(0f, VoiceGesture.LockSpan, 0f, 0f))
         assertEquals(VoicePhase.Locked, locked.state.phase)
 
         val waiting = holding().reduce(VoiceInputEvent.Move(0f, 56f, 0f, 0f))
@@ -151,7 +151,7 @@ class VoiceGestureTest {
     @Test
     fun `锁定后抬手不锁第二遍，档位留着`() {
         val locked = holding()
-            .play(VoiceInputEvent.Move(0f, 57f, 0f, 0f))
+            .play(VoiceInputEvent.Move(0f, VoiceGesture.LockSpan, 0f, 0f))
             .reduce(VoiceInputEvent.Up(0f, 0f))
         assertEquals(VoicePhase.Locked, locked.state.phase)
         assertTrue(locked.effects.isEmpty())
@@ -204,7 +204,7 @@ class VoiceGestureTest {
 
     @Test
     fun `锁定之后能暂停，暂停能恢复`() {
-        val locked = holding().play(VoiceInputEvent.Move(0f, 57f, 0f, 0f))
+        val locked = holding().play(VoiceInputEvent.Move(0f, VoiceGesture.LockSpan, 0f, 0f))
         val paused = locked.reduce(VoiceInputEvent.Pause)
         assertEquals(VoicePhase.Paused, paused.state.phase)
 
@@ -217,7 +217,7 @@ class VoiceGestureTest {
         assertEquals(VoicePhase.Holding, holding().reduce(VoiceInputEvent.Pause).state.phase)
 
         val paused = holding()
-            .play(VoiceInputEvent.Move(0f, 57f, 0f, 0f))
+            .play(VoiceInputEvent.Move(0f, VoiceGesture.LockSpan, 0f, 0f))
             .play(VoiceInputEvent.Pause)
         assertEquals(VoicePhase.Paused, paused.play(VoiceInputEvent.Pause).phase)
     }
@@ -225,7 +225,7 @@ class VoiceGestureTest {
     @Test
     fun `暂停之后能发送，也能把这段扔掉`() {
         val paused = holding()
-            .play(VoiceInputEvent.Move(0f, 57f, 0f, 0f))
+            .play(VoiceInputEvent.Move(0f, VoiceGesture.LockSpan, 0f, 0f))
             .play(VoiceInputEvent.Pause)
 
         assertEquals(listOf(VoiceEffect.Finish(cancelled = false)), paused.reduce(VoiceInputEvent.Send).effects)
@@ -262,7 +262,7 @@ class VoiceGestureTest {
 
     @Test
     fun `锁定取消也把位移清干净`() {
-        val locked = holding().play(VoiceInputEvent.Move(0f, 57f, 0f, 0f))
+        val locked = holding().play(VoiceInputEvent.Move(0f, VoiceGesture.LockSpan, 0f, 0f))
         val cancelled = locked.reduce(VoiceInputEvent.Cancel)
 
         assertEquals(Shift.None, cancelled.state.raw)
@@ -304,10 +304,10 @@ class VoiceGestureTest {
     }
 
     @Test
-    fun `锁定进度按五十七算，到顶封住`() {
+    fun `锁定进度按整条行程算，到顶封住`() {
         assertEquals(0f, VoiceGesture.lockProgress(0f), 0f)
-        assertEquals(0.5f, VoiceGesture.lockProgress(28.5f), 0.0001f)
-        assertEquals(1f, VoiceGesture.lockProgress(57f), 0f)
+        assertEquals(0.5f, VoiceGesture.lockProgress(VoiceGesture.LockSpan / 2f), 0.0001f)
+        assertEquals(1f, VoiceGesture.lockProgress(VoiceGesture.LockSpan), 0f)
         assertEquals(1f, VoiceGesture.lockProgress(120f), 0f)
     }
 
