@@ -7,7 +7,6 @@
 #    .agents/skills/android-device-testing/scripts/android-drive.sh tap <名字>
 #    .agents/skills/android-device-testing/scripts/android-drive.sh record [毫秒数]
 #    .agents/skills/android-device-testing/scripts/android-drive.sh record-cancel
-#    .agents/skills/android-device-testing/scripts/android-drive.sh scenario [场景名]
 #    .agents/skills/android-device-testing/scripts/android-drive.sh vocab
 #    .agents/skills/android-device-testing/scripts/android-drive.sh settings
 #    .agents/skills/android-device-testing/scripts/android-drive.sh review
@@ -125,13 +124,11 @@ if not kind and 'com.parley.speaker' in pks:
         kind = 'app:收音中'
     elif anyof('本轮评测'):
         kind = 'app:评测抽屉'
-    elif len(texts & {'随便聊', '点单与购物', '面试热身', '雅思口语', '出差问路'}) >= 2:
-        kind = 'app:场景切换浮层'
     elif anyof('生词库') and anyof('搜索词或音标', '今天 24', '待复习 9', '全部 15'):
         kind = 'app:生词库'
-    elif anyof('配置中心') and anyof('实时对话', '识别与分析', '连接自检', '角色提示词'):
-        kind = 'app:配置中心'
-    elif anyof('按住说话') or anyof('切换场景', '生词库', '配置中心', '结束会话', '更多') or any(t.startswith('第 ') and t.endswith(' 轮') for t in texts):
+    elif anyof('设置') and anyof('实时对话', '识别与分析', '连接自检', '角色提示词'):
+        kind = 'app:设置'
+    elif anyof('按住说话') or anyof('生词库', '设置', '结束会话', '更多') or any(t.startswith('第 ') and t.endswith(' 轮') for t in texts):
         kind = 'app:主对话'
     else:
         kind = 'app:未识别页面（可能在动画过渡中，请调用 el 检查）'
@@ -158,9 +155,8 @@ rows = [l.rstrip("\n").split("\t") for l in sys.stdin]
 texts = [r[2] for r in rows if len(r) > 2 and r[2]]
 descs = [r[3] for r in rows if len(r) > 3 and r[3]]
 round_tag = next((t for t in texts if t.startswith("第 ") and t.endswith(" 轮")), "—")
-scenario_tag = next((t for t in texts if t in ("随便聊", "点单与购物", "面试热身", "雅思口语", "出差问路")), "—")
-actions = [d for d in descs if d in ("切换场景", "生词库", "配置中心", "更多", "结束会话", "关闭", "查看评测", "复听原文", "播放改写", "收进生词本", "继续对话")]
-print(f"  当前场景: {scenario_tag}  对话进度: {round_tag}")
+actions = [d for d in descs if d in ("生词库", "设置", "更多", "结束会话", "关闭", "查看评测", "复听原文", "播放改写", "收进生词本", "继续对话")]
+print(f"  对话进度: {round_tag}")
 print("  关键操作项:", "、".join(dict.fromkeys(actions)) or "无")
 print("  主要文本摘要:", " / ".join(texts[:6]) or "—")
 '
@@ -201,10 +197,10 @@ press() {
 
 # 长按按住说话：零距离 input swipe 在 Android 16 上会被当成瞬时点按，
 # 长按手势必须拆成 DOWN/UP 两次事件，中间才能真正停留。
-mic_down() { A shell input motionevent DOWN 540 2256 >/dev/null; }
-mic_up() { A shell input motionevent UP 540 2256 >/dev/null; }
+mic_down() { A shell input motionevent DOWN 987 2226 >/dev/null; }
+mic_up() { A shell input motionevent UP 987 2226 >/dev/null; }
 mic_move() { A shell input motionevent MOVE "$1" "$2" >/dev/null; }
-mic_cancel() { A shell input swipe 540 2256 540 1900 "${1:-400}" >/dev/null; }
+mic_cancel() { A shell input swipe 987 2226 987 1900 "${1:-400}" >/dev/null; }
 
 # 探针：读应用自己写的采集状态，绕开被 ROM 屏蔽的 logcat
 capture_state() {
@@ -282,22 +278,6 @@ PY
   state
 }
 
-# 切换口语练习场景
-switch_scenario() {
-  local target="${1:-}"
-  if [ -z "$target" ]; then
-    tap_name "切换场景"
-    return 0
-  fi
-  local current
-  current=$(screen_kind)
-  if [ "$current" != "app:场景切换浮层" ]; then
-    tap_name "切换场景" || tap_name "随便聊" || true
-    wait_ready 0.8
-  fi
-  tap_name "$target"
-}
-
 # 编译并打包应用
 build_app() {
   echo "执行 Gradle 调试包构建..."
@@ -361,9 +341,8 @@ case "${1:-state}" in
   mic-cancel)     mic_cancel "${2:-400}"; wait_ready 1.2; state ;;
   capture)        capture_state ;;
   record-cancel)  simulate_record_cancel ;;
-  scenario)       switch_scenario "${2:-}" ;;
   vocab)          tap_name "生词库" ;;
-  settings)       tap_name "配置中心" ;;
+  settings)       tap_name "设置" ;;
   review)         tap_name "查看评测" || tap_name "本轮评测" ;;
   selfcheck)      tap_name "连接自检" ;;
   shot)           A exec-out screencap -p > "$SHOTDIR/parley-${2:-shot}.png" && echo "截图保存路径: $SHOTDIR/parley-${2:-shot}.png" ;;
