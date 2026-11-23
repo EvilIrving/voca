@@ -263,7 +263,7 @@ function settingsBody(root, open, o) {
     cardRule(g1);
     inst(g1, C_['Speaker/Row/Provider/Off'], { name: 'OpenAI Realtime', meta: 'gpt-realtime', status: '未配置' });
     cardRule(g1);
-    inst(g1, C_['Speaker/Row/Provider/Off'], { name: '豆包端到端实时语音', meta: 'volc.speech.dialog', status: '未配置' });
+    inst(g1, C_['Speaker/Row/Provider/Off'], { name: '豆包实时语音', meta: 'volc.speech.dialog', status: '未配置' });
 
     sectionTitle(body, '发音评测');
     const g2 = groupCard(body);
@@ -323,8 +323,8 @@ function buildDrawerScreen(screenName, screenX, mode) {
   const panel = frame(dr, 'drawer', { w: 295, h: 792, dir: 'VERTICAL', pl: 18, pr: 18, pt: 20, pb: 20, fill: C.paper, x: 0, y: 0, absolute: true });
   
   if (mode === 'batch') {
-    const drHead = frame(panel, 'head', { w: 259, h: 44, dir: 'HORIZONTAL', main: 'SPACE_BETWEEN', cross: 'CENTER' });
-    t(drHead, '已选 2 项', { font: F.serifCnMd, size: 18, color: C.ink, lh: 25, grow: 1 });
+    const drHead = frame(panel, 'head', { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER' });
+    t(drHead, '选择会话', { font: F.serifCnMd, size: 20, color: C.ink, lh: 27, grow: 1 });
     const cancelText = t(drHead, '取消', { font: F.cnMd, size: 14, color: C.ink3, lh: 20 });
     cancelText.name = 'cancel';
     frame(panel, 'sp 2', { w: 1, h: 10 });
@@ -368,11 +368,11 @@ function buildDrawerScreen(screenName, screenX, mode) {
       return r;
     }
     drGroup('今天');
-    drRow('没睡好的早晨', true);
-    const targetRow = drRow('咖啡店点单', mode === 'menu');
-    drRow('面试自我介绍');
+    drRow('没睡好的早晨', mode !== 'menu');
+    drRow('咖啡店点单', mode === 'menu');
+    drRow('面试自我介绍', false);
     drGroup('更早');
-    drRow('周末出行计划');
+    drRow('周末出行计划', false);
     frame(panel, 'sp 3', { w: 1, h: 1, grow: 1 });
     const drDock = frame(panel, 'dock', { w: 259, h: 44, dir: 'HORIZONTAL', main: 'MAX', cross: 'CENTER' });
     inst(drDock, C_['Speaker/IconButton/44/settings']);

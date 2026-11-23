@@ -199,7 +199,7 @@ put(comp(page, 'Speaker/HintCard', { w: 320, dir: 'HORIZONTAL', cross: 'CENTER',
 /* ---------------- 打卡热力图 ----------------
    二十六周乘七天，档位只由当日练习分钟决定：空、一至四分钟、五至十四、十五至二十九、三十分钟以上。
    卡片三百二十宽、内缩十四；左边一列十个宽的周标只标一三五，上面一行月份只在跨月且离上一条至少四列时给字，
-   格 7.8 圆角 2 间距 3。右下那行读天数与总时长，点中某一格就换成那天的日期与分钟，格上套一圈墨色细边。
+   格 7.8 圆角 2 间距 3。右下那行读天数与总时长，点中某一格就换成那天的日期与长度，不足一分钟写秒，格上套一圈墨色细边。
    样张按一条确定性序列铺，锚点是 2026 年 3 月 11 日周三，最后三天是本周还没到的日子，留空。 */
 const HEAT_FILL = [C.heat0, C.heat1, C.heat2, C.heat3, C.heat4];
 const HEAT_MINUTES = [0, 3, 9, 21, 42];
@@ -409,8 +409,11 @@ put(comp(page, 'Speaker/Button/NewSession', { w: 259, h: 52, dir: 'HORIZONTAL', 
 }), 'Speaker/Button/NewSession', 'B');
 
 function drawerRow(suffix, current) {
-  return put(comp(page, 'Speaker/Row/DrawerSession' + suffix, { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 12, pr: 12, pt: 2, pb: 2, fill: current ? C.clayTint : '', radius: 10 }, c => {
+  return put(comp(page, 'Speaker/Row/DrawerSession' + suffix, { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 12, pr: 10, pt: 2, pb: 2, fill: current ? C.clayTint : '', radius: 10 }, c => {
     t(c, '没睡好的早晨', { font: F.sansMd, size: 14, color: current ? C.ink : C.ink2, lh: 20, name: 'name', grow: 1 });
+    if (current) {
+      icon(c, 'moreHorizontal', 16, C.ink2);
+    }
   }), 'Speaker/Row/DrawerSession' + suffix, 'B');
 }
 drawerRow('', false);
@@ -552,7 +555,7 @@ function menuRow(name, glyph, label, danger) {
 }
 const mrRename = menuRow('Rename', 'edit', '重命名');
 const mrBatchSelect = menuRow('BatchSelect', 'checkMark', '批量选择');
-const mrDeleteSession = menuRow('DeleteSession', 'delete', '删除会话', true);
+const mrDeleteSession = menuRow('DeleteSession', 'delete', '删除', true);
 
 put(comp(page, 'Speaker/Menu/Session', { w: 232, dir: 'VERTICAL', pl: 6, pr: 6, pt: 6, pb: 6, gap: 2, fill: C.card, stroke: C.hair, radius: 14 }, c => {
   c.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: 0.08 }, offset: { x: 0, y: 8 }, radius: 22, spread: 0, blendMode: 'NORMAL', visible: true }];
@@ -569,7 +572,7 @@ function drawerRowSelectable(suffix, checked) {
   return put(comp(page, 'Speaker/Row/DrawerSessionSelectable' + suffix, { w: 259, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 6, pr: 12, gap: 10, radius: 10 }, c => {
     const box = frame(c, 'checkbox', { w: 18, h: 18, radius: 5, stroke: checked ? C.clay : C.hairStrong, fill: checked ? C.clay : C.card, main: 'CENTER', cross: 'CENTER' });
     if (checked) {
-      icon(box, 'check', 12, C.card);
+      icon(box, 'checkMark', 12, C.card);
     }
     t(c, '没睡好的早晨', { font: F.sansMd, size: 14, color: C.ink, lh: 20, name: 'name', grow: 1 });
   }), 'Speaker/Row/DrawerSessionSelectable' + suffix, 'B');
@@ -577,11 +580,12 @@ function drawerRowSelectable(suffix, checked) {
 drawerRowSelectable('', false);
 drawerRowSelectable('/Checked', true);
 
-put(comp(page, 'Speaker/Bar/DrawerBatch', { w: 259, h: 44, dir: 'HORIZONTAL', main: 'SPACE_BETWEEN', cross: 'CENTER', pl: 12, pr: 8, fill: C.card, stroke: C.hair, radius: 12 }, c => {
-  t(c, '全选', { font: F.cnMd, size: 13, color: C.ink3, lh: 18, name: 'selectAll' });
-  const btn = frame(c, 'deleteBtn', { h: 32, dir: 'HORIZONTAL', cross: 'CENTER', pl: 10, pr: 12, gap: 5, fill: C.danger, radius: 999 });
-  icon(btn, 'delete', 14, C.card);
-  t(btn, '删除已选 (2)', { font: F.cnMd, size: 12, color: C.card, lh: 16, name: 'count' });
+put(comp(page, 'Speaker/Bar/DrawerBatch', { w: 259, h: 44, dir: 'HORIZONTAL', main: 'SPACE_BETWEEN', cross: 'CENTER', pl: 6 }, c => {
+  const left = frame(c, 'selectGroup', { dir: 'HORIZONTAL', cross: 'CENTER', gap: 8 });
+  frame(left, 'checkbox', { w: 18, h: 18, radius: 5, stroke: C.hairStrong, fill: C.card, main: 'CENTER', cross: 'CENTER' });
+  t(left, '全选', { font: F.sansMd, size: 14, color: C.ink, lh: 20, name: 'selectAll' });
+  const btn = frame(c, 'deleteBtn', { h: 32, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 14, fill: C.danger, radius: 999 });
+  t(btn, '删除 2 项', { font: F.cnMd, size: 13, color: C.card, lh: 18, name: 'label' });
 }), 'Speaker/Bar/DrawerBatch', 'B');
 
 /* ---------------- input bar ----------------

@@ -26,6 +26,7 @@ enum Fluent: String, CaseIterable {
     case chatAdd
     case check
     case plug
+    case moreHorizontal
 
     var viewport: CGSize {
         switch self {
@@ -54,6 +55,7 @@ enum Fluent: String, CaseIterable {
         case .chatAdd: return CGSize(width: 24, height: 24)
         case .check: return CGSize(width: 20, height: 20)
         case .plug: return CGSize(width: 24, height: 24)
+        case .moreHorizontal: return CGSize(width: 20, height: 20)
         }
     }
 
@@ -84,6 +86,7 @@ enum Fluent: String, CaseIterable {
         case .chatAdd: return "M12.75 7.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5ZM22 12a10 10 0 1 0-18.89 4.6l-1.06 3.82a1.25 1.25 0 0 0 1.54 1.54l3.82-1.07A10 10 0 0 0 22 12ZM3.5 12a8.5 8.5 0 1 1 4.37 7.43l-.27-.15-3.99 1.11 1.11-3.98-.15-.27A8.46 8.46 0 0 1 3.5 12Z"
         case .check: return "M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16m3.36 5.65a.5.5 0 0 0-.64-.06l-.07.06L9 11.3 7.35 9.65l-.07-.06a.5.5 0 0 0-.7.7l.07.07 2 2 .07.06c.17.11.4.11.56 0l.07-.06 4-4 .07-.08a.5.5 0 0 0-.06-.63"
         case .plug: return "M19.49 5.57a5.97 5.97 0 0 1-1.9 8.96c-.64.35-1.42.14-1.94-.38l-5.8-5.8c-.52-.52-.73-1.3-.38-1.95a6 6 0 0 1 8.96-1.89l2.29-2.29a.75.75 0 1 1 1.06 1.06zm-2.02 7.26a4.5 4.5 0 1 0-6.3-6.3c-.27.35-.19.83.12 1.14l5.04 5.04c.31.3.8.39 1.14.12M3.28 21.78l2.3-2.29a5.97 5.97 0 0 0 8.95-1.9c.35-.64.14-1.42-.38-1.94l-5.8-5.8c-.52-.52-1.3-.73-1.95-.38a6 6 0 0 0-1.89 8.96l-2.29 2.29a.75.75 0 1 0 1.06 1.06m4.39-10.49 5.04 5.04c.3.31.39.8.12 1.14a4.5 4.5 0 1 1-6.3-6.3c.35-.27.83-.19 1.14.12"
+        case .moreHorizontal: return "M6.5 10a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m5 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m3.5 1.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3"
         }
     }
 }
