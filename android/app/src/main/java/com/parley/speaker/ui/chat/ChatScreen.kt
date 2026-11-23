@@ -218,6 +218,7 @@ fun ChatScreen(
                                 translation = translations[turn.id] ?: turn.translation,
                                 expanded = expanded[turn.id] == true,
                                 translating = turn.id in asking,
+                                retryable = retryTargetOf(turns, turn.id) != null,
                                 onPlay = { onPlayTurn(turn.id) },
                                 onTranslate = { translate(turn) },
                                 onSave = { onSaveTurn(turn.id, !turn.saved) },
@@ -327,12 +328,17 @@ private fun DoubleChevronDownIndicator(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * 一轮智能体消息：气泡在上，动作条以画板那道四像素的缝紧贴在下，两行都靠左。
+ * 动作条常驻，不再靠长按拉出浮层，所以气泡本身不接指针。
+ */
 @Composable
 private fun EchoRow(
     turn: Turn,
     translation: String?,
     expanded: Boolean,
     translating: Boolean,
+    retryable: Boolean,
     onPlay: () -> Unit,
     onTranslate: () -> Unit,
     onSave: () -> Unit,
@@ -340,40 +346,34 @@ private fun EchoRow(
     onRetry: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    // 菜单开在气泡自己这一条上：锚点就是这一条的实际位置，滚出屏幕就跟着消失。
-    var menuOpen by remember(turn.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         EchoTurn(
             turn = turn,
             translation = translation,
             expanded = expanded,
-            onLongPress = { menuOpen = true },
         )
-        if (menuOpen) {
-            MessageMenu(
-                actions = messageMenu(
-                    MessageMenuState(
-                        text = turn.text,
-                        saved = turn.saved,
-                        expanded = expanded,
-                        translating = translating,
-                        retryable = true,
-                    ),
+        Spacer(Modifier.height(MessageActionsSpec.BubbleGap))
+        MessageActionBar(
+            actions = messageActions(
+                MessageActionsState(
+                    text = turn.text,
+                    saved = turn.saved,
+                    expanded = expanded,
+                    translating = translating,
+                    retryable = retryable,
                 ),
-                onDismiss = { menuOpen = false },
-                onPick = { command ->
-                    menuOpen = false
-                    when (command) {
-                        MessageCommand.Speak -> onPlay()
-                        MessageCommand.Translate -> onTranslate()
-                        MessageCommand.Save -> onSave()
-                        MessageCommand.Copy -> onCopy()
-                        MessageCommand.Retry -> onRetry()
-                        MessageCommand.Delete -> onDelete()
-                    }
-                },
-            )
-        }
+            ),
+            onPick = { command ->
+                when (command) {
+                    MessageCommand.Speak -> onPlay()
+                    MessageCommand.Translate -> onTranslate()
+                    MessageCommand.Save -> onSave()
+                    MessageCommand.Copy -> onCopy()
+                    MessageCommand.Retry -> onRetry()
+                    MessageCommand.Delete -> onDelete()
+                }
+            },
+        )
     }
 }
 

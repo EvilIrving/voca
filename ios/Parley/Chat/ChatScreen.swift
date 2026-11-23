@@ -114,6 +114,7 @@ struct ChatScreen: View {
                 translation: translations[turn.id] ?? turn.translation,
                 expanded: expanded[turn.id] == true,
                 translating: asking.contains(turn.id),
+                retryable: retryTargetOf(turns, echoTurnId: turn.id) != nil,
                 onPlay: { onPlayTurn(turn.id) },
                 onTranslate: { translate(turn) },
                 onSave: { onSaveTurn(turn.id, !turn.saved) },
@@ -235,6 +236,7 @@ private struct EchoRow: View {
     var translation: String?
     var expanded: Bool
     var translating: Bool
+    var retryable: Bool
     var onPlay: () -> Void
     var onTranslate: () -> Void
     var onSave: () -> Void
@@ -242,34 +244,29 @@ private struct EchoRow: View {
     var onRetry: () -> Void
     var onDelete: () -> Void
 
-    @State private var menuOpen = false
-
     var body: some View {
-        VStack {
-            EchoTurn(turn: turn, translation: translation, expanded: expanded, onLongPress: { menuOpen = true })
-            if menuOpen {
-                MessageMenu(
-                    actions: messageMenu(MessageMenuState(
-                        text: turn.text,
-                        saved: turn.saved,
-                        expanded: expanded,
-                        translating: translating,
-                        retryable: true
-                    )),
-                    onPick: { command in
-                        menuOpen = false
-                        switch command {
-                        case .speak: onPlay()
-                        case .translate: onTranslate()
-                        case .save: onSave()
-                        case .copy: onCopy()
-                        case .retry: onRetry()
-                        case .delete: onDelete()
-                        }
-                    },
-                    onDismiss: { menuOpen = false }
-                )
-            }
+        VStack(alignment: .leading, spacing: MessageActionsSpec.bubbleGap) {
+            EchoTurn(turn: turn, translation: translation, expanded: expanded)
+            MessageActionBar(
+                actions: messageActions(MessageActionsState(
+                    text: turn.text,
+                    saved: turn.saved,
+                    expanded: expanded,
+                    translating: translating,
+                    retryable: retryable
+                )),
+                onPick: { command in
+                    switch command {
+                    case .speak: onPlay()
+                    case .translate: onTranslate()
+                    case .save: onSave()
+                    case .copy: onCopy()
+                    case .retry: onRetry()
+                    case .delete: onDelete()
+                    }
+                }
+            )
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

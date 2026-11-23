@@ -89,36 +89,25 @@ struct ParleyIconButton: View {
     }
 }
 
-private let messageMenuLabel = "打开消息菜单"
-
 struct EchoTurn: View {
     var turn: Turn
     var translation: String?
     var expanded: Bool
-    var onLongPress: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Pressable(
-                shape: bubbleShape(tailLeft: true),
-                resting: Palette.card,
-                border: Palette.hair,
-                contentDescription: messageMenuLabel,
-                onLongPress: onLongPress,
-                longClickLabel: messageMenuLabel,
-                onClick: {}
-            ) {
-                Text(turn.text)
-                    .font(Type.proseFont)
-                    .foregroundStyle(Palette.ink)
-                    .lineSpacing(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 14)
-                    .padding(.trailing, 14)
-                    .padding(.top, 13)
-                    .padding(.bottom, 12)
-            }
-            .frame(width: bubbleWidth, alignment: .leading)
+            Text(turn.text)
+                .font(Type.proseFont)
+                .foregroundStyle(Palette.ink)
+                .lineSpacing(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 14)
+                .padding(.trailing, 14)
+                .padding(.top, 13)
+                .padding(.bottom, 12)
+                .background(Palette.card, in: bubbleShape(tailLeft: true))
+                .overlay { bubbleShape(tailLeft: true).stroke(Palette.hair, lineWidth: 1) }
+                .frame(width: bubbleWidth, alignment: .leading)
 
             if expanded, let translation {
                 Spacer().frame(height: Spacing.iconText)

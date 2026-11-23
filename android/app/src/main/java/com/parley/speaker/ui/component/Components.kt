@@ -173,23 +173,20 @@ fun ParleyIconButton(
     }
 }
 
-private const val MessageMenuLabel = "打开消息菜单"
-
 val BubbleWidth = 258.dp
 
 /**
- * 智能体气泡只剩正文与译文两种元素，朗读、翻译、收藏、复制重试删除全收进长按菜单。
- * 按压反馈仍由 [Pressable] 负责：白卡按下去落到 tint，不出现涟漪。
+ * 智能体气泡只剩正文与译文两种元素，朗读、翻译、收藏、复制重试删除平铺在它下面那条动作条里。
+ * 气泡本身不接指针，正文就没有按下的底色与长按菜单，读它不改变任何状态。
  */
 @Composable
 fun EchoTurn(
     turn: Turn,
     translation: String?,
     expanded: Boolean,
-    onLongPress: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Pressable(
+        Surface(
             modifier = Modifier.width(BubbleWidth),
             shape = RoundedCornerShape(
                 topStart = Radius.bubbleTail,
@@ -197,12 +194,8 @@ fun EchoTurn(
                 bottomEnd = Radius.bubble,
                 bottomStart = Radius.bubble,
             ),
-            resting = Palette.card,
+            color = Palette.card,
             border = BorderStroke(1.dp, Palette.hair),
-            contentAlignment = Alignment.TopStart,
-            onLongClick = onLongPress,
-            longClickLabel = MessageMenuLabel,
-            onClick = {},
         ) {
             Text(
                 turn.text,

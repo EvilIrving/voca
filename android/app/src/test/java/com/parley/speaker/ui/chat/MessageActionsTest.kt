@@ -12,10 +12,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 长按智能体气泡弹出的那一份菜单：六行的顺序、哪一行按状态改词、哪一行按状态不出现，
- * 以及复制与重试各自落到哪一段文字上。
+ * 智能体气泡下面那条常驻动作条：六枚的次序、哪一枚按状态改动作词、哪一枚按状态压成禁用，
+ * 以及复制与重新分析各自落到哪一段文字上。
  */
-class MessageMenuTest {
+class MessageActionsTest {
 
     private fun echo(
         id: String = "e1",
@@ -37,52 +37,55 @@ class MessageMenuTest {
     )
 
     @Test
-    fun `六行齐全时顺序与画板一致`() {
-        val rows = messageMenu(MessageMenuState(text = echo().text, retryable = true))
+    fun `六枚永远都在且顺序与画板一致`() {
+        val bar = messageActions(MessageActionsState(text = echo().text, retryable = true))
 
+        assertEquals(MessageCommand.entries.toList(), bar.map { it.command })
+        assertEquals(6, bar.size)
         assertEquals(
-            listOf("朗读", "翻译", "收藏", "复制", "重试", "删除"),
-            rows.map { it.label },
+            listOf("朗读", "翻译", "收进生词本", "复制原文", "重新分析", "删除"),
+            bar.map { it.label },
         )
-        assertEquals(MessageCommand.entries.toList(), rows.map { it.command })
-        assertTrue("六行都要能点", rows.all { it.enabled })
     }
 
     @Test
-    fun `重试只在分析失败或还没分析时出现`() {
-        val todo = messageMenu(MessageMenuState(text = echo().text, retryable = true)).map { it.command }
-        assertTrue("还没分析的一轮该给重试", MessageCommand.Retry in todo)
+    fun `分析过的轮没有可重新分析的东西，那一枚压成禁用而不是消失`() {
+        val todo = messageActions(MessageActionsState(text = echo().text, retryable = true))
+        assertTrue("还没分析的一轮该能重新分析", todo.first { it.command == MessageCommand.Retry }.enabled)
 
-        val done = messageMenu(MessageMenuState(text = echo().text, retryable = false))
-        assertFalse("分析成功的一轮不再挂重试", done.any { it.command == MessageCommand.Retry })
-        assertEquals(5, done.size)
+        val done = messageActions(MessageActionsState(text = echo().text, retryable = false))
+        assertEquals("禁用不等于换位置", 6, done.size)
+        assertFalse("分析成功的一轮不给重新分析", done.first { it.command == MessageCommand.Retry }.enabled)
         assertEquals(MessageCommand.Delete, done.last().command)
     }
 
     @Test
-    fun `收藏过的行文案改成取消收藏`() {
-        val saved = messageMenu(MessageMenuState(text = echo().text, saved = true))
+    fun `收藏过的动作词改成取消收藏`() {
+        val saved = messageActions(MessageActionsState(text = echo().text, saved = true))
         assertEquals("取消收藏", saved.first { it.command == MessageCommand.Save }.label)
 
-        val fresh = messageMenu(MessageMenuState(text = echo().text, saved = false))
-        assertEquals("收藏", fresh.first { it.command == MessageCommand.Save }.label)
+        val fresh = messageActions(MessageActionsState(text = echo().text, saved = false))
+        assertEquals("收进生词本", fresh.first { it.command == MessageCommand.Save }.label)
     }
 
     @Test
-    fun `译文展开时翻译那一行变成收起译文`() {
-        val open = messageMenu(MessageMenuState(text = echo().text, expanded = true))
+    fun `译文展开时翻译那枚的动作词变成收起译文`() {
+        val open = messageActions(MessageActionsState(text = echo().text, expanded = true))
         assertEquals("收起译文", open.first { it.command == MessageCommand.Translate }.label)
 
-        val closed = messageMenu(MessageMenuState(text = echo().text, expanded = false))
+        val closed = messageActions(MessageActionsState(text = echo().text, expanded = false))
         assertEquals("翻译", closed.first { it.command == MessageCommand.Translate }.label)
     }
 
     @Test
-    fun `翻译还在路上时那一行禁用，朗读一直能点`() {
-        val rows = messageMenu(MessageMenuState(text = echo().text, translating = true))
+    fun `翻译还在路上或没有正文时翻译禁用，朗读一直能点`() {
+        val flying = messageActions(MessageActionsState(text = echo().text, translating = true))
+        assertFalse(flying.first { it.command == MessageCommand.Translate }.enabled)
+        assertTrue(flying.first { it.command == MessageCommand.Speak }.enabled)
 
-        assertFalse(rows.first { it.command == MessageCommand.Translate }.enabled)
-        assertTrue(rows.first { it.command == MessageCommand.Speak }.enabled)
+        val empty = messageActions(MessageActionsState(text = ""))
+        assertFalse(empty.first { it.command == MessageCommand.Translate }.enabled)
+        assertFalse(empty.first { it.command == MessageCommand.Copy }.enabled)
     }
 
     @Test
@@ -93,7 +96,7 @@ class MessageMenuTest {
     }
 
     @Test
-    fun `重试落到同一轮里用户那句上`() {
+    fun `重新分析落到同一轮里用户那句上`() {
         val failed = listOf(user("u1", AnalysisStatus.Failed), echo(id = "e1"))
         assertEquals("u1", retryTargetOf(failed, "e1"))
 
