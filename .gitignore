@@ -60,3 +60,8 @@ ios/Parley/Generated/Secrets.swift
 # 其他
 *.log
 .DS_Store
+hiecho-reverse/vivo/*.apk
+hiecho-reverse/vivo/browser-ex/
+hiecho-reverse/vivo/jadx*/
+hiecho-reverse/vivo/ime-ex/
+hiecho-reverse/vivo/wt-ex/
