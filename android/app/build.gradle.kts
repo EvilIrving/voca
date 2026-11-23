@@ -26,10 +26,15 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        buildConfigField("String", "DEV_GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
+        // 密钥只进 debug 包，.env 里的值在这一层留空，release 包和开源分发不带任何开发者凭据。
+        // 模型名与音色不是凭据，出厂默认值照旧随包走。
+        buildConfigField("String", "DEV_GEMINI_API_KEY", "\"\"")
         buildConfigField("String", "DEV_GEMINI_LIVE_MODEL", "\"${secret("GEMINI_LIVE_MODEL").ifBlank { "gemini-3.8-live" }}\"")
         buildConfigField("String", "DEV_GEMINI_TEXT_MODEL", "\"${secret("GEMINI_TEXT_MODEL").ifBlank { "gemini-flash-latest" }}\"")
         buildConfigField("String", "DEV_GEMINI_VOICE", "\"${secret("GEMINI_VOICE").ifBlank { "Aoede" }}\"")
+        buildConfigField("String", "DEV_XFYUN_APP_ID", "\"\"")
+        buildConfigField("String", "DEV_XFYUN_API_KEY", "\"\"")
+        buildConfigField("String", "DEV_XFYUN_API_SECRET", "\"\"")
 
         // 只留真机在用的 arm64：onnxruntime 一套原生库就三十多兆，四套指令集全打进去
         // 光这一项就占一百四十多兆，安装包凭空大一倍。
@@ -39,6 +44,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "DEV_GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
+            buildConfigField("String", "DEV_XFYUN_APP_ID", "\"${secret("XFYUN_APP_ID")}\"")
+            buildConfigField("String", "DEV_XFYUN_API_KEY", "\"${secret("XFYUN_API_KEY")}\"")
+            buildConfigField("String", "DEV_XFYUN_API_SECRET", "\"${secret("XFYUN_API_SECRET")}\"")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
