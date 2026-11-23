@@ -32,7 +32,7 @@
 
 - **现象描述**：执行覆盖安装（`pm install -r -d`）时，系统可能会在后台唤起 `com.android.packageinstaller/.PackageInterceptActivity` 拦截界面（提示「继续安装」），导致控制台阻塞。
 - **原因机理**：厂商定制系统会对命令行触发的静默安装执行二次防劫持校验。在拦截状态下 `uiautomator dump` 会因窗口焦点锁定而报错。
-- **应对方案**：驱动脚本安装流程采用后台进程监控结合前台顶层 Activity 轮询（`dumpsys activity activities | grep topResumedActivity`），一旦探测到 `packageinstaller`，立即触发真机标定坐标 `(302, 2267)` 执行自动点按，全程无需人工干预。
+- **应对方案**：驱动脚本安装流程采用后台进程监控结合前台顶层 Activity 轮询（`dumpsys activity activities | grep topResumedActivity`），一旦探测到 `packageinstaller` 就按一组实测坐标逐个点，「继续安装」按钮在 1080×2376 上实测中心是 `(541, 2217)`，同组还有 `(540, 2210)`、`(302, 2267)`、`(720, 2200)`，按钮随系统版本与弹窗高度挪位，落空就换下一个；每点一次回读前台，离开拦截页就停手。整套最多等 `PARLEY_INSTALL_TIMEOUT`（默认 150 秒），到点直接退出并提示去开「USB 安装」权限。
 
 ---
 
@@ -40,7 +40,7 @@
 
 - **现象描述**：代码中通过 `Log.d(...)` 输出的调试信息在 logcat 中完全无法检索，误以为执行路径未触达。
 - **原因机理**：vivo 商业机型默认在系统底层关闭 Debug 级别日志输出（实测 logcat 中 D 级日志总数为 0）。
-- **应对方案**：项目全量埋点与状态输出统一使用 `Log.i(...)` 及以上级别；排查问题时不再依赖 `Log.d`。
+- **应对方案**：项目全量埋点与状态输出统一使用 `Log.i(...)` 及以上级别；排查问题时只看 `Log.i` 及以上级别的输出。
 
 ---
 
@@ -97,3 +97,15 @@
 - **现象描述**：探针接收器把状态写进 `/sdcard/Android/data/<包名>/files/` 后，重装一次应用，脚本读到的永远是旧值。
 - **原因机理**：重装后外部私有目录的写入可能静默失败，`getExternalFilesDir` 返回可用但写入不落地。
 - **应对方案**：探针改写到应用内部目录 `context.filesDir`，脚本用 `adb exec-out run-as <包名> cat files/<名字>` 读取。
+
+## 13. 装机不能用 `gradlew installDebug`
+
+- **现象描述**：把装机交给 Gradle 任务时，构建完成后停在安装这一步长时间没有输出，手机上停着「继续安装」没人点。
+- **原因机理**：Gradle 的安装走的是同样的 `pm install` 通道，遇到厂商拦截框就同步等待用户确认，既没有轮询也没有超时，等待期间不输出任何东西。
+- **应对方案**：装机只走 `.agents/skills/android-device-testing/scripts/android-drive.sh install`，它自己会构建、推送、盯弹窗、到点报错；构建与装机分成两步跑（先 `build` 再 `install`），需要长时间跑的构建用后台加日志，不要用会把安装混在里面的 Gradle 任务。
+
+## 14. 装完弹「安全守护」页
+
+- **现象描述**：安装成功后前台停着 `com.android.packageinstaller/.InstallSwitchActivity`，显示「安全升级模式 / 超级守护 / 待开启」，应用被压在下面，读屏会把当前界面判成「系统:安装确认框」，后续点击全落在这一页上。
+- **原因机理**：厂商在安装成功后追加一页推荐与安全开关，它不是安装确认，也不需要点任何按钮。
+- **应对方案**：`install` 结束前若前台仍是 `packageinstaller`，连按两次返回回到应用；读屏看到这一页时同样按返回，不要去找「继续安装」重复点击。

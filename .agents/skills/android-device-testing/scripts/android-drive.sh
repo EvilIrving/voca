@@ -13,6 +13,7 @@
 #    .agents/skills/android-device-testing/scripts/android-drive.sh shot [名字]
 #    .agents/skills/android-device-testing/scripts/android-drive.sh install [apk]
 #    .agents/skills/android-device-testing/scripts/android-drive.sh launch / home / back / devices / el
+#    .agents/skills/android-device-testing/scripts/android-drive.sh raw <adb 参数...>   透传一次 adb 调用
 #
 #  环境变量：PARLEY_DEV 或 QOD_DEV 指定目标序列号（默认自动探测唯一处于 device 状态的机器）。
 
@@ -304,12 +305,26 @@ install_app() {
   A shell pm install -r -d /data/local/tmp/parley.apk >/tmp/parley-install.log 2>&1 &
   local install_pid=$!
 
+  # 拦截框在不同系统版本与弹窗高度上会挪位，「继续安装」按一组实测坐标逐个试，
+  # 每点一次回读前台确认是否已经离开拦截页；没有进展就停手报错，绝不无限等。
+  local candidates=("541 2217" "540 2210" "302 2267" "720 2200")
+  local deadline=$(( $(date +%s) + ${PARLEY_INSTALL_TIMEOUT:-150} ))
   while kill -0 "$install_pid" 2>/dev/null; do
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      kill "$install_pid" 2>/dev/null
+      echo "安装超时：系统拦截框一直没被确认。请在手机上解锁后手动点「继续安装」，或到开发者选项里打开「USB 安装」权限"
+      return 1
+    fi
     local top
     top=$(A shell dumpsys activity activities 2>/dev/null | grep -m1 topResumedActivity || true)
     if echo "$top" | grep -q packageinstaller; then
-      # vivo V2454DA 实测「继续安装」物理坐标
-      A shell input tap 302 2267 >/dev/null 2>&1
+      local c now
+      for c in "${candidates[@]}"; do
+        A shell input tap $c >/dev/null 2>&1
+        sleep 1
+        now=$(A shell dumpsys activity activities 2>/dev/null | grep -m1 topResumedActivity || true)
+        echo "$now" | grep -q packageinstaller || break
+      done
     fi
     sleep 1
   done
@@ -317,6 +332,17 @@ install_app() {
 
   out=$(cat /tmp/parley-install.log)
   echo "$out"
+
+  # 装完之后 vivo 还会推一页「安全守护 / 超级守护」的 InstallSwitchActivity 盖在应用上，
+  # 它不是安装确认框，也不需要点击，按两次返回就回到底下的应用。
+  local i
+  for i in 1 2; do
+    if A shell dumpsys activity activities 2>/dev/null | grep -m1 topResumedActivity | grep -q packageinstaller; then
+      A shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+      sleep 1
+    fi
+  done
+
   case "$out" in
     *Success*)
       echo "应用安装成功完成"
@@ -351,5 +377,7 @@ case "${1:-state}" in
   launch)         A shell am start -n "$MAIN_ACT" >/dev/null; wait_ready 2.0; state ;;
   home)           A shell input keyevent KEYCODE_HOME >/dev/null; wait_ready 1.2; state ;;
   back)           A shell input keyevent KEYCODE_BACK >/dev/null; wait_ready 1.0; state ;;
+  # 探针广播、字体设置这类一次性 adb 调用走这里，不必在外部另写包装脚本。
+  raw)            shift; A "$@" ;;
   *)              echo "用法提示详见脚本头部说明或 SKILL.md 文档"; exit 1 ;;
 esac

@@ -8,7 +8,7 @@
 
 ## 验证
 
-安卓跑 `tools/gate.sh`，默认编译 debug 变体并跑单元测试；带参数就只跑指定的 Gradle 任务，例如 `tools/gate.sh :app:testDebugUnitTest`。iOS 跑 `tools/ios-gate.sh`，先跑一对一口径再编 Debug。人声判据跑 `tools/vad-check.sh`，它把2 份 Swift 源码编成命令行程序，验证9 条判据。真机交互走 `.agents/skills/android-device-testing`，先读屏再动手。构建通过与测试全绿都不算验收，真机跑1 遍才算。
+安卓跑 `tools/gate.sh`，默认编译 debug 变体并跑单元测试；带参数就只跑指定的 Gradle 任务，例如 `tools/gate.sh :app:testDebugUnitTest`。iOS 跑 `tools/ios-gate.sh`，先跑一对一口径再编 Debug。人声判据跑 `tools/vad-check.sh`，它把2 份 Swift 源码编成命令行程序，验证9 条判据。真机交互走 `.agents/skills/android-device-testing`，先读屏再动手；装机只走 `android-drive.sh install`，它自己盯厂商拦截框并带超时，`gradlew installDebug` 会在「继续安装」上无声挂住。构建通过与测试全绿都不算验收，真机跑1 遍才算。
 
 ## 硬约束
 

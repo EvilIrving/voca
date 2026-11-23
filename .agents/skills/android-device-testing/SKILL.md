@@ -99,6 +99,7 @@ Compose 声明式界面采用全屏覆盖浮层呈现，层叠组件在底层语
 | `launch` | 冷启动或唤醒应用主界面 |
 | `home` | 模拟物理 Home 键回桌面 |
 | `back` | 模拟物理返回键 |
+| `raw <adb 参数...>` | 透传一次 adb 调用（探针广播、`run-as` 读文件这类一次性命令），外层不必再写包装脚本 |
 
 详细元素清单参阅 `references/element-map.md`；排查要点参阅 `references/pitfalls.md`。
 
@@ -106,25 +107,20 @@ Compose 声明式界面采用全屏覆盖浮层呈现，层叠组件在底层语
 
 ## 4. 自动化构建与静默装机流程
 
-vivo 机型在执行覆盖安装时，会在系统底层唤醒 `PackageInterceptActivity` 拦截界面并暂停命令响应。针对这一特性，测试驱动内置全自动监控流水线：
+vivo 机型在执行覆盖安装时，会在系统底层唤醒 `PackageInterceptActivity` 拦截界面并暂停命令响应。整套处置都收在 `install` 里，一条命令跑完，外面不用再套监控循环：
 
 ```bash
 DRV=.agents/skills/android-device-testing/scripts/android-drive.sh
-$DRV install >/tmp/parley-install.log 2>&1 & PID=$!    # 后台推送并装机
-while kill -0 $PID 2>/dev/null; do                   # 循环监测进程存活
-  TOP=$(adb shell "dumpsys activity activities 2>/dev/null" | grep -m1 topResumedActivity)
-  if echo "$TOP" | grep -q packageinstaller; then   # 探测到系统拦截框
-    adb shell input tap 302 2267                   # 触发 vivo 标定坐标自动确认
-  fi
-  sleep 1
-done
-wait $PID
-$DRV state                                         # 校验装机后落地界面
-$DRV shot install-verify                           # 保存界面截图备查
+$DRV build                      # 构建 debug 变体，产物在 android/app/build/outputs/apk/debug/
+$DRV install                    # 推送 + 安装 + 盯拦截框 + 收尾，默认 150 秒超时
+$DRV state                      # 校验装机后落地界面
+$DRV shot install-verify        # 保存界面截图备查
 ```
 
 流程技术要点：
-- 严格使用 POSIX `kill -0 $PID` 实施轮询，消除 macOS 平台无 `timeout` 指令带来的执行阻碍。
-- 系统拦截期间 `uiautomator dump` 会被锁死，必须通过 `dumpsys activity activities` 直读前台 Activity。
-- 标定坐标 `(302, 2267)` 来源于 vivo `PD2454`（1080×2376 分辨率）硬件触控层采集换算，精准命中「继续安装」按钮。
+- 安装进程在后台跑，脚本每秒读一次 `dumpsys activity activities` 的前台 Activity；拦截期间 `uiautomator dump` 会被锁死，只能走这条。
+- 「继续安装」按钮在这台 vivo PD2454（1080×2376）上实测中心是 `(541, 2217)`；脚本按 `(541, 2217)`、`(540, 2210)`、`(302, 2267)`、`(720, 2200)` 逐个试，每点一次回读前台，离开拦截页就停手。
+- 整套最多等 `PARLEY_INSTALL_TIMEOUT`（默认 150 秒），到点直接退出并提示去开发者选项打开「USB 安装」权限。
+- 安装成功后 vivo 可能再推一页「安全守护 / 超级守护」（`InstallSwitchActivity`），那不是安装确认，脚本连按两次返回把它收掉。
+- 构建与装机分成两条命令：`gradlew installDebug` 把安装混在 Gradle 任务里同步等待，遇到拦截框时整条命令停在安装阶段、不输出任何进展。
 - 装机完毕后应用进程会自动重置，必须先调用 `state` 确认当前所处页面后再开展后续验证。
