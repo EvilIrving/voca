@@ -90,11 +90,7 @@ internal data class LiveField(val key: String, val label: String, val value: Str
 internal fun liveFields(live: LiveSettings, vendor: LiveVendor): List<LiveField> = when (vendor) {
     LiveVendor.Gemini -> listOf(LiveField("geminiKey", "密钥", live.geminiKey, secret = true))
     LiveVendor.OpenAi -> listOf(LiveField("openAiKey", "密钥", live.openAiKey, secret = true))
-    LiveVendor.Doubao -> listOf(
-        LiveField("doubaoAppId", "AppID", live.doubaoAppId),
-        LiveField("doubaoAppKey", "AppKey", live.doubaoAppKey, secret = true),
-        LiveField("doubaoAccessKey", "AccessKey", live.doubaoAccessKey, secret = true),
-    )
+    LiveVendor.Doubao -> listOf(LiveField("doubaoApiKey", "密钥", live.doubaoApiKey, secret = true))
 }
 
 /**
@@ -106,11 +102,7 @@ fun AppSettings.liveSaved(vendor: LiveVendor, values: Map<String, String>, voice
     val credentials = when (vendor) {
         LiveVendor.Gemini -> live.copy(geminiKey = trimmed["geminiKey"].orEmpty())
         LiveVendor.OpenAi -> live.copy(openAiKey = trimmed["openAiKey"].orEmpty())
-        LiveVendor.Doubao -> live.copy(
-            doubaoAppId = trimmed["doubaoAppId"].orEmpty(),
-            doubaoAppKey = trimmed["doubaoAppKey"].orEmpty(),
-            doubaoAccessKey = trimmed["doubaoAccessKey"].orEmpty(),
-        )
+        LiveVendor.Doubao -> live.copy(doubaoApiKey = trimmed["doubaoApiKey"].orEmpty())
     }
     return copy(live = credentials.copy(provider = vendor, voice = voice))
 }

@@ -57,7 +57,11 @@ class SettingsStore(context: Context) {
                 ),
             ),
         ),
-        assessor = AssessorSettings(provider = AssessorProvider.None),
+        assessor = AssessorSettings(
+            xfyunAppId = BuildConfig.DEV_XFYUN_APP_ID,
+            xfyunApiKey = BuildConfig.DEV_XFYUN_API_KEY,
+            xfyunApiSecret = BuildConfig.DEV_XFYUN_API_SECRET,
+        ),
         prompt = defaultPrompt,
     )
 
@@ -228,9 +232,7 @@ private const val KEY_LIVE_PROVIDER = "live_provider"
 /** 旧版本只有这一把密钥，读出来当 Gemini 的密钥，已经填过的人不必重填。 */
 private const val KEY_LIVE_KEY = "live_api_key"
 private const val KEY_LIVE_OPENAI_KEY = "live_openai_key"
-private const val KEY_LIVE_DOUBAO_APP_ID = "live_doubao_app_id"
-private const val KEY_LIVE_DOUBAO_APP_KEY = "live_doubao_app_key"
-private const val KEY_LIVE_DOUBAO_ACCESS_KEY = "live_doubao_access_key"
+private const val KEY_LIVE_DOUBAO_API_KEY = "live_doubao_api_key"
 private const val KEY_LIVE_MODEL = "live_model"
 private const val KEY_LIVE_VOICE = "live_voice"
 
@@ -243,9 +245,7 @@ internal fun readLive(prefs: SharedPreferences): LiveSettings {
             provider = provider,
             geminiKey = prefs.getString(KEY_LIVE_KEY, "").orEmpty(),
             openAiKey = prefs.getString(KEY_LIVE_OPENAI_KEY, "").orEmpty(),
-            doubaoAppId = prefs.getString(KEY_LIVE_DOUBAO_APP_ID, "").orEmpty(),
-            doubaoAppKey = prefs.getString(KEY_LIVE_DOUBAO_APP_KEY, "").orEmpty(),
-            doubaoAccessKey = prefs.getString(KEY_LIVE_DOUBAO_ACCESS_KEY, "").orEmpty(),
+            doubaoApiKey = prefs.getString(KEY_LIVE_DOUBAO_API_KEY, "").orEmpty(),
             model = prefs.getString(KEY_LIVE_MODEL, "").orEmpty(),
             voice = prefs.getString(KEY_LIVE_VOICE, "").orEmpty(),
         ),
@@ -256,9 +256,7 @@ internal fun SharedPreferences.Editor.putLive(live: LiveSettings): SharedPrefere
     putString(KEY_LIVE_PROVIDER, live.provider.name)
         .putString(KEY_LIVE_KEY, live.geminiKey)
         .putString(KEY_LIVE_OPENAI_KEY, live.openAiKey)
-        .putString(KEY_LIVE_DOUBAO_APP_ID, live.doubaoAppId)
-        .putString(KEY_LIVE_DOUBAO_APP_KEY, live.doubaoAppKey)
-        .putString(KEY_LIVE_DOUBAO_ACCESS_KEY, live.doubaoAccessKey)
+        .putString(KEY_LIVE_DOUBAO_API_KEY, live.doubaoApiKey)
         .putString(KEY_LIVE_MODEL, live.model)
         .putString(KEY_LIVE_VOICE, live.voice)
 

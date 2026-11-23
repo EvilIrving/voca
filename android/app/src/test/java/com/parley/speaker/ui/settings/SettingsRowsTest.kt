@@ -33,25 +33,10 @@ class SettingsRowsTest {
         assertEquals(LinkStatus.Configured, gemini.first { it.key == "gemini" }.status)
         assertEquals(LinkStatus.Unconfigured, gemini.first { it.key == "openai" }.status)
 
-        val doubaoHalf = realtime(
-            providerLines(AppSettings(live = live(provider = LiveVendor.Doubao, doubaoAppId = "app")), emptyMap()),
+        val doubao = realtime(
+            providerLines(AppSettings(live = live(provider = LiveVendor.Doubao, doubaoApiKey = "key")), emptyMap()),
         )
-        assertEquals("三件套缺一件就不算齐备", LinkStatus.Unconfigured, doubaoHalf.first { it.key == "doubao" }.status)
-
-        val doubaoFull = realtime(
-            providerLines(
-                AppSettings(
-                    live = live(
-                        provider = LiveVendor.Doubao,
-                        doubaoAppId = "app",
-                        doubaoAppKey = "key",
-                        doubaoAccessKey = "secret",
-                    ),
-                ),
-                emptyMap(),
-            ),
-        )
-        assertEquals(LinkStatus.Configured, doubaoFull.first { it.key == "doubao" }.status)
+        assertEquals(LinkStatus.Configured, doubao.first { it.key == "doubao" }.status)
     }
 
     @Test
@@ -63,7 +48,7 @@ class SettingsRowsTest {
 
         val withDoubao = withGemini.liveSaved(
             LiveVendor.Doubao,
-            mapOf("doubaoAppId" to "app", "doubaoAppKey" to "key", "doubaoAccessKey" to "secret"),
+            mapOf("doubaoApiKey" to "key"),
             voice = "zh_female_vv_jupiter_bigtts",
         )
 
@@ -237,16 +222,12 @@ class SettingsRowsTest {
         provider: LiveVendor = LiveVendor.Gemini,
         geminiKey: String = "",
         openAiKey: String = "",
-        doubaoAppId: String = "",
-        doubaoAppKey: String = "",
-        doubaoAccessKey: String = "",
+        doubaoApiKey: String = "",
     ) = com.parley.speaker.domain.LiveSettings(
         provider = provider,
         geminiKey = geminiKey,
         openAiKey = openAiKey,
-        doubaoAppId = doubaoAppId,
-        doubaoAppKey = doubaoAppKey,
-        doubaoAccessKey = doubaoAccessKey,
+        doubaoApiKey = doubaoApiKey,
         model = com.parley.speaker.domain.LiveDefaults.model(provider),
         voice = com.parley.speaker.domain.LiveDefaults.voice(provider),
     )

@@ -10,24 +10,22 @@ enum class AssessorProvider(val label: String) {
 enum class AuthKind { Bearer, Header, Query }
 
 /**
- * 实时对话设置按供应商分档：三家的凭据形态不同，模型与音色跟着当前供应商走。
- * 齐备条件也各不相同，Gemini 与 OpenAI 各认一把密钥，豆包认 AppID、AppKey、AccessKey 三件套。
+ * 实时对话设置按供应商分档：三家的凭据各自一格，模型与音色跟着当前供应商走。
+ * 齐备条件三家一致，各认一把密钥：豆包 3.0 全双工版与另外两家一样，只吃一个 X-Api-Key，
+ * 不再要 AppID 与 AccessKey 那套旧控制台三件套。
  */
 data class LiveSettings(
     val provider: LiveVendor = LiveVendor.Gemini,
     val geminiKey: String = "",
     val openAiKey: String = "",
-    val doubaoAppId: String = "",
-    val doubaoAppKey: String = "",
-    val doubaoAccessKey: String = "",
+    val doubaoApiKey: String = "",
     val model: String = LiveDefaults.model(LiveVendor.Gemini),
     val voice: String = LiveDefaults.voice(LiveVendor.Gemini),
 ) {
     fun ready(vendor: LiveVendor): Boolean = when (vendor) {
         LiveVendor.Gemini -> geminiKey.isNotBlank()
         LiveVendor.OpenAi -> openAiKey.isNotBlank()
-        LiveVendor.Doubao ->
-            doubaoAppId.isNotBlank() && doubaoAppKey.isNotBlank() && doubaoAccessKey.isNotBlank()
+        LiveVendor.Doubao -> doubaoApiKey.isNotBlank()
     }
 
     /** 当前选中的这家能不能建连接。界面与建连判定都读这一格，不再各自数密钥。 */
@@ -36,13 +34,13 @@ data class LiveSettings(
 
 /**
  * 三家的默认模型与默认音色。音色统一取 [VoiceCatalog] 的默认项，模型在这里定：
- * 豆包的端到端接口在 StartSession 里不带模型名，这一格留空，界面按音色显示。
+ * 豆包 3.0 的模型号只有一个取值，协议里必传，所以设置页那一行显示的就是它。
  */
 object LiveDefaults {
     fun model(vendor: LiveVendor): String = when (vendor) {
         LiveVendor.Gemini -> "gemini-3.8-live"
         LiveVendor.OpenAi -> "gpt-realtime-2.1"
-        LiveVendor.Doubao -> ""
+        LiveVendor.Doubao -> "1.2.6.1"
     }
 
     fun voice(vendor: LiveVendor): String = VoiceCatalog.defaultId(vendor)
@@ -65,7 +63,7 @@ fun liveChange(before: AppSettings, after: AppSettings): LiveChange = when {
 
 /** 建连接真正吃的那几格，逐格比一次。 */
 private fun LiveSettings.credentials(): List<String> =
-    listOf(geminiKey, openAiKey, doubaoAppId, doubaoAppKey, doubaoAccessKey)
+    listOf(geminiKey, openAiKey, doubaoApiKey)
 
 /**
  * 一家供应商自己的一份配置：密钥、挑好的模型、自定义端点与鉴权落点。

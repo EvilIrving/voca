@@ -3,249 +3,164 @@ package com.parley.speaker.data.realtime.doubao
 import android.util.Log
 import com.parley.speaker.data.realtime.ProviderFault
 import com.parley.speaker.data.realtime.RealtimeEvent
+import java.util.Base64
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
-/**
- * 事件号。文档给的是事件名与先后顺序（StartConnection、StartSession、TaskRequest 到
- * FinishSession、FinishConnection），下面这些数字是照事件表填的，离线状态下没法逐条核对，
- * 真机联调时若哪个事件一动不动，先核对这张表；解析全部按这里取号，改一处就够。
- */
-internal object DoubaoEvents {
-    // 客户端发出
-    const val START_CONNECTION = 1
-    const val FINISH_CONNECTION = 2
-    const val START_SESSION = 5
-    const val FINISH_SESSION = 6
-    const val TASK_REQUEST = 100
-
-    // 服务端发出
-    const val CONNECTION_STARTED = 50
-    const val CONNECTION_FAILED = 51
-    const val CONNECTION_FINISHED = 52
-    const val SESSION_STARTED = 150
-    const val SESSION_FINISHED = 152
-    const val SESSION_FAILED = 153
-    const val SAY_HELLO = 300
-    const val CHAT_RESPONSE = 350
-    const val CHAT_ENDED = 359
-    const val ASR_INFO = 450
-    const val ASR_RESPONSE = 451
-    const val ASR_ENDED = 459
-    const val TTS_SENTENCE_START = 550
-    const val TTS_SENTENCE_END = 551
-    const val TTS_RESPONSE = 552
-    const val TTS_ENDED = 559
-
-    /** 连接级事件不带会话号，帧里那一段不存在，解码与解析都按这张表判断。 */
-    val CONNECTION_LEVEL = setOf(
-        START_CONNECTION,
-        FINISH_CONNECTION,
-        CONNECTION_STARTED,
-        CONNECTION_FAILED,
-        CONNECTION_FINISHED,
-    )
-}
-
-/** 一帧解出来之后的样子：要么是流控信号，要么是要交给界面的那几类事件。 */
+/** 后台送来的一条东西。取不到文字的帧一律归为 Ignored，不往上抛半条消息。 */
 internal sealed interface DoubaoInbound {
-    /** 连接已建立，会话层接着发 StartSession，界面不必知道。 */
-    data object ConnectionStarted : DoubaoInbound
-    data object SessionStarted : DoubaoInbound
-    data object SessionFinished : DoubaoInbound
+    /** 带响应号的那几类能精确判出迟到的内容，取消之后靠它把旧的一轮筛出来。 */
+    sealed interface WithResponse : DoubaoInbound {
+        val responseId: String?
+    }
+
+    data class Created(val sessionId: String) : DoubaoInbound
     data class UserText(val text: String) : DoubaoInbound
-    data class AssistantText(val text: String) : DoubaoInbound
-    data class Audio(val pcm: ByteArray) : DoubaoInbound
-    data object TurnComplete : DoubaoInbound
+    data class AssistantText(val text: String, override val responseId: String? = null) : WithResponse
+    data class Audio(val pcm: ByteArray, override val responseId: String? = null) : WithResponse
+    data object Committed : DoubaoInbound
+    data object Canceled : DoubaoInbound
+    data class TurnComplete(override val responseId: String? = null) : WithResponse
+    data object Closed : DoubaoInbound
     data class Failed(val message: String) : DoubaoInbound
     data object Ignored : DoubaoInbound
 }
 
-/** 投影到界面认的六类事件，turnId 由会话层补。 */
 internal fun DoubaoInbound.event(): RealtimeEvent? = when (this) {
-    DoubaoInbound.ConnectionStarted -> null
-    DoubaoInbound.Ignored -> null
-    DoubaoInbound.SessionStarted -> RealtimeEvent.Ready
-    // 整场结束由会话层自己当作断线处理，走不到这里，所以没有对应事件。
-    DoubaoInbound.SessionFinished -> null
-    DoubaoInbound.TurnComplete -> RealtimeEvent.TurnComplete
+    is DoubaoInbound.Created -> RealtimeEvent.Ready
     is DoubaoInbound.UserText -> RealtimeEvent.UserText(text)
     is DoubaoInbound.AssistantText -> RealtimeEvent.AssistantText(text)
     is DoubaoInbound.Audio -> RealtimeEvent.Audio(pcm)
+    is DoubaoInbound.TurnComplete -> RealtimeEvent.TurnComplete
     is DoubaoInbound.Failed -> RealtimeEvent.Failed(message)
+    // 提交回执、打断回执与整场结束都由会话层自己消化，界面不认识它们。
+    DoubaoInbound.Committed, DoubaoInbound.Canceled, DoubaoInbound.Closed, DoubaoInbound.Ignored -> null
 }
 
 /**
- * 豆包端到端实时语音的报文与载荷。
+ * 豆包实时语音 3.0（Seeduplex）的报文。整条链路是 JSON 文本帧，没有二进制帧头：
+ * 上行 session.create 建会话，input_audio_buffer.append 送 Base64 音频，
+ * input_audio_buffer.commit 与 input_audio_mute.commit 一起收口（两条都要，只发前者不出字也不作答），
+ * 再开口前发 input_audio_unmute.commit，response.cancel 打断，session.close 收场。
  *
- * 来自文档的部分：端点、握手头、上行 PCM16 十六千赫兹单声道、下行必须在 StartSession 的
- * tts.audio_config 里指定 pcm 二十四千赫兹十六位才给裸流、音色走 tts.speaker、
- * 手动回合制走 dialog.input_mod 置 push_to_talk 加 enable_custom_vad。
- *
- * 属于推断、要真机核对的：事件号的具体数字、会话号由客户端生成 UUID 并逐帧带上、
- * audio_config 里表示十六位的字段名、push_to_talk 下用来宣告一段音频结束的载荷写法、
- * ASR 与 ChatResponse 载荷里取文本的那两个键、TTS 音频落在裸音频响应帧这一条。
+ * 下行按事件名分派，音频在 response.output_audio.delta 的 delta 字段里，Base64 编码。
+ * 转写只在 completed 时取一次，整句在 text 字段里：界面那边的气泡文本是追加语义，
+ * 而这张服务的 delta 每一条都带当前整句，逐字回填会把同一句叠上几遍。模型文本反过来取 delta。
  */
 internal object DoubaoWire {
 
-    const val ENDPOINT = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue"
-    const val RESOURCE_ID = "volc.speech.dialog"
+    const val ENDPOINT = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
+
+    /** 协议里必传的模型版本，取值只有这一个。 */
+    const val MODEL = "1.2.6.1"
 
     const val UPLINK_RATE = 16_000
     const val DOWNLINK_RATE = 24_000
-    const val DOWNLINK_BITS = 16
 
-    const val BOT_NAME = "Parley"
+    /** 下行默认的 pcm 是三十二位小端，播放链路读十六位，必须在 setup 里点名这一档。 */
+    const val DOWNLINK_FORMAT = "pcm_s16le"
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun startConnection(): ByteArray = DoubaoFrameCodec.request(
-        messageType = DoubaoProto.MSG_FULL_CLIENT,
-        event = DoubaoEvents.START_CONNECTION,
-        sessionId = "",
-        payload = buildJsonObject { }.toString().toByteArray(Charsets.UTF_8),
-    )
+    fun sessionCreate(sessionId: String, voice: String, instructions: String): String = buildJsonObject {
+        put("type", "session.create")
+        putJsonObject("session") {
+            put("id", sessionId)
+            put("model", MODEL)
+            if (instructions.isNotBlank()) put("instructions", instructions)
+            putJsonObject("audio") {
+                putJsonObject("input") {
+                    putJsonObject("format") {
+                        put("type", "pcm")
+                        put("rate", UPLINK_RATE)
+                    }
+                }
+                putJsonObject("output") {
+                    putJsonObject("format") {
+                        put("type", DOWNLINK_FORMAT)
+                        put("rate", DOWNLINK_RATE)
+                    }
+                    put("voice", voice)
+                }
+            }
+        }
+    }.toString()
 
-    fun finishConnection(): ByteArray = DoubaoFrameCodec.request(
-        messageType = DoubaoProto.MSG_FULL_CLIENT,
-        event = DoubaoEvents.FINISH_CONNECTION,
-        sessionId = "",
-        payload = buildJsonObject { }.toString().toByteArray(Charsets.UTF_8),
-    )
+    fun audioAppend(pcm: ByteArray): String = buildJsonObject {
+        put("type", "input_audio_buffer.append")
+        put("audio", Base64.getEncoder().encodeToString(pcm))
+    }.toString()
+
+    /** 强制判停：确认这一段说完。只发这一条服务端不问也不答，实测二十二秒没有任何响应。 */
+    fun commit(): String = buildJsonObject { put("type", "input_audio_buffer.commit") }.toString()
 
     /**
-     * 开会话。下行音频的格式只在这里定得下来：不指定 pcm 二十四千赫兹十六位，服务端发的是 OGG Opus，
-     * 播放器拿到的就不是裸流。input_mod 与 enable_custom_vad 只在手动回合制打开时带。
+     * 关麦通知。模型靠上行音频流保活，说完停掉麦克风就必须发这一条，
+     * 服务端收到它才把这一轮收口送去生成；与 commit 是同一步里的两条，缺了它整轮沉底。
      */
-    fun startSession(
-        sessionId: String,
-        speaker: String,
-        systemPrompt: String,
-        pushToTalk: Boolean,
-    ): ByteArray = DoubaoFrameCodec.request(
-        messageType = DoubaoProto.MSG_FULL_CLIENT,
-        event = DoubaoEvents.START_SESSION,
-        sessionId = sessionId,
-        payload = buildJsonObject {
-            putJsonObject("asr") {
-                putJsonObject("extra") { put("end_smooth_window_ms", ASR_END_WINDOW_MS) }
-            }
-            putJsonObject("tts") {
-                put("speaker", speaker)
-                putJsonObject("audio_config") {
-                    put("channel", 1)
-                    put("format", "pcm")
-                    put("sample_rate", DOWNLINK_RATE)
-                    put("bit_width", DOWNLINK_BITS)
-                }
-                put("speech_rate", 0)
-            }
-            putJsonObject("dialog") {
-                put("bot_name", BOT_NAME)
-                if (systemPrompt.isNotBlank()) put("system_role", systemPrompt)
-                if (pushToTalk) {
-                    put("input_mod", "push_to_talk")
-                    put("enable_custom_vad", true)
-                }
-            }
-        }.toString().toByteArray(Charsets.UTF_8),
-    )
+    fun audioMute(): String = buildJsonObject { put("type", "input_audio_mute.commit") }.toString()
 
-    fun audio(sessionId: String, pcm: ByteArray): ByteArray =
-        DoubaoFrameCodec.audio(DoubaoEvents.TASK_REQUEST, sessionId, pcm)
+    /** 再次开口前报一声。不发的话服务端仍当麦克风关着，上行帧被忽略，识别不会出字。 */
+    fun audioUnmute(): String = buildJsonObject { put("type", "input_audio_unmute.commit") }.toString()
 
-    /** 松手时告诉服务端这段音频到此为止。服务端 VAD 关不掉那就没有意义，开关在会话层。 */
-    fun turnEnd(sessionId: String): ByteArray = DoubaoFrameCodec.request(
-        messageType = DoubaoProto.MSG_FULL_CLIENT,
-        event = DoubaoEvents.TASK_REQUEST,
-        sessionId = sessionId,
-        payload = buildJsonObject { put("audio_end", true) }.toString().toByteArray(Charsets.UTF_8),
-    )
+    fun cancel(): String = buildJsonObject { put("type", "response.cancel") }.toString()
 
-    fun finishSession(sessionId: String): ByteArray = DoubaoFrameCodec.request(
-        messageType = DoubaoProto.MSG_FULL_CLIENT,
-        event = DoubaoEvents.FINISH_SESSION,
-        sessionId = sessionId,
-        payload = buildJsonObject { }.toString().toByteArray(Charsets.UTF_8),
-    )
+    fun sessionClose(): String = buildJsonObject { put("type", "session.close") }.toString()
 
-    fun parse(frame: DoubaoFrame): DoubaoInbound {
-        if (frame.messageType == DoubaoProto.MSG_ERROR) {
-            val said = frame.payload.toString(Charsets.UTF_8).trim()
-            return DoubaoInbound.Failed(faultOf(frame.errorCode?.toString(), said))
+    fun parse(text: String): DoubaoInbound {
+        val root = try {
+            json.parseToJsonElement(text).jsonObject
+        } catch (e: Exception) {
+            Log.w("DoubaoWire", "非 JSON 的文本帧：${text.take(200)}")
+            return DoubaoInbound.Ignored
         }
-        // 裸音频响应：只有序列化标成裸数据时载荷才是 PCM，0xB 帧里塞 JSON 的不能拿去播。
-        if (frame.messageType == DoubaoProto.MSG_AUDIO_SERVER && frame.serialization == DoubaoProto.SERIAL_RAW) {
-            return if (frame.payload.isEmpty()) DoubaoInbound.Ignored else DoubaoInbound.Audio(frame.payload)
-        }
-        return when (frame.event) {
-            DoubaoEvents.CONNECTION_STARTED -> DoubaoInbound.ConnectionStarted
-            DoubaoEvents.CONNECTION_FAILED -> DoubaoInbound.Failed(faultOf(null, messageOf(frame)))
-            DoubaoEvents.CONNECTION_FINISHED -> DoubaoInbound.Ignored
-            DoubaoEvents.SESSION_STARTED -> DoubaoInbound.SessionStarted
-            DoubaoEvents.SESSION_FINISHED -> DoubaoInbound.SessionFinished
-            DoubaoEvents.SESSION_FAILED -> DoubaoInbound.Failed(faultOf(null, messageOf(frame)))
-            DoubaoEvents.CHAT_RESPONSE -> textOf(frame)?.let { DoubaoInbound.AssistantText(it) } ?: DoubaoInbound.Ignored
-            DoubaoEvents.CHAT_ENDED -> DoubaoInbound.TurnComplete
-            DoubaoEvents.ASR_RESPONSE -> textOf(frame)?.let { DoubaoInbound.UserText(it) } ?: DoubaoInbound.Ignored
-            DoubaoEvents.SAY_HELLO,
-            DoubaoEvents.ASR_INFO,
-            DoubaoEvents.ASR_ENDED,
-            DoubaoEvents.TTS_SENTENCE_START,
-            DoubaoEvents.TTS_SENTENCE_END,
-            DoubaoEvents.TTS_RESPONSE,
-            DoubaoEvents.TTS_ENDED,
-            -> DoubaoInbound.Ignored
+        return when (root["type"]?.jsonPrimitive?.contentOrNull) {
+            "session.created" -> DoubaoInbound.Created(
+                root["session"]?.let { runCatching { it.jsonObject["id"]?.jsonPrimitive?.contentOrNull }.getOrNull() }.orEmpty(),
+            )
 
+            "conversation.item.input_audio_transcription.completed" ->
+                (textOf(root, "text") ?: textOf(root, "transcript"))
+                    ?.let { DoubaoInbound.UserText(it) } ?: DoubaoInbound.Ignored
+
+            "response.output_text.delta" ->
+                textOf(root, "delta")?.let { DoubaoInbound.AssistantText(it, responseIdOf(root)) }
+                    ?: DoubaoInbound.Ignored
+
+            "response.output_audio.delta" ->
+                textOf(root, "delta")?.let { decode(it) }?.let { DoubaoInbound.Audio(it, responseIdOf(root)) }
+                    ?: DoubaoInbound.Ignored
+
+            "response.output_audio.done" -> DoubaoInbound.TurnComplete(responseIdOf(root))
+            "input_audio_buffer.committed" -> DoubaoInbound.Committed
+            "response.canceled" -> DoubaoInbound.Canceled
+            "session.closed" -> DoubaoInbound.Closed
+            "error" -> DoubaoInbound.Failed(faultOf(root))
             else -> DoubaoInbound.Ignored
         }
     }
 
-    /** 会话号：优先用服务端在 SessionStarted 里回的那个，载荷里没有就沿用帧上带的那个。 */
-    fun sessionIdOf(frame: DoubaoFrame): String? {
-        val fromPayload = payloadOf(frame)?.let { root ->
-            root["session_id"]?.jsonPrimitive?.contentOrNull
-                ?: root["sessionId"]?.jsonPrimitive?.contentOrNull
-        }
-        if (!fromPayload.isNullOrBlank()) return fromPayload
-        return frame.sessionId.takeIf { it.isNotBlank() }
-    }
+    private fun responseIdOf(root: JsonObject): String? =
+        textOf(root, "response_id")
 
-    /** 识别结果与模型文本在各自的载荷里，键名两套都认，取不到就当这帧没有文字。 */
-    private fun textOf(frame: DoubaoFrame): String? {
-        val root = payloadOf(frame) ?: return null
-        root["results"]?.let { results ->
-            val first = runCatching { results.jsonArray.first().jsonObject }.getOrNull()
-            first?.get("text")?.jsonPrimitive?.contentOrNull?.let { return it }
-        }
-        return root["content"]?.jsonPrimitive?.contentOrNull
-            ?: root["text"]?.jsonPrimitive?.contentOrNull
-    }
+    private fun textOf(root: JsonObject, key: String): String? =
+        root[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }
 
-    /** 服务端的原因只进日志，界面上出现的是归类之后那一句。 */
-    private fun faultOf(code: String?, said: String?): String {
-        Log.w("DoubaoWire", "server said $code ${said?.take(200)}")
+    private fun decode(base64: String): ByteArray? =
+        runCatching { Base64.getDecoder().decode(base64) }.getOrNull()?.takeIf { it.isNotEmpty() }
+
+    /** 服务端的错误原文只进日志，界面拿到的是归类之后那一句，认不出类别就是空串。 */
+    private fun faultOf(root: JsonObject): String {
+        val error = root["error"]
+        val code = error?.let { runCatching { it.jsonObject["code"]?.jsonPrimitive?.contentOrNull }.getOrNull() }
+        val said = error?.let { runCatching { it.jsonObject["message"]?.jsonPrimitive?.contentOrNull }.getOrNull() }
+        Log.w("DoubaoWire", "服务端报错 code=$code ${said?.take(200)}")
         return ProviderFault.notice(code, said)
     }
-
-    private fun messageOf(frame: DoubaoFrame): String? {
-        val root = payloadOf(frame) ?: return null
-        return root["error"]?.jsonPrimitive?.contentOrNull
-            ?: root["message"]?.jsonPrimitive?.contentOrNull
-            ?: root["status"]?.jsonPrimitive?.contentOrNull
-    }
-
-    private fun payloadOf(frame: DoubaoFrame): JsonObject? {
-        if (frame.payload.isEmpty()) return null
-        return runCatching { json.parseToJsonElement(frame.payload.toString(Charsets.UTF_8)).jsonObject }.getOrNull()
-    }
-
-    private const val ASR_END_WINDOW_MS = 1_500
 }

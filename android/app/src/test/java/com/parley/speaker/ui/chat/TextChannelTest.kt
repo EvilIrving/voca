@@ -24,12 +24,7 @@ class TextChannelTest {
 
     @Test
     fun `豆包这条端到端线路自报不收文字`() {
-        val doubao = DoubaoRealtimeSession(
-            appId = "app",
-            appKey = "key",
-            accessKey = "secret",
-            onEvent = {},
-        )
+        val doubao = DoubaoRealtimeSession(apiKey = "key", onEvent = {})
 
         assertFalse(doubao.capabilities.acceptsText)
         assertEquals(TextGate.Unsupported, textGate(Connection.Ready, doubao.capabilities))

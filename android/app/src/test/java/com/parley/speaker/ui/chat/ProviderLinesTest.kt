@@ -39,22 +39,10 @@ class ProviderLinesTest {
         val openai = realtime(AppSettings(live = liveSettings(provider = LiveVendor.OpenAi, openAiKey = "sk")))
         assertEquals(LinkStatus.Configured, openai.first { it.key == "openai" }.status)
 
-        val doubaoHalf = realtime(
-            AppSettings(live = liveSettings(provider = LiveVendor.Doubao, doubaoAppId = "app", doubaoAppKey = "key")),
+        val doubao = realtime(
+            AppSettings(live = liveSettings(provider = LiveVendor.Doubao, doubaoApiKey = "key")),
         )
-        assertEquals(LinkStatus.Unconfigured, doubaoHalf.first { it.key == "doubao" }.status)
-
-        val doubaoFull = realtime(
-            AppSettings(
-                live = liveSettings(
-                    provider = LiveVendor.Doubao,
-                    doubaoAppId = "app",
-                    doubaoAppKey = "key",
-                    doubaoAccessKey = "secret",
-                ),
-            ),
-        )
-        assertEquals(LinkStatus.Configured, doubaoFull.first { it.key == "doubao" }.status)
+        assertEquals(LinkStatus.Configured, doubao.first { it.key == "doubao" }.status)
     }
 
     @Test
@@ -174,16 +162,12 @@ class ProviderLinesTest {
         provider: LiveVendor,
         geminiKey: String = "",
         openAiKey: String = "",
-        doubaoAppId: String = "",
-        doubaoAppKey: String = "",
-        doubaoAccessKey: String = "",
+        doubaoApiKey: String = "",
     ) = com.parley.speaker.domain.LiveSettings(
         provider = provider,
         geminiKey = geminiKey,
         openAiKey = openAiKey,
-        doubaoAppId = doubaoAppId,
-        doubaoAppKey = doubaoAppKey,
-        doubaoAccessKey = doubaoAccessKey,
+        doubaoApiKey = doubaoApiKey,
         model = com.parley.speaker.domain.LiveDefaults.model(provider),
         voice = com.parley.speaker.domain.LiveDefaults.voice(provider),
     )

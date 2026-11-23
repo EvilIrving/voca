@@ -38,7 +38,7 @@ class LiveChangeTest {
         assertEquals(LiveChange.Rebuild, liveChange(AllSet, AllSet.copy(live = AllSet.live.copy(openAiKey = "sk-new"))))
         assertEquals(
             LiveChange.Rebuild,
-            liveChange(AllSet, AllSet.copy(live = AllSet.live.copy(doubaoAccessKey = "secret-new"))),
+            liveChange(AllSet, AllSet.copy(live = AllSet.live.copy(doubaoApiKey = "key-new"))),
         )
     }
 
@@ -81,9 +81,7 @@ class LiveChangeTest {
                 provider = LiveVendor.Gemini,
                 geminiKey = "AIza-key",
                 openAiKey = "sk-openai",
-                doubaoAppId = "app-id",
-                doubaoAppKey = "app-key",
-                doubaoAccessKey = "access-key",
+                doubaoApiKey = "doubao-key",
                 model = "gemini-3.8-live",
                 voice = "Aoede",
             ),

@@ -73,14 +73,12 @@ class LiveSettingsStoreTest {
     }
 
     @Test
-    fun `六项存回后原样读出`() {
+    fun `四家的密钥与模型音色存回后原样读出`() {
         val live = LiveSettings(
             provider = LiveVendor.OpenAi,
             geminiKey = "AIza-key",
             openAiKey = "sk-openai",
-            doubaoAppId = "app-id",
-            doubaoAppKey = "app-key",
-            doubaoAccessKey = "access-key",
+            doubaoApiKey = "doubao-key",
             model = "gpt-realtime-2.1",
             voice = "verse",
         )
@@ -91,29 +89,18 @@ class LiveSettingsStoreTest {
     }
 
     @Test
-    fun `三家齐备条件各不相同`() {
+    fun `三家各认一把密钥`() {
         assertTrue(LiveSettings(geminiKey = "AIza").ready(LiveVendor.Gemini))
         assertFalse(LiveSettings(geminiKey = "AIza").ready(LiveVendor.OpenAi))
         assertTrue(LiveSettings(openAiKey = "sk").ready(LiveVendor.OpenAi))
         assertFalse(LiveSettings(openAiKey = "sk").ready(LiveVendor.Gemini))
-        assertFalse(
-            "豆包差 AccessKey 不算齐备",
-            LiveSettings(doubaoAppId = "app", doubaoAppKey = "key").ready(LiveVendor.Doubao),
-        )
-        assertTrue(
-            LiveSettings(doubaoAppId = "app", doubaoAppKey = "key", doubaoAccessKey = "secret")
-                .ready(LiveVendor.Doubao),
-        )
+        assertTrue(LiveSettings(doubaoApiKey = "key").ready(LiveVendor.Doubao))
+        assertFalse(LiveSettings(doubaoApiKey = "key").ready(LiveVendor.OpenAi))
     }
 
     @Test
     fun `齐备判定只看当前供应商`() {
-        val doubao = LiveSettings(
-            provider = LiveVendor.Doubao,
-            doubaoAppId = "app",
-            doubaoAppKey = "key",
-            doubaoAccessKey = "secret",
-        )
+        val doubao = LiveSettings(provider = LiveVendor.Doubao, doubaoApiKey = "key")
 
         assertTrue(doubao.ready)
         assertFalse(doubao.copy(provider = LiveVendor.Gemini).ready)
@@ -131,9 +118,9 @@ class LiveSettingsStoreTest {
 
         val doubao = normalizedLive(
             openai,
-            openai.copy(provider = LiveVendor.Doubao, doubaoAppId = "app", doubaoAppKey = "key", doubaoAccessKey = "secret"),
+            openai.copy(provider = LiveVendor.Doubao, doubaoApiKey = "key"),
         )
-        assertEquals("", doubao.model)
+        assertEquals("1.2.6.1", doubao.model)
         assertEquals(VoiceCatalog.defaultId(LiveVendor.Doubao), doubao.voice)
 
         val back = normalizedLive(doubao, doubao.copy(provider = LiveVendor.Gemini))

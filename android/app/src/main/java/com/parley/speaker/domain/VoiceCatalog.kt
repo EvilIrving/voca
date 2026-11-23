@@ -109,10 +109,9 @@ object VoiceCatalog {
     private val DOUBAO_SC2 = "SC 2.0 系列"
 
     /**
-     * 豆包端到端的发音人，取官方音色表的 voice_type 列。
-     * 分族与端到端模型对齐：精品音色 vv、xiaohe、yunzhou、xiaotian 只在 O 系列，ICL_ 克隆音色只在 SC，
-     * saturn_ 只在 SC 2.0，三族不能混用，所以分族标签跟在哪一段里就是那一族。
-     * 其中 vv 与 en_male_tim_uranus_bigtts 是接入文档里出现过的名字，其余要拿控制台的音色列表逐个核对。
+     * 豆包 3.0 的发音人，填进 session 的 audio.output.voice。
+     * 官方 3.0 材料里出现过的名字是 vv、xiaohe、xiaotian 三个，O 系列那四个精品音色也是官方点名的歌唱可用档；
+     * SC 与 SC 2.0 两族来自 2.0 版音色表，还没对着 S2S 全双工音色列表核过，真机验证时逐个过一遍。
      */
     private val DOUBAO: List<VoiceOption> = listOf(
         VoiceOption("zh_female_vv_jupiter_bigtts", "中文女声 · 多情感，日常对话", default = true, group = DOUBAO_O),

@@ -10,38 +10,34 @@ import com.parley.speaker.data.realtime.RealtimeSession
 import com.parley.speaker.domain.LiveVendor
 import com.parley.speaker.domain.VoiceCatalog
 import com.parley.speaker.domain.promptWithHistory
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
-import java.util.UUID
-import java.util.concurrent.TimeUnit
 
 /**
- * 火山豆包端到端实时语音适配器。整条链路是二进制帧：先 StartConnection 建连接，
- * 回来 ConnectionStarted 再发 StartSession，SessionStarted 之后才能灌音频；
- * 上行 PCM16 十六千赫兹单声道，下行在 StartSession 的 tts.audio_config 里要成 pcm 二十四千赫兹十六位，
- * 不然服务端发的是 OGG Opus，播放器拿到的不是裸流。
+ * 火山豆包实时语音 3.0（Seeduplex）的适配器。鉴权只要一把 API Key，走 X-Api-Key 头。
+ * 整场是 JSON 文本帧：
+ * 连上之后先发 session.create，收到 session.created 才算能灌音频；
+ * 上行十六千赫兹单声道十六位，下行在 setup 里点名 pcm_s16le 二十四千赫兹，
+ * 不点名的话服务端按三十二位小端发，播放链路读十六位就成噪声。
  *
- * 手动回合制：StartSession 里把 dialog.input_mod 设成 push_to_talk 并打开 enable_custom_vad，
- * 由客户端自己宣告一段音频结束。这一条文档自身说法相左，一边写这两个开关能屏蔽服务端判停、
- * 一边写实时接口只支持 server_vad，所以这里留了 pushToTalk 开关：关掉就完全交给服务端 VAD，
- * 松手不再发结束标记。**豆包能否真正关掉自动判停尚未验证，要真机实测**，测不出来就与长按说话冲突。
+ * 回合边界由客户端宣告：松手发 input_audio_buffer.commit。这一条就是协议里的强制判停，
+ * 与 Gemini 的 activityEnd 同一个位置；服务端的自动判停仍在跑，所以模型可能在你说话的
+ * 时候自己开口，commit 只能收口或加速它结束，不构成「松手之前绝不作答」的保证。
  *
- * 取消没有可发的单轮中止帧，服务端也没给响应号，所以线上什么都不发，
- * 只在本地按时间窗口把这一轮之后到达的识别文本、模型文本与音频标上新旧 turnId，界面据此丢弃。
+ * 取消有真正的动作可发：response.cancel 之后服务端回 response.canceled。
+ * 已发出的那一段音频仍会继续回吐，所以本地还留一层迟到窗口，按响应号把旧一轮的内容标出来丢掉。
  */
 class DoubaoRealtimeSession(
-    private val appId: String,
-    private val appKey: String,
-    private val accessKey: String,
+    private val apiKey: String,
     private val voice: String = VoiceCatalog.defaultId(LiveVendor.Doubao),
     private val systemPrompt: String = "",
     private val onEvent: (RealtimeEvent) -> Unit,
-    private val pushToTalk: Boolean = true,
-    private val connectId: String = UUID.randomUUID().toString(),
     /** 接着一条历史会话聊时要带上的那段流水：豆包没有跨连接续上的句柄，它接在系统提示后面。 */
     history: String? = null,
 ) : RealtimeSession {
@@ -50,7 +46,7 @@ class DoubaoRealtimeSession(
 
     override val capabilities = Capabilities(
         canInterrupt = true,
-        // 端到端接口的文本输入通道在文档里没有写清，先按不支持报给界面，打字输入据此隐藏。
+        // 端到端接口的文本输入通道是给朗读用的 speech_text_buffer，不是用户打字，界面照样隐藏输入。
         acceptsText = false,
         streamsTranscript = true,
         phonemeScores = false,
@@ -64,15 +60,12 @@ class DoubaoRealtimeSession(
 
     private val late = LateTurn(LATE_WINDOW_MS) { System.nanoTime() / 1_000_000 }
 
-    /** 会话号由客户端生成，服务端若在 SessionStarted 里回了自己的就换成它的。 */
+    /** 会话号由客户端生成，服务端在 session.created 里回了自己的就换成它的。 */
     @Volatile
     private var sessionId: String = UUID.randomUUID().toString()
 
     @Volatile
     private var socket: WebSocket? = null
-
-    @Volatile
-    private var connectionOpen = false
 
     @Volatile
     private var ready = false
@@ -86,16 +79,19 @@ class DoubaoRealtimeSession(
     @Volatile
     private var pendingEnd = false
 
+    /** 麦克风在服务端那头是否处于关着的状态。关麦通知发过之后，再开口先要报一声恢复。 */
+    @Volatile
+    private var muted = false
+
+    @Volatile
+    private var pendingUnmute = false
+
     override fun connect() {
         if (closed || socket != null) return
-        Log.i(TAG, "connecting appId=$appId voice=$voice pushToTalk=$pushToTalk keyLen=${accessKey.length}")
+        Log.i(TAG, "connecting voice=$voice keyLen=${apiKey.length}")
         val request = Request.Builder()
             .url(DoubaoWire.ENDPOINT)
-            .header("X-Api-App-ID", appId)
-            .header("X-Api-App-Key", appKey)
-            .header("X-Api-Access-Key", accessKey)
-            .header("X-Api-Resource-Id", DoubaoWire.RESOURCE_ID)
-            .header("X-Api-Connect-Id", connectId)
+            .header("X-Api-Key", apiKey)
             .build()
         socket = client.newWebSocket(request, listener)
     }
@@ -103,16 +99,15 @@ class DoubaoRealtimeSession(
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.i(TAG, "open ${response.code}")
-            connectionOpen = true
-            send(DoubaoWire.startConnection())
-        }
-
-        override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            accept(webSocket, bytes.toByteArray())
+            send(DoubaoWire.sessionCreate(sessionId, voice, prompt))
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            Log.w(TAG, "unexpected text frame: ${text.take(120)}")
+            accept(webSocket, text)
+        }
+
+        override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+            Log.w(TAG, "unexpected binary frame: ${bytes.size} bytes")
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -138,22 +133,25 @@ class DoubaoRealtimeSession(
 
     private fun reset() {
         ready = false
-        connectionOpen = false
         socket = null
     }
 
     private fun classify(t: Throwable, response: Response?): String = when {
         response?.code == 401 || response?.code == 403 -> ProviderFault.Key
-        response?.code == 404 -> "端点不可用，请在设置中检查"
+        response?.code == 404 -> ProviderFault.Config
         t is java.net.SocketTimeoutException -> ""
         t is java.net.UnknownHostException -> ""
         t is javax.net.ssl.SSLException -> ""
-        else -> ""
+        else -> ProviderFault.notice(response?.message)
     }
 
     override fun startTurn() {
         turnOpen = true
         late.nextTurn()
+        // 上一轮松手时报过关麦，这一轮开口前得先撤销，否则服务端仍当麦克风关着，上行帧被丢掉。
+        if (!muted) return
+        muted = false
+        if (ready) send(DoubaoWire.audioUnmute()) else pendingUnmute = true
     }
 
     override fun sendAudio(frame: ShortArray) {
@@ -167,30 +165,36 @@ class DoubaoRealtimeSession(
             }
             return
         }
-        send(DoubaoWire.audio(sessionId, pcm))
+        send(DoubaoWire.audioAppend(pcm))
     }
 
     override fun sendText(text: String) {
-        Log.i(TAG, "text input not supported yet, dropped")
+        Log.i(TAG, "text input not supported, dropped")
     }
 
     override fun endTurn() {
         turnOpen = false
-        if (!pushToTalk) return
+        muted = true
         if (!ready) {
             pendingEnd = true
-            Log.i(TAG, "endTurn parked until SessionStarted")
+            Log.i(TAG, "endTurn parked until session.created")
             return
         }
-        send(DoubaoWire.turnEnd(sessionId))
+        // 两条一起发才算收口：实测只有 commit 时服务端不问也不答，补上关麦通知这一轮才动。
+        send(DoubaoWire.commit())
+        send(DoubaoWire.audioMute())
     }
 
     override fun cancelTurn(turnId: String) {
         turnOpen = false
         pendingEnd = false
+        muted = true
         synchronized(lock) { pendingFrames.clear() }
         late.cancel(turnId)
-        // 协议里没有单轮中止帧，线上什么都不发；迟到的内容靠 turnId 在界面那头丢。
+        if (!ready) return
+        // 这一轮作废在服务端没有对应的丢弃帧，能做的只有掐掉正在生成的回复并关麦，再把迟到的内容本地丢掉。
+        send(DoubaoWire.cancel())
+        send(DoubaoWire.audioMute())
     }
 
     override fun interrupt() {
@@ -203,62 +207,61 @@ class DoubaoRealtimeSession(
         val wasReady = ready
         ready = false
         turnOpen = false
-        if (wasReady && connectionOpen) {
-            send(DoubaoWire.finishSession(sessionId))
-            send(DoubaoWire.finishConnection())
-        }
+        if (wasReady) send(DoubaoWire.sessionClose())
         val current = socket
         socket = null
         current?.close(1000, "bye")
     }
 
     private fun flushPending() {
+        if (pendingUnmute) {
+            pendingUnmute = false
+            send(DoubaoWire.audioUnmute())
+        }
         val buffered = synchronized(lock) {
             val copy = pendingFrames.toList()
             pendingFrames.clear()
             copy
         }
-        buffered.forEach { send(DoubaoWire.audio(sessionId, it)) }
+        buffered.forEach { send(DoubaoWire.audioAppend(it)) }
         if (pendingEnd) {
             pendingEnd = false
-            if (pushToTalk) send(DoubaoWire.turnEnd(sessionId))
+            send(DoubaoWire.commit())
+            send(DoubaoWire.audioMute())
         }
     }
 
-    private fun send(frame: ByteArray) {
-        socket?.send(ByteString.of(*frame))
+    private fun send(text: String) {
+        socket?.send(text)
     }
 
-    private fun accept(webSocket: WebSocket, bytes: ByteArray) {
+    private fun accept(webSocket: WebSocket, text: String) {
         if (socket !== webSocket) return
-        val frame = try {
-            DoubaoFrameCodec.decode(bytes)
-        } catch (e: Exception) {
-            Log.w(TAG, "bad frame: ${e.message}")
-            return
-        }
-        val inbound = DoubaoWire.parse(frame)
-        if (inbound is DoubaoInbound.SessionStarted) {
-            DoubaoWire.sessionIdOf(frame)?.takeIf { it.isNotBlank() }?.let { sessionId = it }
+        val inbound = DoubaoWire.parse(text)
+        if (inbound is DoubaoInbound.Created) {
+            inbound.sessionId.takeIf { it.isNotBlank() }?.let { sessionId = it }
             val first = !ready
             ready = true
             if (first) flushPending()
             if (first && !closed) onEvent(RealtimeEvent.Ready)
             return
         }
-        if (inbound is DoubaoInbound.ConnectionStarted) {
-            send(DoubaoWire.startSession(sessionId, voice, prompt, pushToTalk))
-            return
-        }
-        if (inbound is DoubaoInbound.SessionFinished) {
+        if (inbound is DoubaoInbound.Closed) {
             late.close()
             if (closed) return
             onEvent(RealtimeEvent.Failed(""))
             return
         }
-        val tag = late.tag(null)
-        val event = inbound.event()
-        if (event == null) return
+        if (inbound is DoubaoInbound.Failed) {
+            Log.w(TAG, "server error: ${inbound.message}")
+            onEvent(RealtimeEvent.Failed(inbound.message))
+            return
+        }
+        val tag = responseIdOf(inbound).let { id ->
+            id?.let { late.bind(it) }
+            late.tag(id)
+        }
+        val event = inbound.event() ?: return
         when (event) {
             is RealtimeEvent.Audio -> onEvent(event.copy(turnId = tag))
             is RealtimeEvent.AssistantText -> onEvent(event.copy(turnId = tag))
@@ -269,14 +272,14 @@ class DoubaoRealtimeSession(
                 onEvent(RealtimeEvent.TurnComplete)
             }
 
-            is RealtimeEvent.Failed -> {
-                Log.w(TAG, "server error: ${event.message}")
-                onEvent(event)
-            }
+            is RealtimeEvent.Failed -> onEvent(event)
 
             RealtimeEvent.Ready, RealtimeEvent.Interrupted -> Unit
         }
     }
+
+    private fun responseIdOf(inbound: DoubaoInbound): String? =
+        (inbound as? DoubaoInbound.WithResponse)?.responseId
 
     companion object {
         private val sharedClient: OkHttpClient by lazy {
