@@ -29,6 +29,8 @@ import com.parley.speaker.data.analysis.TextProviderCatalog
 import com.parley.speaker.data.analysis.TurnAnalyzer
 import com.parley.speaker.data.analysis.TurnAnalyzerFactory
 import com.parley.speaker.data.analysis.authSpec
+import com.parley.speaker.data.assessor.AssessFailure
+import com.parley.speaker.data.assessor.AssessOutcome
 import com.parley.speaker.data.assessor.AzureAssessor
 import com.parley.speaker.data.assessor.SpeechAssessor
 import com.parley.speaker.data.assessor.XfyunAssessor
@@ -48,6 +50,7 @@ import com.parley.speaker.data.realtime.gemini.GeminiLiveSession
 import com.parley.speaker.data.realtime.openai.OpenAiRealtimeSession
 import com.parley.speaker.data.settings.ConnectivityProbe
 import com.parley.speaker.data.settings.SettingsStore
+import com.parley.speaker.domain.CaptureFailure
 import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AppSettings
 import com.parley.speaker.domain.AssessorProvider
@@ -79,6 +82,7 @@ import com.parley.speaker.domain.transcriptLine
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -443,10 +447,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 上一轮句柄刚释放时设备可能短暂占用，重试一次再判失败，避免快速连按时按下去没反应。 */
     private fun beginCaptureOrRetry() {
+        // 链路没就绪时麦克风本来就不该开：按失败收尾并说清是网络这一层，
+        // 不能让用户看到「请检查权限」这种指向错误的提示。
+        if (session == null) {
+            dispatch(TurnEvent.CaptureFailed(CaptureFailure.Offline))
+            return
+        }
         if (tryStartCapture()) return
         viewModelScope.launch {
             delay(180)
-            if (!tryStartCapture()) dispatch(TurnEvent.CaptureFailed)
+            if (!tryStartCapture()) {
+                dispatch(TurnEvent.CaptureFailed(recorder.lastFailure ?: CaptureFailure.Busy))
+            }
         }
     }
 
@@ -460,6 +472,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 current.sendAudio(frame)
             },
             onLevel = ::pushLevel,
+            // 采样线程自己断了（读写异常、句柄被收走）时按失败收尾，输入条不停在录音态。
+            onInterrupted = { cause -> dispatch(TurnEvent.CaptureFailed(cause)) },
         )
         if (started) {
             startedAt = SystemClock.elapsedRealtime()
@@ -495,7 +509,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * 按供应商分发到各自的适配器。未配置判定按当前供应商的凭据，构造参数与各家真实签名对齐：
-     * Gemini 吃密钥、模型、音色与系统提示，OpenAI 叫 instructions，豆包吃三件套且没有模型参数。
+     * Gemini 吃密钥、模型、音色与系统提示，OpenAI 叫 instructions，豆包吃一把密钥且模型号写在协议里。
      * [history] 是接着一条历史会话聊时要先交代的那段流水，新开的一段为 null。
      */
     private fun connect(history: String? = historyOf) {
@@ -532,9 +546,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             LiveVendor.Doubao -> DoubaoRealtimeSession(
-                appId = live.doubaoAppId,
-                appKey = live.doubaoAppKey,
-                accessKey = live.doubaoAccessKey,
+                apiKey = live.doubaoApiKey,
                 voice = live.voice,
                 systemPrompt = instructions,
                 onEvent = { event -> onEvent(seq, event) },
@@ -648,6 +660,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * 发音评测只在评测引擎配置齐、这一轮有参考文本、本地也确实录到音频时才发起；
      * 三项缺一项就一个请求都不发，review 原样留着，界面按 pronunciation 是否为空决定画不画发音格。
+     * 送出去没拿回分时，失败原因已经在适配器那层归好类，这里只负责把那一句话浮出来，原文不进界面。
      */
     private suspend fun withPronunciation(
         text: String,
@@ -656,7 +669,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         pcm: ByteArray,
     ): Review {
         if (assessor == null || text.isBlank() || pcm.isEmpty()) return review
-        val result = runCatching { assessor.assess(pcm, text, AssessorLocale) }.getOrNull() ?: return review
+        val outcome = try {
+            assessor.assess(pcm, text, AssessorLocale)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(Tag, "评测异常: ${e.message}")
+            AssessOutcome.Failed(AssessFailure.Service)
+        }
+        val result = when (outcome) {
+            is AssessOutcome.Failed -> {
+                showNotice(outcome.failure.notice)
+                return review
+            }
+            is AssessOutcome.Scored -> outcome.result
+        }
         val score = (result.total ?: result.accuracy)?.roundToInt() ?: return review
         val note = listOfNotNull(
             result.accuracy?.let { "准确度 ${it.roundToInt()}" },
@@ -759,8 +786,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             dropUplink()
             return
         }
-        // 这一段里没人说话就在这里结束：本地回 Idle，不发收尾、不落气泡、也不弹提示。
+        // 这一段里没有人说话就在这里结束：本地回 Idle，不发收尾、不落气泡。
         // 判定要跑一遍模型，几百毫秒，挪到后台；采集照旧跑到收尾事件把它停掉，多录的那点静音无害。
+        // 模型与电平两条判据都判掉才算静音：模型看频谱形状，气声近了以后形状不典型；
+        // 电平那条只看这一段有没有持续高出自己底噪的时间。任何一条说有人声就发出去。
         val pcm = peekUplink()
         if (pcm.isEmpty()) {
             settleSilentTurn()
@@ -770,8 +799,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val speechMs = withContext(Dispatchers.Default) {
                 SpeechGate.longestSpeechMs(vad.probabilities(pcm))
             }
-            if (SpeechGate.shouldDrop(speechMs)) {
-                Log.i(Tag, "这一段没人说话，人声 ${speechMs}ms")
+            // 电平那条要增益之前的那一串：放大后的电平带着增益爬坡，安静的一段也会被判成说话。
+            val levels = recorder.peekLevels()
+            val loudMs = withContext(Dispatchers.Default) {
+                SpeechGate.longestLoudMs(levels, VoiceRecorder.FRAME_MS.toLong())
+            }
+            if (SpeechGate.shouldDrop(speechMs) && SpeechGate.shouldDrop(loudMs)) {
+                Log.i(Tag, "这一段没人说话，人声 ${speechMs}ms 电平 ${loudMs}ms")
                 settleSilentTurn()
                 return@launch
             }
@@ -1245,11 +1279,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { store.restoreVocab(card) }
     }
 
-    /** 这一轮按静音收尾：采集停掉、预览收掉、上行音频丢掉，界面回空态。 */
+    /** 这一轮按静音收尾：采集停掉、预览收掉、上行音频丢掉，界面回空态。
+     *  界面要说一句没收到声音：不说的话，用户分不清是没录上、录上了没认出来，还是被当成了静音。 */
     private fun settleSilentTurn() {
         recorder.cancel()
         stopPreview()
         dispatch(TurnEvent.SilentTurn)
+        showNotice(NoSpeech)
         // 这一轮不会走到评测，攒下的上行音频也就没有归属，当场丢掉，免得起下一轮评错人。
         dropUplink()
     }
@@ -1504,6 +1540,9 @@ internal const val FillAssessorKey = "请填写发音评测密钥"
 
 /** 发音网络请求失败时的提示语。 */
 internal const val TtsFailed = "发音服务连接失败"
+
+/** 松手后本地判定没收到人声时的提示语。不说这一句，界面回空态就与“没录上”无从分辨。 */
+internal const val NoSpeech = "没有听到声音"
 
 /** 删一轮只从这一轮身上动手，别的轮次原样留着。 */
 internal fun List<Turn>.minusTurn(turnId: String): List<Turn> = filterNot { it.id == turnId }

@@ -239,7 +239,7 @@ final class VoiceRecorder: @unchecked Sendable {
         converter: AVAudioConverter?,
         owner: RecordSession,
     ) {
-        let frame: [Int16]
+        var frame: [Int16]
         if let converter {
             guard let converted = convert(buffer: buffer, converter: converter, to: targetFormat) else { return }
             frame = converted
@@ -256,6 +256,11 @@ final class VoiceRecorder: @unchecked Sendable {
 
         if frame.isEmpty { return }
 
+        // 增益之前的电平单独留一份：闸门判"这一段有没有动静"只能看放大前的电平，
+        // 放大后的电平里带着增益爬坡本身，安静的一段也会被判成有人在说话。
+        let rawSquares = frame.reduce(0.0) { $0 + Double($1) * Double($1) }
+        let rawLevel = (rawSquares / Double(frame.count)).squareRoot()
+
         var uplink: [Int16]?
         var level: Float = 0
         var frameSink: (([Int16]) -> Void)?
@@ -263,6 +268,9 @@ final class VoiceRecorder: @unchecked Sendable {
 
         lock.withLock {
             guard capturing, let current = session, current === owner else { return }
+            owner.inputLevels.append(rawLevel)
+            // 增益先于编码与上行：小声说话在这里被拉回工作电平，写进 OGG 的那份与送给模型的同一份。
+            owner.gain.apply(&frame)
             encodeFrame(owner: owner, frame: frame)
             uplink = passThrough(owner: owner, frame: frame)
             level = levelOf(owner: owner, samples: frame.count, squares: frame.map { Double($0) * Double($0) }.reduce(0, +))
@@ -348,6 +356,11 @@ final class VoiceRecorder: @unchecked Sendable {
         return smoothed
     }
 
+    /// 增益之前的逐帧 RMS，收尾判定读一份副本。
+    func peekLevels() -> [Double] {
+        lock.withLock { session?.inputLevels ?? [] }
+    }
+
     private func clipOf(_ owner: RecordSession) -> VoiceClip {
         VoiceClip(
             path: owner.file.path,
@@ -416,6 +429,9 @@ private final class RecordSession {
     var fedSamples: Int64 = 0
     var broken = false
     var levels: [Float] = []
+    /// 增益之前逐帧的 RMS，闸门判有没有动静用这一串。
+    var inputLevels: [Double] = []
+    var gain = InputGain()
     var carry = [Int16](repeating: 0, count: VoiceRecorder.uplinkSamples)
     var carryFill = 0
     var windowSquares = 0.0

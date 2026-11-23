@@ -133,6 +133,7 @@ def gather(paths):
 android_copy = gather([
     android_java / "ui",
     android_java / "domain" / "TurnFlow.kt",
+    android_java / "domain" / "CaptureFailure.kt",
     android_java / "data" / "realtime" / "ProviderFault.kt",
     android_java / "ui" / "chat" / "ChatViewModel.kt",
 ])

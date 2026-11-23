@@ -51,7 +51,7 @@ sealed interface TurnEvent {
     data class Audio(val pcm: ByteArray, val turnId: String? = null) : TurnEvent
     data object Interrupted : TurnEvent
     data object TurnComplete : TurnEvent
-    data object CaptureFailed : TurnEvent
+    data class CaptureFailed(val cause: CaptureFailure) : TurnEvent
     data class TranslationDone(val turnId: String, val translation: String) : TurnEvent
     data class AnalysisDone(val turnId: String, val review: Review, val vocab: List<VocabCard>) : TurnEvent
     data class AnalysisFailed(val turnId: String) : TurnEvent
@@ -197,13 +197,13 @@ object TurnFlow {
 
             TurnEvent.TurnComplete -> completeTurn(state, effects)
 
-            TurnEvent.CaptureFailed -> when (val phase = state.phase) {
+            is TurnEvent.CaptureFailed -> when (val phase = state.phase) {
                 is TurnPhase.Recording -> {
                     // 半截音频已经在服务端手里，按说完收尾会被当成正常收音结束并生成文本，走取消。
                     effects += TurnEffect.StopCapture
                     effects += TurnEffect.CancelTurn(phase.userTurnId)
                     effects += TurnEffect.Delete(phase.userTurnId)
-                    effects += TurnEffect.Notify("麦克风不可用，请检查权限")
+                    effects += TurnEffect.Notify(event.cause.notice)
                     state.copy(
                         phase = TurnPhase.Idle,
                         turns = state.turns.filterNot { it.id == phase.userTurnId },

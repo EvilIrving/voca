@@ -77,7 +77,32 @@ let cases: [(String, [Int16], Bool)] = [
     ("压到负五十五分贝再加一声撞击", struck(scaled(speech, -55), -3), true),
 ]
 
+// 电平兜底那条判据：同一批场景走一遍，看它会不会把噪声当说话、把说话当噪声。
+/// 一段电平序列：给定电平与帧数，二十毫秒一帧。
+func series(_ parts: [(Double, Int)]) -> [Double] {
+    var out: [Double] = []
+    for (level, frames) in parts { for _ in 0..<frames { out.append(level) } }
+    return out
+}
+
+let levelCases: [(String, [Double], Bool)] = [
+    ("上电噪声加安静", series([(900, 75), (6, 275)]), false),
+    ("稳态底噪", series([(12, 400)]), false),
+    ("底噪里说两秒", series([(200, 75), (6, 100), (240, 100), (6, 125)]), true),
+    ("六十毫秒敲击", series([(6, 200), (1440, 3), (6, 197)]), false),
+    ("响亮一句", series([(6, 100), (3000, 100), (6, 200)]), true),
+]
+
 var failures = 0
+for (name, levels, expected) in levelCases {
+    let ms = SpeechGate.longestLoudMs(levels: levels, frameMs: 20)
+    let has = !SpeechGate.shouldDrop(speechMs: ms)
+    if has != expected { failures += 1 }
+    let mark = has == expected ? "通过" : "失败"
+    print(String(format: "%-12@ 电平最长 %5dms 判定 %@ 期望 %@ %@",
+                 name as NSString, ms, has ? "说话" : "静音", expected ? "说话" : "静音", mark as NSString))
+}
+
 for (name, pcm, expected) in cases {
     let windows = SpeechDetector.windows(pcm)
     let ms = SpeechGate.longestSpeechMs(windows)

@@ -98,6 +98,42 @@ enum SpeechGate {
         return best
     }
 
+    /// 兜底判据：不看分类器，只问这一段里有没有连续 `minSpeechMs` 的时间明显高出自己的底噪。
+    ///
+    /// 分类器看的是频谱形状，气声贴着麦克风时高频被近场效应压掉一截，形状已经不典型；
+    /// 电平这条线不关心形状，只要有一段持续抬起来就算说了话。两条判据取其一：
+    /// 宁可多送一段噪声给服务端，也不要默默吞掉一句真话——服务端收完之前不会开口。
+    ///
+    /// 电平必须取增益之前的：放大后的电平里带着增益自己爬坡的那一段，安静的办公室也会被判成
+    /// 一直在说话。采集开头一秒半是麦克风上电噪声，比底噪高三十分贝，先切掉再判。
+    static func longestLoudMs(levels: [Double], frameMs: Double) -> Int64 {
+        guard levels.count >= loudFrames, frameMs > 0 else { return 0 }
+        let sorted = levels.sorted()
+        let floor = sorted[Int(Double(levels.count) * floorPercentile)]
+        let threshold = max(floor * loudOverFloor, minLoudLevel)
+        let skip = Double(levels.count) * frameMs > headMs + keepMs ? Int(headMs / frameMs) : 0
+        var best: Int64 = 0
+        var run: Int64 = 0
+        for index in skip..<levels.count {
+            if levels[index] >= threshold {
+                run += Int64(frameMs)
+                best = max(best, run)
+            } else {
+                run = 0
+            }
+        }
+        return best
+    }
+
+    /// 底噪取各帧电平的这个分位；说话占到七成它仍落在底噪上。
+    private static let floorPercentile: Double = 0.2
+    /// 高出底噪多少算有动静，八个分贝；稳态噪声的起伏在这个量级以下。
+    private static let loudOverFloor: Double = 2.512
+    private static let minLoudLevel: Double = 3
+    private static let loudFrames = 50
+    static let headMs: Double = 1_500
+    private static let keepMs: Double = 1_500
+
     static func hasSpeech(_ windows: [Window]) -> Bool {
         longestSpeechMs(windows) >= minSpeechMs
     }

@@ -105,6 +105,59 @@ object SpeechGate {
         return best
     }
 
+    /**
+     * 兜底判据：不看模型，只问这一段里有没有连续 [MinSpeechMs] 的时间明显高出自己的底噪。
+     *
+     * 模型看的是频谱形状，气声贴着麦克风时高频被近场效应压掉一截，形状已经不典型；
+     * 电平这条线不关心形状，只要有一段持续抬起来就算说了话。实测同一条粉噪按这个方法判，
+     * 最长的一段在几十到一百毫秒之间，而说一句耳语至少有四百毫秒，门槛放在 [MinSpeechMs]
+     * 上两边分得开。两条判据取其一：宁可多送一段噪声给服务端，也不要默默吞掉一句真话——
+     * 服务端在 activityEnd 之前不会开口，误收的噪声最多让这一轮白跑。
+     *
+     * 电平必须取增益之前的：放大后的电平里带着增益自己爬坡的那一段，安静的办公室也会被判成
+     * 一直在说话（实测一条七秒的安静录音，放大后全程都在门槛之上）。
+     */
+    fun longestLoudMs(levels: FloatArray, frameMs: Long): Long {
+        if (levels.size < LoudFrames) return 0
+        val sorted = levels.clone()
+        sorted.sort()
+        val floor = sorted[(levels.size * FloorPercentile).toInt().coerceAtMost(levels.size - 1)]
+        val threshold = maxOf(floor.toDouble() * LoudOverFloor, MinLoudLevel.toDouble())
+        // 采集开头那一秒半是麦克风上电的噪声，比底噪高三十分贝，先从序列里切掉再判。
+        val from = if (levels.size * frameMs > HeadMs + KeepMs) (HeadMs / frameMs).toInt() else 0
+        var best = 0L
+        var run = 0L
+        for (index in from until levels.size) {
+            if (levels[index].toDouble() >= threshold) {
+                run += frameMs
+                if (run > best) best = run
+            } else {
+                run = 0
+            }
+        }
+        return best
+    }
+
+    /** 底噪取各帧电平的这个分位；说话占到七成也还落在底噪上。 */
+    private const val FloorPercentile = 0.2f
+
+    /** 高出底噪多少算有动静，八个分贝；稳态噪声的起伏在这个量级以下。 */
+    private const val LoudOverFloorDb = 8.0
+    private val LoudOverFloor = 10.0.pow(LoudOverFloorDb / 20.0)
+
+    /** 低于这个 RMS 的电平一律不算，量化噪声放大后不该被当成声音。 */
+    private const val MinLoudLevel = 3.0
+
+    /** 少于一秒的电平序列谈不上分位，直接不判。 */
+    private const val LoudFrames = 50
+
+    /** 采集开头这么久的电平是麦克风上电噪声。 */
+    const val HeadMs = 1_500L
+
+    /** 切掉开头之后至少还要留下这么久，短句整段照判。 */
+    private const val KeepMs = 1_500L
+
     /** 只看统计量时的入口：最长连续人声的毫秒数已经算好。 */
     fun shouldDrop(speechMs: Long): Boolean = speechMs < MinSpeechMs
+
 }

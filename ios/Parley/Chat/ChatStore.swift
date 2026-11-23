@@ -147,20 +147,23 @@ final class ChatStore: ObservableObject, ParleySession {
             capture.dropUplink()
             return
         }
-        // 这一段里没人说话就在这里结束：本地回 Idle，不发收尾、不落气泡、也不弹提示。
+        // 这一段里没人说话就在这里结束：本地回 Idle，不发收尾、不落气泡。
         // 判定要跑一遍分类器，一百多毫秒，挪到后台；采集照旧跑到收尾事件把它停掉，多录的那点静音无害。
+        // 分类器与电平两条判据都判掉才算静音，任何一条说有人声就发出去。
         let pcm = capture.peekPcm()
         guard !pcm.isEmpty else {
             settleSilentTurn()
             return
         }
+        let levels = recorder.peekLevels()
         vadTask = Task { [weak self] in
             let speechMs = await Task.detached(priority: .userInitiated) {
                 SpeechGate.longestSpeechMs(SpeechDetector.windows(pcm))
             }.value
+            let loudMs = SpeechGate.longestLoudMs(levels: levels, frameMs: Double(VoiceRecorder.frameMs))
             guard let self, !Task.isCancelled else { return }
-            if SpeechGate.shouldDrop(speechMs: speechMs) {
-                logger.info("这一段没人说话，人声 \(speechMs)ms")
+            if SpeechGate.shouldDrop(speechMs: speechMs), SpeechGate.shouldDrop(speechMs: loudMs) {
+                logger.info("这一段没人说话，人声 \(speechMs)ms 电平 \(loudMs)ms")
                 settleSilentTurn()
                 return
             }
@@ -169,10 +172,12 @@ final class ChatStore: ObservableObject, ParleySession {
     }
 
     /// 这一轮按静音收尾：采集停掉、预览收掉、上行音频丢掉，界面回空态。
+    /// 界面要说一句没收到声音：不说的话，用户分不清是没录上、录上了没认出来，还是被当成了静音。
     private func settleSilentTurn() {
         recorder.cancel()
         stopPreview()
         dispatch(.silentTurn)
+        showNotice(Copy.noSpeech)
         capture.dropUplink()
     }
 
@@ -752,10 +757,12 @@ final class ChatStore: ObservableObject, ParleySession {
         assessor: SpeechAssessor?,
         pcm: Data
     ) async -> Review {
-        guard let assessor, !text.isEmpty, !pcm.isEmpty,
-              let result = await assessor.assess(pcm16k: pcm, referenceText: text, locale: "en-US"),
-              let scoreValue = result.total ?? result.accuracy
-        else { return review }
+        guard let assessor, !text.isEmpty, !pcm.isEmpty else { return review }
+        let outcome = await assessor.assess(pcm16k: pcm, referenceText: text, locale: "en-US")
+        guard case .scored(let result) = outcome, let scoreValue = result.total ?? result.accuracy else {
+            if case .failed(let failure) = outcome { showNotice(failure.notice) }
+            return review
+        }
         let pieces = [
             result.accuracy.map { "准确度 \(Int($0.rounded()))" },
             result.fluency.map { "流利度 \(Int($0.rounded()))" },

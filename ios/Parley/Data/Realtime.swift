@@ -35,6 +35,8 @@ enum Copy {
     static let fillAssessorKey = "请填写发音评测密钥"
     static let ttsFailed = "发音服务连接失败"
     static let textUnsupported = "当前语音模型不支持打字"
+    /// 松手后本地判定没收到人声。不说这一句，界面回空态就与没录上无从分辨。
+    static let noSpeech = "没有听到声音"
     static let greeting = "用一句自然的英文开场，问我今天过得怎么样，不要解释你是模型。"
 }
 

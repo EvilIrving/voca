@@ -76,7 +76,7 @@ class CancelledTurnLateEventTest {
     fun `麦克风失败也走取消`() {
         val drive = Drive()
         drive.send(TurnEvent.SessionReady, TurnEvent.PressStart, TurnEvent.UserText("说了一半"))
-        val failed = drive.send(TurnEvent.CaptureFailed)
+        val failed = drive.send(TurnEvent.CaptureFailed(CaptureFailure.Offline))
 
         assertTrue(
             "麦克风失败时半截音频已经在服务端手里，要按取消收，实际发的是 $failed",

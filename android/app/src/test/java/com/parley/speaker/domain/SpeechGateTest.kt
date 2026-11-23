@@ -132,4 +132,50 @@ class SpeechGateTest {
 
         assertEquals(2 * SpeechGate.WindowMs, SpeechGate.longestSpeechMs(values))
     }
+
+    private fun levels(vararg segments: Pair<Float, Int>): FloatArray {
+        // 每段给定电平与帧数，二十毫秒一帧。
+        val out = ArrayList<Float>()
+        for ((level, frames) in segments) repeat(frames) { out += level }
+        return out.toFloatArray()
+    }
+
+    @Test
+    fun `采集开头的上电噪声被切掉`() {
+        // 七十五帧（一秒半）上电噪声，电平比底噪高三十倍，后面全是安静。
+        val series = levels(900f to 75, 6f to 275)
+
+        assertEquals("切掉开头之后没有连续抬起来的段落", 0L, SpeechGate.longestLoudMs(series, 20))
+    }
+
+    @Test
+    fun `短录音不切头`() {
+        // 一点二秒：两千帧都不到，切头这一步不生效，开口就从第一帧算起。
+        val series = levels(900f to 10, 6f to 15, 800f to 35)
+
+        assertTrue("短录音里的说话照样认出", SpeechGate.longestLoudMs(series, 20) > 300)
+    }
+
+    @Test
+    fun `电平兜底认得出持续说话的段落`() {
+        // 八秒：一点五秒上电噪声、两秒底噪、两秒说话、其余底噪。
+        val series = levels(200f to 75, 6f to 100, 240f to 100, 6f to 125)
+
+        assertFalse("说话这一段应超过三百毫秒", SpeechGate.shouldDrop(SpeechGate.longestLoudMs(series, 20)))
+    }
+
+    @Test
+    fun `电平兜底不把稳态噪声当人声`() {
+        val series = levels(12f to 400)
+
+        assertEquals(0L, SpeechGate.longestLoudMs(series, 20))
+    }
+
+    @Test
+    fun `电平兜底不把一声敲击当人声`() {
+        // 三帧的敲击，六十毫秒，抬到两百四十倍也不够三百毫秒。
+        val series = levels(6f to 200, 1440f to 3, 6f to 197)
+
+        assertTrue("六十毫秒的敲击不够", SpeechGate.shouldDrop(SpeechGate.longestLoudMs(series, 20)))
+    }
 }

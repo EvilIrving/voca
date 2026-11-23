@@ -9,7 +9,9 @@ import android.media.MediaFormat
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
+import com.parley.speaker.domain.CaptureFailure
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -51,13 +53,27 @@ class VoiceRecorder(private val scope: CoroutineScope) {
     private var capturing = false
     private var onFrame: ((ShortArray) -> Unit)? = null
     private var onLevel: ((Float) -> Unit)? = null
+    private var onInterrupted: ((CaptureFailure) -> Unit)? = null
+
+    /** 上一次 start 起不来的原因，start 返回 false 之后读这一格挑提示语。 */
+    var lastFailure: CaptureFailure? = null
+        private set
     private var smoothed = 0f
 
     val isRunning: Boolean get() = synchronized(lock) { capturing }
 
-    fun start(cacheDir: File, onFrame: (ShortArray) -> Unit, onLevel: (Float) -> Unit): Boolean {
+    fun start(
+        cacheDir: File,
+        onFrame: (ShortArray) -> Unit,
+        onLevel: (Float) -> Unit,
+        onInterrupted: (CaptureFailure) -> Unit = {},
+    ): Boolean {
+        val pressedAt = SystemClock.elapsedRealtime()
         synchronized(lock) {
-            if (session != null || record != null || capturing) return false
+            if (session != null || record != null || capturing) {
+                lastFailure = CaptureFailure.Busy
+                return false
+            }
             val created = createRecord() ?: return false
             val dir = File(cacheDir, Directory)
             if (!dir.isDirectory && !dir.mkdirs()) {
@@ -92,12 +108,13 @@ class VoiceRecorder(private val scope: CoroutineScope) {
                 releaseRecord(created)
                 return false
             }
-            val owner = Session(file, out, writer, codec, Resampler())
+            val owner = Session(file, out, writer, codec, Resampler(), InputGain()).also { it.trace.opened(pressedAt) }
             session = owner
             active = this
             record = created
             this.onFrame = onFrame
             this.onLevel = onLevel
+            this.onInterrupted = onInterrupted
             capturing = true
             smoothed = 0f
             job = scope.launch(Dispatchers.IO) { captureLoop(created, owner) }
@@ -173,6 +190,7 @@ class VoiceRecorder(private val scope: CoroutineScope) {
                     session = null
                     onFrame = null
                     onLevel = null
+                    onInterrupted = null
                     clip
                 }
             }
@@ -192,6 +210,7 @@ class VoiceRecorder(private val scope: CoroutineScope) {
                 capturing = false
                 onFrame = null
                 onLevel = null
+                onInterrupted = null
                 mainHandler.removeCallbacksAndMessages(null)
                 // 句柄留给读循环释放，这里只把阻塞中的 read 唤醒
                 try {
@@ -219,6 +238,7 @@ class VoiceRecorder(private val scope: CoroutineScope) {
 
     @SuppressLint("MissingPermission")
     private fun createRecord(): AudioRecord? {
+        lastFailure = CaptureFailure.Device
         val minBuffer = AudioRecord.getMinBufferSize(
             SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
@@ -226,6 +246,7 @@ class VoiceRecorder(private val scope: CoroutineScope) {
         )
         if (minBuffer <= 0) {
             Log.w(TAG, "min buffer $minBuffer")
+            lastFailure = CaptureFailure.Device
             return null
         }
         val created = try {
@@ -241,6 +262,7 @@ class VoiceRecorder(private val scope: CoroutineScope) {
             return null
         } catch (e: SecurityException) {
             Log.w(TAG, "no permission: ${e.message}")
+            lastFailure = CaptureFailure.Permission
             return null
         }
         if (created.state != AudioRecord.STATE_INITIALIZED) {
@@ -252,9 +274,11 @@ class VoiceRecorder(private val scope: CoroutineScope) {
 
     private fun startRecording(target: AudioRecord): Boolean = try {
         target.startRecording()
+        lastFailure = null
         true
     } catch (e: IllegalStateException) {
         Log.w(TAG, "startRecording failed: ${e.message}")
+        lastFailure = CaptureFailure.Busy
         false
     }
 
@@ -283,6 +307,7 @@ class VoiceRecorder(private val scope: CoroutineScope) {
 
     private suspend fun captureLoop(source: AudioRecord, owner: Session) {
         val buffer = ShortArray(FRAME_SAMPLES)
+        var broken: CaptureFailure? = null
         try {
             while (true) {
                 val keepGoing = synchronized(lock) { capturing && session === owner && record === source } &&
@@ -296,10 +321,22 @@ class VoiceRecorder(private val scope: CoroutineScope) {
                 }
                 if (read < 0) {
                     Log.w(TAG, "read error $read")
+                    broken = CaptureFailure.Device
                     break
                 }
                 if (read == 0) continue
+                owner.trace.started(SystemClock.elapsedRealtime(), FRAME_MS.toLong())
                 val frame = if (read == buffer.size) buffer.copyOf() else buffer.copyOf(read)
+
+                // 增益之前的电平要单独留一份：闸门判"这一段有没有动静"只能看放大前的电平，
+                // 放大后的电平里带着增益爬坡本身，安静的一段也会被判成有人在说话。
+                var rawSquares = 0.0
+                for (sample in frame) {
+                    val value = sample.toDouble()
+                    rawSquares += value * value
+                }
+                // 增益先于编码与上行：小声说话在这里被拉回工作电平，写进 OGG 的那份与送给模型的同一份。
+                owner.gain.apply(frame)
 
                 var squares = 0.0
                 for (sample in frame) {
@@ -313,6 +350,8 @@ class VoiceRecorder(private val scope: CoroutineScope) {
                 var levelSink: ((Float) -> Unit)? = null
                 synchronized(lock) {
                     if (session === owner) {
+                        // 电平与编码同一把锁：判定线程会来读这一串，跨线程追加不能落在锁外。
+                        owner.inputLevels.add(sqrt(rawSquares / frame.size).toFloat())
                         encodeFrame(owner, frame)
                         drainEncoder(owner, idleWaits = 0)
                         uplink = passThrough(owner, frame)
@@ -333,15 +372,26 @@ class VoiceRecorder(private val scope: CoroutineScope) {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "capture loop failed: ${t.message}")
+            broken = CaptureFailure.Device
         } finally {
             // 句柄由持有它的线程释放；字段只在这一段还是当前那一段时才清，免得盖掉后起的一段
             releaseRecord(source)
-            synchronized(lock) {
+            val report = synchronized(lock) {
                 if (record === source) {
                     record = null
                     job = null
                     capturing = false
+                    // 采样线程自己退出说明这一轮已经录不下去了，界面那边要按失败收尾，
+                    // 不能让输入条停在录音态等一个不会再来的结束。
+                    if (broken != null && session === owner) broken else null
+                } else {
+                    null
                 }
+            }
+            if (report != null) {
+                lastFailure = report
+                val sink = synchronized(lock) { onInterrupted }
+                mainHandler.post { sink?.invoke(report) }
             }
         }
     }
@@ -500,7 +550,13 @@ class VoiceRecorder(private val scope: CoroutineScope) {
         return smoothed
     }
 
+    /** 增益之前的逐帧 RMS，收尾判定读一份副本。 */
+    fun peekLevels(): FloatArray = synchronized(lock) {
+        session?.inputLevels?.toFloatArray() ?: FloatArray(0)
+    }
+
     private fun clipOf(owner: Session): VoiceClip {
+        Log.i(TAG, "clip ${owner.file.name} ${owner.gain.describe()} ${owner.trace.describe()}")
         flushQuietly(owner.out)
         return VoiceClip(
             path = owner.file.absolutePath,
@@ -588,10 +644,14 @@ class VoiceRecorder(private val scope: CoroutineScope) {
         val writer: OggOpusWriter,
         val codec: MediaCodec?,
         val resampler: Resampler,
+        val gain: InputGain,
+        val trace: CaptureTrace = CaptureTrace(),
     ) {
         /** 已送进编码器的样本数，时长与 granule 都由它推。 */
         var fedSamples = 0L
         var broken = false
+        /** 增益之前逐帧的 RMS，闸门判有没有动静用这一串。 */
+        val inputLevels = ArrayList<Float>()
         val pcmBytes = ByteArray(FRAME_BYTES)
         val info = MediaCodec.BufferInfo()
         val levels = ArrayList<Float>()
