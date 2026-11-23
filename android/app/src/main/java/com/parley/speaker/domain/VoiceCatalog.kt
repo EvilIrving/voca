@@ -110,8 +110,9 @@ object VoiceCatalog {
 
     /**
      * 豆包 3.0 的发音人，填进 session 的 audio.output.voice。
-     * 官方 3.0 材料里出现过的名字是 vv、xiaohe、xiaotian 三个，O 系列那四个精品音色也是官方点名的歌唱可用档；
-     * SC 与 SC 2.0 两族来自 2.0 版音色表，还没对着 S2S 全双工音色列表核过，真机验证时逐个过一遍。
+     * 这十把都在 duplex 端点上跑过完整一轮，识别出字、模型作答、下行出音频；
+     * 另有 zh_female_shuangkuaisisi_moon_bigtts、saturn_zh_male_tiancaitongsheng_tob、
+     * saturn_zh_male_lengjundashu_tob 三把，开会话不报错、文本也生成了，但一块音频都不出，没有收进目录。
      */
     private val DOUBAO: List<VoiceOption> = listOf(
         VoiceOption("zh_female_vv_jupiter_bigtts", "中文女声 · 多情感，日常对话", default = true, group = DOUBAO_O),
@@ -121,12 +122,9 @@ object VoiceCatalog {
         VoiceOption("en_male_tim_uranus_bigtts", "英文男声 · 自然，英文对练", group = DOUBAO_O),
 
         VoiceOption("zh_female_cancan_mars_bigtts", "中文女声 · 通用，播报与客服", group = DOUBAO_SC),
-        VoiceOption("zh_female_shuangkuaisisi_moon_bigtts", "中文女声 · 爽快，节奏偏快", group = DOUBAO_SC),
         VoiceOption("ICL_zh_female_keainvsheng_tob", "中文女声 · 声音复刻，SC 独有", group = DOUBAO_SC),
 
         VoiceOption("saturn_zh_female_keainvsheng_tob", "中文女声 · 甜美人设，角色扮演", group = DOUBAO_SC2),
-        VoiceOption("saturn_zh_male_tiancaitongsheng_tob", "中文男声 · 少年童声", group = DOUBAO_SC2),
         VoiceOption("saturn_zh_female_tiaopigongzhu_tob", "中文女声 · 俏皮公主", group = DOUBAO_SC2),
-        VoiceOption("saturn_zh_male_lengjundashu_tob", "中文男声 · 冷峻大叔", group = DOUBAO_SC2),
     )
 }
