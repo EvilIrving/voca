@@ -280,7 +280,7 @@ private fun GroupCard(label: String, lines: List<ProviderLine>, onEdit: (String)
 /**
  * 打卡热力图：一列一周、一行一个日子，行首是周一；左边一列十个宽的周标只标一三五，
  * 上面一行月份只在跨月那一列起字。格宽由卡片可用宽度除出来，182 个方块在一个 Canvas 里画完；
- * 点中某一格就把底下那行换成那天的日期与分钟，并在格上套一圈墨色细边。
+ * 点中某一格就把底下那行换成那天的日期与时长，不足一分钟写秒，并在格上套一圈墨色细边。
  */
 @Composable
 private fun CheckInCard(stats: CheckInWeeks) {

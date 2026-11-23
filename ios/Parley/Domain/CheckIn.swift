@@ -1,7 +1,7 @@
 import Foundation
 
 /// 一天练了多长落哪一档。热力图的颜色只由这一档决定，界面不再按分钟另算：
-/// 有录音就点亮，五分钟以内最浅，五到十四分钟一档，十五到二十九分钟一档，三十分钟以上最深。
+/// 有练习就点亮，五分钟以内最浅，五到十四分钟一档，十五到二十九分钟一档，三十分钟以上最深。
 enum CheckInLevel: Int, CaseIterable {
     case none, light, steady, solid, deep
 }

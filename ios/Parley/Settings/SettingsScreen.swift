@@ -225,7 +225,7 @@ struct SettingsScreen: View {
 
     /// 打卡热力图：一列一周、一行一个日子，行首是周一；左边十个宽的周标只标一三五，
     /// 上面一行月份只在跨月那一列起字。格宽由可用宽度除出来，点中某一格就把底下那行
-    /// 换成那天的日期与分钟，并在格上套一圈墨色细边。
+    /// 换成那天的日期与时长，不足一分钟写秒，并在格上套一圈墨色细边。
     private var checkInGroup: some View {
         VStack(alignment: .leading) {
             groupLabel("打卡统计")
