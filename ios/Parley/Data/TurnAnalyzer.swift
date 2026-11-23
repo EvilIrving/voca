@@ -12,16 +12,6 @@ protocol TurnAnalyzer: Sendable {
     func memorize(memory: String, material: String) async -> String?
 }
 
-protocol PronunciationAssessor: Sendable {
-    var configured: Bool { get }
-    func assess(pcm: Data, referenceText: String?) async -> PronunciationReview?
-}
-
-struct UnconfiguredAssessor: PronunciationAssessor {
-    let configured = false
-    func assess(pcm: Data, referenceText: String?) async -> PronunciationReview? { nil }
-}
-
 func rewriteOf(register: Register, text: String?, gloss: String?) -> Rewrite? {
     guard let text, !text.isEmpty else { return nil }
     return Rewrite(register: register, text: text, gloss: gloss ?? "")
