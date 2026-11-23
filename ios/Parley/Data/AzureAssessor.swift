@@ -15,8 +15,9 @@ struct AzureAssessor: SpeechAssessor {
         self.session = session
     }
 
-    func assess(pcm16k: Data, referenceText: String?, locale: String) async -> AssessResult? {
-        guard !subscriptionKey.isEmpty, !region.isEmpty, !pcm16k.isEmpty else { return nil }
+    func assess(pcm16k: Data, referenceText: String?, locale: String) async -> AssessOutcome {
+        guard !subscriptionKey.isEmpty, !region.isEmpty else { return .failed(.key) }
+        guard !pcm16k.isEmpty else { return .failed(.audio) }
         let url = URL(string: azureEndpoint(region: region, locale: locale))!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -30,13 +31,14 @@ struct AzureAssessor: SpeechAssessor {
             guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
                 if let http = response as? HTTPURLResponse {
                     Logger.azure.warning("assess \(http.statusCode): \(text.prefix(200), privacy: .public)")
+                    return .failed(azureFailure(http.statusCode))
                 }
-                return nil
+                return .failed(.service)
             }
-            return parseAzureResult(text)
+            return azureOutcome(text)
         } catch {
             Logger.azure.warning("assess failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+            return .failed(assessTransportFailure(error))
         }
     }
 
@@ -49,6 +51,33 @@ struct AzureAssessor: SpeechAssessor {
 
 private enum Logger {
     static let azure = os.Logger(subsystem: "com.parley.speaker", category: "AzureAssessor")
+}
+
+/// HTTP 状态归成类：401 与 403 是密钥或资源授权，429 是限流，400 说明音频与请求本身评不了，
+/// 其余状态（含 5xx）算服务异常。响应体不进界面的任何一格。
+func azureFailure(_ status: Int) -> AssessFailure {
+    switch status {
+    case 401, 403: return .key
+    case 429: return .busy
+    case 400, 413: return .audio
+    default: return .service
+    }
+}
+
+/// 静音、纯噪声与认不出的发音属于音频这一类，其余非 Success 是服务侧的问题。
+func azureOutcome(_ body: String) -> AssessOutcome {
+    let status = jsonOf(body).flatMap { stringField($0, "RecognitionStatus") }
+    switch status {
+    case "InitialSilenceTimeout", "BabbleTimeout", "NoMatch":
+        return .failed(.audio)
+    case "Success", nil:
+        break
+    default:
+        return .failed(.service)
+    }
+    guard let result = parseAzureResult(body) else { return .failed(.service) }
+    guard result.total != nil || result.accuracy != nil else { return .failed(.service) }
+    return .scored(result)
 }
 
 func azureEndpoint(region: String, locale: String) -> String {

@@ -2,10 +2,12 @@ package com.parley.speaker.data.assessor
 
 import android.util.Log
 import com.parley.speaker.domain.PhonemeIssue
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Base64
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -34,9 +36,10 @@ class AzureAssessor(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    override suspend fun assess(pcm16k: ByteArray, referenceText: String?, locale: String): AssessResult? =
+    override suspend fun assess(pcm16k: ByteArray, referenceText: String?, locale: String): AssessOutcome =
         withContext(Dispatchers.IO) {
-            if (subscriptionKey.isBlank() || region.isBlank() || pcm16k.isEmpty()) return@withContext null
+            if (subscriptionKey.isBlank() || region.isBlank()) return@withContext AssessOutcome.Failed(AssessFailure.Key)
+            if (pcm16k.isEmpty()) return@withContext AssessOutcome.Failed(AssessFailure.Audio)
             val request = Request.Builder()
                 .url(azureEndpoint(region, locale))
                 .header("Ocp-Apim-Subscription-Key", subscriptionKey)
@@ -48,19 +51,51 @@ class AzureAssessor(
                     val body = response.body.string()
                     if (!response.isSuccessful) {
                         Log.w(TAG, "assess ${response.code}: ${body.take(200)}")
-                        return@withContext null
+                        return@withContext AssessOutcome.Failed(azureFailure(response.code))
                     }
-                    parseAzureResult(body)
+                    azureOutcome(body)
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.w(TAG, "assess failed: ${e.message}")
+                AssessOutcome.Failed(AssessFailure.Offline)
             } catch (e: Exception) {
                 Log.w(TAG, "assess failed: ${e.message}")
-                null
+                AssessOutcome.Failed(AssessFailure.Service)
             }
         }
 
     private companion object {
         const val TAG = "AzureAssessor"
         const val MAX_AUDIO_MILLIS = 30_000
+    }
+}
+
+/**
+ * HTTP 状态归成类：401 与 403 是密钥或资源授权，429 是限流，400 说明音频与请求本身评不了，
+ * 其余状态（含 5xx）算服务异常。响应体不进界面的任何一格。
+ */
+internal fun azureFailure(status: Int): AssessFailure = when {
+    status == 401 || status == 403 -> AssessFailure.Key
+    status == 429 -> AssessFailure.Busy
+    status == 400 || status == 413 -> AssessFailure.Audio
+    else -> AssessFailure.Service
+}
+
+/** 返回体能解析出分才算出了结果，能读但没有分说明这一轮没评出来。 */
+internal fun azureOutcome(body: String): AssessOutcome {
+    // 静音、纯噪声与认不出的发音属于音频这一类，其余非 Success 是服务侧的问题。
+    when (jsonOf(body)?.string("RecognitionStatus")) {
+        "InitialSilenceTimeout", "BabbleTimeout", "NoMatch" -> return AssessOutcome.Failed(AssessFailure.Audio)
+        "Success" -> Unit
+        else -> if (jsonOf(body)?.string("RecognitionStatus") != null) return AssessOutcome.Failed(AssessFailure.Service)
+    }
+    val result = parseAzureResult(body) ?: return AssessOutcome.Failed(AssessFailure.Service)
+    return if (result.total != null || result.accuracy != null) {
+        AssessOutcome.Scored(result)
+    } else {
+        AssessOutcome.Failed(AssessFailure.Service)
     }
 }
 

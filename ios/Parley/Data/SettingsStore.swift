@@ -39,7 +39,11 @@ final class SettingsStore: ObservableObject {
                     ),
                 ]
             ),
-            assessor: AssessorSettings(),
+            assessor: AssessorSettings(
+                xfyunAppId: Secrets.xfyunAppId,
+                xfyunApiKey: Secrets.xfyunApiKey,
+                xfyunApiSecret: Secrets.xfyunApiSecret
+            ),
             prompt: SeedContent.defaultPrompt
         )
     }

@@ -22,6 +22,21 @@ import org.junit.Test
 class AzureAssessorTest {
 
     @Test
+    fun `状态码与静音返回各归成界面那一类`() {
+        assertEquals(AssessFailure.Key, azureFailure(401))
+        assertEquals(AssessFailure.Key, azureFailure(403))
+        assertEquals(AssessFailure.Busy, azureFailure(429))
+        assertEquals(AssessFailure.Audio, azureFailure(400))
+        assertEquals(AssessFailure.Service, azureFailure(503))
+
+        assertEquals(AssessOutcome.Failed(AssessFailure.Audio), azureOutcome("""{"RecognitionStatus":"InitialSilenceTimeout"}"""))
+        assertEquals(AssessOutcome.Failed(AssessFailure.Service), azureOutcome("""{"RecognitionStatus":"Error"}"""))
+        assertEquals(AssessOutcome.Failed(AssessFailure.Service), azureOutcome("不是 JSON"))
+        val scored = azureOutcome(AZURE_SUCCESS)
+        assertTrue(scored is AssessOutcome.Scored)
+    }
+
+    @Test
     fun `解析返回体的五项分与逐词偏误`() {
         val result = parseAzureResult(AZURE_SUCCESS)
 
