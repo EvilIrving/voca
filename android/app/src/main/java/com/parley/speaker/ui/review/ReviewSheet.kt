@@ -125,8 +125,6 @@ fun ReviewSheet(
 
                 if (rewrite != null) {
                     Spacer(Modifier.height(22.dp))
-                    SectionLabel(FluentIcons.Bulb, "母语者表达")
-                    Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Register.entries.forEach { entry ->
                             RegisterTab(
@@ -211,12 +209,6 @@ private fun ScoreRow(pronunciation: Pair<Int, String>?, grammar: Pair<Int, Strin
                 note = pronunciation.second,
                 color = Palette.clayDeep,
                 modifier = Modifier.weight(1f),
-            )
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .height(54.dp)
-                    .background(Palette.hair),
             )
         }
         ScoreColumn(
