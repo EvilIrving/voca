@@ -355,7 +355,8 @@ class VoiceRecorder(private val scope: CoroutineScope) {
                         encodeFrame(owner, frame)
                         drainEncoder(owner, idleWaits = 0)
                         uplink = passThrough(owner, frame)
-                        level = levelOf(owner, frame.size, squares)
+                        accumulateWaveform(owner, frame.size, squares)
+                        level = levelOf(rawSquares, frame.size)
                         frameSink = onFrame
                         levelSink = onLevel
                     }
@@ -532,14 +533,25 @@ class VoiceRecorder(private val scope: CoroutineScope) {
     }
 
     /**
-     * 分贝到 0..1 的感知映射，上升快下降慢，出去的电平可直接绘制；
-     * 同一份平方和顺手积成一百毫秒一格的 RMS，就是收尾时压成波形的那串数。
+     * 分贝到 0..1 的感知映射，上升快下降慢，出去的电平喂给光晕与电平柱。
+     *
+     * 取的是增益之前那一份：增益照着最近三秒的环境声把电平拉到负二十，安静的一轮里
+     * 它自己爬到三十，放大后的电平跟着一路顶满，光晕胀到两三倍、电平柱也满格，
+     * 真说话的时候反而正常 —— 界面上那圈呼吸就成了在画增益。
      */
-    private fun levelOf(owner: Session, samples: Int, squares: Double): Float {
-        val rms = sqrt(squares / samples.coerceAtLeast(1))
+    private fun levelOf(rawSquares: Double, samples: Int): Float {
+        val rms = sqrt(rawSquares / samples.coerceAtLeast(1))
         val db = 20.0 * log10(max(rms, 1.0) / 32768.0)
         val target = ((db + DB_FLOOR) / DB_SPAN).coerceIn(0.0, 1.0).toFloat()
         smoothed += (target - smoothed) * if (target > smoothed) ATTACK else RELEASE
+        return smoothed
+    }
+
+    /**
+     * 一百毫秒一格的 RMS 攒起来就是收尾时压成波形的那串数。
+     * 这一份取增益之后，画出来的高低跟模型听到的一致。
+     */
+    private fun accumulateWaveform(owner: Session, samples: Int, squares: Double) {
         owner.windowSquares += squares
         owner.windowCount += samples
         if (owner.windowCount >= WAVEFORM_SAMPLES) {
@@ -547,7 +559,6 @@ class VoiceRecorder(private val scope: CoroutineScope) {
             owner.windowSquares = 0.0
             owner.windowCount = 0
         }
-        return smoothed
     }
 
     /** 增益之前的逐帧 RMS，收尾判定读一份副本。 */
