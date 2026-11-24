@@ -68,39 +68,3 @@ const target = resolve(root, "android/app/src/main/java/com/parley/speaker/ui/ic
 mkdirSync(dirname(target), { recursive: true });
 writeFileSync(target, out);
 console.log(`wrote ${target} with ${entries.length} icons`);
-
-const swiftPaths = entries
-  .map(
-    (e) => `        case .${e.name}: return "${esc(e.d)}"`,
-  )
-  .join("\n");
-
-const swiftSizes = entries
-  .map(
-    (e) => `        case .${e.name}: return CGSize(width: ${e.vw}, height: ${e.vh})`,
-  )
-  .join("\n");
-
-const swift = `import SwiftUI
-
-enum Fluent: String, CaseIterable {
-${entries.map((e) => `    case ${e.name}`).join("\n")}
-
-    var viewport: CGSize {
-        switch self {
-${swiftSizes}
-        }
-    }
-
-    var path: String {
-        switch self {
-${swiftPaths}
-        }
-    }
-}
-`;
-
-const swiftTarget = resolve(root, "ios/Parley/Component/Fluent.swift");
-mkdirSync(dirname(swiftTarget), { recursive: true });
-writeFileSync(swiftTarget, swift);
-console.log(`wrote ${swiftTarget} with ${entries.length} icons`);

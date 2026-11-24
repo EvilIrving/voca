@@ -43,14 +43,6 @@ captures/
 # 本地审计日志
 .audit/
 
-# iOS
-ios/DerivedData/
-ios/**/xcuserdata/
-ios/Parley/Generated/Secrets.swift
-*.xcuserstate
-*.xccheckout
-*.xcscmblueprint
-
 # 编辑器与 IDE
 .idea/
 *.iml

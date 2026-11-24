@@ -1,18 +1,18 @@
 # Parley
 
-安卓与 iOS 双端的英语口语练习客户端。对话走端到端实时语音模型，发音评测与文本分析各自接专用供应商，聊天、录音、生词与密钥都存在本机。
+安卓端的英语口语练习客户端。对话走端到端实时语音模型，发音评测与文本分析各自接专用供应商，聊天、录音、生词与密钥都存在本机。
 
 ## 目录
 
-`android/` 是 Kotlin 与 Compose，`ios/` 是 SwiftUI。`prompts/` 里是出厂提示词的仓库副本，客户端不读它，出厂文字只存在于 `SeedContent`，改文字时仓库副本与它一起改。`docs/design/product.md` 是产品与技术的现状记录。`PROJECT_MEMORY.md` 是调研与逆向的结论。`tools/` 放验收脚本与画板生成，`hiecho-reverse/` 放竞品取证的原始材料。
+`android/` 是 Kotlin 与 Compose。`prompts/` 里是出厂提示词的仓库副本，客户端不读它，出厂文字只存在于 `SeedContent`，改文字时仓库副本与它一起改。`docs/design/product.md` 是产品与技术的现状记录。`PROJECT_MEMORY.md` 是调研与逆向的结论。`tools/` 放验收脚本与画板生成，`hiecho-reverse/` 放竞品取证的原始材料。
 
 ## 验证
 
-安卓跑 `tools/gate.sh`，默认编译 debug 变体并跑单元测试；带参数就只跑指定的 Gradle 任务，例如 `tools/gate.sh :app:testDebugUnitTest`。iOS 跑 `tools/ios-gate.sh`，先跑一对一口径再编 Debug。人声判据跑 `tools/vad-check.sh`，它把2 份 Swift 源码编成命令行程序，验证9 条判据。真机交互走 `.agents/skills/android-device-testing`，先读屏再动手；装机只走 `android-drive.sh install`，它自己盯厂商拦截框并带超时，`gradlew installDebug` 会在「继续安装」上无声挂住。构建通过与测试全绿都不算验收，真机跑1 遍才算。
+安卓跑 `tools/gate.sh`，默认编译 debug 变体并跑单元测试；带参数就只跑指定的 Gradle 任务，例如 `tools/gate.sh :app:testDebugUnitTest`。真机交互走 `.agents/skills/android-device-testing`，先读屏再动手；装机只走 `android-drive.sh install`，它自己盯厂商拦截框并带超时，`gradlew installDebug` 会在「继续安装」上无声挂住。构建通过与测试全绿都不算验收，真机跑1 遍才算。
 
 ## 硬约束
 
-手动回合制是骨架：按下收音、松手结束，服务端的自动断句关掉，不抢话。界面上的字只有4 类，身份与状态、说话内容、可点控件的动作词、评测给出的真实数据，解释性副标题与重复标签都不写。输入条的数字只认 `VoiceGesture` 与画板 164:2，2 端同一套阈值，不各自改数。实时对话、发音评测、文本分析3 条链路各自独立，客户端只认1 套内部接口，界面不写供应商分支。密钥、聊天历史、录音与生词只在本机，界面只出现归类之后的一句错误，原文进日志。iOS 抄安卓的字，不抄安卓的实现。
+手动回合制是骨架：按下收音、松手结束，服务端的自动断句关掉，不抢话。界面上的字只有4 类，身份与状态、说话内容、可点控件的动作词、评测给出的真实数据，解释性副标题与重复标签都不写。输入条的数字只认 `VoiceGesture` 与画板 164:2，阈值只此 1 份。实时对话、发音评测、文本分析3 条链路各自独立，客户端只认1 套内部接口，界面不写供应商分支。密钥、聊天历史、录音与生词只在本机，界面只出现归类之后的一句错误，原文进日志。
 
 ## 代码约定
 
