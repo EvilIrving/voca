@@ -114,6 +114,10 @@ class GeminiLiveSession(
     @Volatile
     private var setupJob: Job? = null
 
+    /** 第一次握手才报 Ready。续接与换连接再报会把正在收音的那一轮打回空闲。 */
+    @Volatile
+    private var announcedReady = false
+
     /** 服务端主动关连接时带的原因，配额用尽、模型无权限这类话只有它说得清。 */
     @Volatile
     private var serverReason: String? = null
@@ -387,7 +391,10 @@ class GeminiLiveSession(
             seed = null
             if (history != null) send(GeminiWire.clientContent(history))
             flushPending()
-            onEvent(RealtimeEvent.Ready)
+            if (!announcedReady) {
+                announcedReady = true
+                onEvent(RealtimeEvent.Ready)
+            }
             return
         }
 
