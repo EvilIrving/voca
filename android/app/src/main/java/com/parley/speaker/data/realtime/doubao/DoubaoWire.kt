@@ -6,11 +6,13 @@ import com.parley.speaker.data.realtime.RealtimeEvent
 import java.util.Base64
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /** 后台送来的一条东西。取不到文字的帧一律归为 Ignored，不往上抛半条消息。 */
@@ -43,6 +45,12 @@ internal fun DoubaoInbound.event(): RealtimeEvent? = when (this) {
     DoubaoInbound.Committed, DoubaoInbound.Canceled, DoubaoInbound.Closed, DoubaoInbound.Ignored -> null
 }
 
+/** 模型开口的那几类。按住时这些到了就是服务端自己判停抢话，转写不算。 */
+internal fun DoubaoInbound.isModelTalk(): Boolean = when (this) {
+    is DoubaoInbound.Audio, is DoubaoInbound.AssistantText, is DoubaoInbound.TurnComplete -> true
+    else -> false
+}
+
 /**
  * 豆包实时语音 3.0（Seeduplex）的报文。整条链路是 JSON 文本帧，没有二进制帧头：
  * 上行 session.create 建会话，input_audio_buffer.append 送 Base64 音频，
@@ -68,7 +76,17 @@ internal object DoubaoWire {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun sessionCreate(sessionId: String, voice: String, instructions: String): String = buildJsonObject {
+    /**
+     * [context] 是 user/assistant 成对的正文，走 extension.dialog.dialog_context。
+     * 官方只在开会话这一刻读它；塞进 instructions 模型当系统提示，当不成对话历史。
+     * 审核关掉是因为练习允许中英混说，默认严格审核会把混说拦下来。
+     */
+    fun sessionCreate(
+        sessionId: String,
+        voice: String,
+        instructions: String,
+        context: List<Pair<String, String>> = emptyList(),
+    ): String = buildJsonObject {
         put("type", "session.create")
         putJsonObject("session") {
             put("id", sessionId)
@@ -87,6 +105,23 @@ internal object DoubaoWire {
                         put("rate", DOWNLINK_RATE)
                     }
                     put("voice", voice)
+                }
+            }
+            putJsonObject("extension") {
+                putJsonObject("dialog") {
+                    put("strict_audit", false)
+                    if (context.isNotEmpty()) {
+                        putJsonArray("dialog_context") {
+                            context.forEach { (role, text) ->
+                                add(
+                                    buildJsonObject {
+                                        put("role", role)
+                                        put("text", text)
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -59,4 +59,48 @@ class ContinuationTest {
         assertEquals("角色\n\n以下是这场对话之前的内容", promptWithHistory("角色", "以下是这场对话之前的内容"))
         assertEquals("以下是这场对话之前的内容", promptWithHistory("", "以下是这场对话之前的内容"))
     }
+
+    @Test
+    fun `豆包上下文成对抽出，半句丢掉`() {
+        assertTrue(dialogContextOf(emptyList()).isEmpty())
+        assertTrue(
+            "只有学生一句凑不成对",
+            dialogContextOf(listOf(turn(1, Speaker.User, "Hello"))).isEmpty(),
+        )
+
+        val paired = dialogContextOf(
+            listOf(
+                turn(1, Speaker.Echo, "开头助教半句"),
+                turn(2, Speaker.User, "I went to the shop."),
+                turn(3, Speaker.Echo, "How was it?"),
+                turn(4, Speaker.User, "还没回的这一句"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                DialogTurn("user", "I went to the shop."),
+                DialogTurn("assistant", "How was it?"),
+            ),
+            paired,
+        )
+    }
+
+    @Test
+    fun `豆包上下文超预算从最早的轮次丢`() {
+        val long = "a".repeat(ContinuationChars / 2)
+        val kept = dialogContextOf(
+            listOf(
+                turn(1, Speaker.User, "最早的那一句"),
+                turn(2, Speaker.Echo, "最早的回复"),
+                turn(3, Speaker.User, long),
+                turn(4, Speaker.Echo, long),
+            ),
+        )
+
+        assertTrue(kept.none { it.text.contains("最早") })
+        assertEquals(2, kept.size)
+        assertEquals("user", kept.first().role)
+        assertEquals("assistant", kept.last().role)
+    }
 }

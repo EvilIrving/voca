@@ -76,6 +76,7 @@ import com.parley.speaker.domain.VocabCard
 import com.parley.speaker.domain.checkInWeeks
 import com.parley.speaker.domain.checkInWindowStart
 import com.parley.speaker.domain.continuationHistory
+import com.parley.speaker.domain.dialogContextOf
 import com.parley.speaker.domain.liveChange
 import com.parley.speaker.domain.memoryMaterial
 import com.parley.speaker.domain.systemPromptOf
@@ -551,7 +552,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 voice = live.voice,
                 systemPrompt = instructions,
                 onEvent = { event -> onEvent(seq, event) },
-                history = history,
+                context = dialogContextOf(flow.turns),
             )
         }
         session = created

@@ -7,11 +7,19 @@ import com.parley.speaker.data.realtime.Pcm
 import com.parley.speaker.data.realtime.ProviderFault
 import com.parley.speaker.data.realtime.RealtimeEvent
 import com.parley.speaker.data.realtime.RealtimeSession
+import com.parley.speaker.domain.DialogTurn
 import com.parley.speaker.domain.LiveVendor
 import com.parley.speaker.domain.VoiceCatalog
-import com.parley.speaker.domain.promptWithHistory
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -27,8 +35,11 @@ import okio.ByteString
  * 不点名的话服务端按三十二位小端发，播放链路读十六位就成噪声。
  *
  * 回合边界由客户端宣告：松手发 input_audio_buffer.commit。这一条就是协议里的强制判停，
- * 与 Gemini 的 activityEnd 同一个位置；服务端的自动判停仍在跑，所以模型可能在你说话的
- * 时候自己开口，commit 只能收口或加速它结束，不构成「松手之前绝不作答」的保证。
+ * 与 Gemini 的 activityEnd 同一个位置；服务端的自动判停关不掉，所以按住期间若模型自己开口，
+ * 这里发 response.cancel 并把这一响应当迟到内容丢掉，松手之前界面听不到。
+ *
+ * 断线用服务端回的 session.id 原样续上，音频上下文还在那一段对话里；续不上才把失败抛给界面。
+ * 续接时不再报 Ready，避免把正在收音的那一轮打回空闲。
  *
  * 取消有真正的动作可发：response.cancel 之后服务端回 response.canceled。
  * 已发出的那一段音频仍会继续回吐，所以本地还留一层迟到窗口，按响应号把旧一轮的内容标出来丢掉。
@@ -38,11 +49,11 @@ class DoubaoRealtimeSession(
     private val voice: String = VoiceCatalog.defaultId(LiveVendor.Doubao),
     private val systemPrompt: String = "",
     private val onEvent: (RealtimeEvent) -> Unit,
-    /** 接着一条历史会话聊时要带上的那段流水：豆包没有跨连接续上的句柄，它接在系统提示后面。 */
-    history: String? = null,
+    /** 接着一条历史会话或重连时要先交代的成对流水，走 dialog_context，不进系统提示。 */
+    context: List<DialogTurn> = emptyList(),
 ) : RealtimeSession {
 
-    private val prompt = promptWithHistory(systemPrompt, history)
+    private val seed = context.map { it.role to it.text }
 
     override val capabilities = Capabilities(
         canInterrupt = true,
@@ -54,21 +65,28 @@ class DoubaoRealtimeSession(
     )
 
     private val client = sharedClient
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val pendingFrames = ArrayDeque<ByteArray>()
     private val lock = Any()
 
     private val late = LateTurn(LATE_WINDOW_MS) { System.nanoTime() / 1_000_000 }
 
-    /** 会话号由客户端生成，服务端在 session.created 里回了自己的就换成它的。 */
+    /** 会话号由客户端生成，服务端在 session.created 里回了自己的就换成它的，断线续接只认服务端那个。 */
     @Volatile
     private var sessionId: String = UUID.randomUUID().toString()
+
+    @Volatile
+    private var serverSessionId: String? = null
 
     @Volatile
     private var socket: WebSocket? = null
 
     @Volatile
     private var ready = false
+
+    @Volatile
+    private var announcedReady = false
 
     @Volatile
     private var turnOpen = false
@@ -86,9 +104,29 @@ class DoubaoRealtimeSession(
     @Volatile
     private var pendingUnmute = false
 
+    @Volatile
+    private var bargeHeld = false
+
+    @Volatile
+    private var reconnectAttempts = 0
+
+    @Volatile
+    private var setupJob: Job? = null
+
+    /** 下一次 onOpen 要不要带成对流水。续接同一段时为空。 */
+    private var pendingContext: List<Pair<String, String>> = emptyList()
+
     override fun connect() {
         if (closed || socket != null) return
         Log.i(TAG, "connecting voice=$voice keyLen=${apiKey.length}")
+        reconnectAttempts = 0
+        open(seedContext = seed)
+    }
+
+    private fun open(seedContext: List<Pair<String, String>>) {
+        if (closed) return
+        ready = false
+        pendingContext = seedContext
         val request = Request.Builder()
             .url(DoubaoWire.ENDPOINT)
             .header("X-Api-Key", apiKey)
@@ -96,10 +134,27 @@ class DoubaoRealtimeSession(
         socket = client.newWebSocket(request, listener)
     }
 
+    private fun watchSetup(webSocket: WebSocket) {
+        setupJob?.cancel()
+        setupJob = scope.launch {
+            delay(SetupTimeoutMs)
+            if (webSocket !== socket || ready) return@launch
+            Log.w(TAG, "setup timeout after ${SetupTimeoutMs}ms")
+            ready = false
+            socket = null
+            webSocket.close(1000, "setup timeout")
+            onEvent(RealtimeEvent.Failed(""))
+        }
+    }
+
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.i(TAG, "open ${response.code}")
-            send(DoubaoWire.sessionCreate(sessionId, voice, prompt))
+            if (socket !== webSocket) return
+            watchSetup(webSocket)
+            // 续接同一段对话时带服务端回过的 id，上下文还在那一头；第一次开会话带本地号，服务端会换成它的。
+            val id = serverSessionId ?: sessionId
+            send(DoubaoWire.sessionCreate(id, voice, systemPrompt, pendingContext))
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -118,7 +173,7 @@ class DoubaoRealtimeSession(
             if (socket !== webSocket) return
             reset()
             Log.w(TAG, "socket failed: ${t.message}", t)
-            if (closed) return
+            if (closed || resume()) return
             onEvent(RealtimeEvent.Failed(classify(t, response)))
         }
 
@@ -126,7 +181,7 @@ class DoubaoRealtimeSession(
             if (socket !== webSocket) return
             reset()
             Log.i(TAG, "closed $code $reason")
-            if (closed) return
+            if (closed || resume()) return
             onEvent(RealtimeEvent.Failed(""))
         }
     }
@@ -134,6 +189,27 @@ class DoubaoRealtimeSession(
     private fun reset() {
         ready = false
         socket = null
+        setupJob?.cancel()
+        setupJob = null
+    }
+
+    /**
+     * 服务端给过 session.id 就换一条连接把同一段对话接回来，本轮不作废；
+     * 还没拿到服务端号就返回 false，调用方照旧发 Failed。
+     */
+    private fun resume(): Boolean {
+        val current = serverSessionId ?: return false
+        if (reconnectAttempts >= MAX_RESUME_ATTEMPTS) return false
+        reconnectAttempts += 1
+        val wait = (RESUME_BASE_MS shl (reconnectAttempts - 1)) + Random.nextLong(RESUME_JITTER_MS)
+        Log.i(TAG, "resume $current attempt $reconnectAttempts in ${wait}ms")
+        sessionId = current
+        if (turnOpen) pendingUnmute = true
+        scope.launch {
+            delay(wait)
+            if (!closed && socket == null) open(emptyList())
+        }
+        return true
     }
 
     private fun classify(t: Throwable, response: Response?): String = when {
@@ -147,6 +223,7 @@ class DoubaoRealtimeSession(
 
     override fun startTurn() {
         turnOpen = true
+        bargeHeld = false
         late.nextTurn()
         // 上一轮松手时报过关麦，这一轮开口前得先撤销，否则服务端仍当麦克风关着，上行帧被丢掉。
         if (!muted) return
@@ -188,6 +265,7 @@ class DoubaoRealtimeSession(
     override fun cancelTurn(turnId: String) {
         turnOpen = false
         pendingEnd = false
+        bargeHeld = false
         muted = true
         synchronized(lock) { pendingFrames.clear() }
         late.cancel(turnId)
@@ -207,10 +285,13 @@ class DoubaoRealtimeSession(
         val wasReady = ready
         ready = false
         turnOpen = false
+        setupJob?.cancel()
+        setupJob = null
         if (wasReady) send(DoubaoWire.sessionClose())
         val current = socket
         socket = null
         current?.close(1000, "bye")
+        scope.cancel()
     }
 
     private fun flushPending() {
@@ -228,6 +309,10 @@ class DoubaoRealtimeSession(
             pendingEnd = false
             send(DoubaoWire.commit())
             send(DoubaoWire.audioMute())
+        } else if (!turnOpen) {
+            // 握手后若没在收音，立刻关麦。模型靠上行音频保活，人不说话时不发帧就会超时。
+            muted = true
+            send(DoubaoWire.audioMute())
         }
     }
 
@@ -239,11 +324,20 @@ class DoubaoRealtimeSession(
         if (socket !== webSocket) return
         val inbound = DoubaoWire.parse(text)
         if (inbound is DoubaoInbound.Created) {
-            inbound.sessionId.takeIf { it.isNotBlank() }?.let { sessionId = it }
+            inbound.sessionId.takeIf { it.isNotBlank() }?.let {
+                sessionId = it
+                serverSessionId = it
+            }
             val first = !ready
             ready = true
+            reconnectAttempts = 0
+            setupJob?.cancel()
+            setupJob = null
             if (first) flushPending()
-            if (first && !closed) onEvent(RealtimeEvent.Ready)
+            if (first && !closed && !announcedReady) {
+                announcedReady = true
+                onEvent(RealtimeEvent.Ready)
+            }
             return
         }
         if (inbound is DoubaoInbound.Closed) {
@@ -257,18 +351,23 @@ class DoubaoRealtimeSession(
             onEvent(RealtimeEvent.Failed(inbound.message))
             return
         }
+        if (turnOpen && inbound.isModelTalk()) {
+            suppressBargeIn(inbound)
+            return
+        }
         val tag = responseIdOf(inbound).let { id ->
             id?.let { late.bind(it) }
             late.tag(id)
         }
+        // 取消与抢话留下的旧响应还在回吐：这里直接丢掉，不再交给界面按 id 筛。
+        if (tag != null) return
         val event = inbound.event() ?: return
         when (event) {
-            is RealtimeEvent.Audio -> onEvent(event.copy(turnId = tag))
-            is RealtimeEvent.AssistantText -> onEvent(event.copy(turnId = tag))
-            is RealtimeEvent.UserText -> onEvent(event.copy(turnId = tag))
+            is RealtimeEvent.Audio -> onEvent(event)
+            is RealtimeEvent.AssistantText -> onEvent(event)
+            is RealtimeEvent.UserText -> onEvent(event)
             RealtimeEvent.TurnComplete -> {
                 late.close()
-                if (tag != null) return
                 onEvent(RealtimeEvent.TurnComplete)
             }
 
@@ -276,6 +375,20 @@ class DoubaoRealtimeSession(
 
             RealtimeEvent.Ready, RealtimeEvent.Interrupted -> Unit
         }
+    }
+
+    /**
+     * 服务端在人还没松手时自己开口。协议没有关自动判停的开关，能做的是当场打断，
+     * 并把这一响应当成被取消的一轮，松手之后它的尾巴也不会进播放队列。
+     */
+    private fun suppressBargeIn(inbound: DoubaoInbound) {
+        if (!bargeHeld) {
+            bargeHeld = true
+            late.cancel(BARGE_TURN)
+            if (ready) send(DoubaoWire.cancel())
+            Log.i(TAG, "barge-in cancelled")
+        }
+        responseIdOf(inbound)?.let { late.bind(it) }
     }
 
     private fun responseIdOf(inbound: DoubaoInbound): String? =
@@ -292,6 +405,11 @@ class DoubaoRealtimeSession(
 
         private const val TAG = "DoubaoRealtime"
         private const val MAX_PENDING = 200
+        private const val BARGE_TURN = "barge"
+        private const val SetupTimeoutMs = 8_000L
+        private const val MAX_RESUME_ATTEMPTS = 2
+        private const val RESUME_BASE_MS = 400L
+        private const val RESUME_JITTER_MS = 300L
 
         /** 取消之后等迟到内容的窗口，够覆盖一轮生成来回。 */
         private const val LATE_WINDOW_MS = 1_500L

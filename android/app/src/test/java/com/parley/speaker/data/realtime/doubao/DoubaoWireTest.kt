@@ -5,12 +5,14 @@ import com.parley.speaker.data.realtime.RealtimeEvent
 import java.util.Base64
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -40,6 +42,31 @@ class DoubaoWireTest {
         assertEquals("pcm_s16le", out.getValue("type").jsonPrimitive.content)
         assertEquals(24_000, out.getValue("rate").jsonPrimitive.int)
         assertEquals("zh_female_vv_jupiter_bigtts", output.getValue("voice").jsonPrimitive.content)
+
+        val dialog = session.getValue("extension").jsonObject.getValue("dialog").jsonObject
+        assertEquals(false, dialog.getValue("strict_audit").jsonPrimitive.boolean)
+        assertNull("没有历史时不传空的 dialog_context", dialog["dialog_context"])
+    }
+
+    @Test
+    fun `成对流水走 dialog_context，不进系统提示`() {
+        val root = Json.parseToJsonElement(
+            DoubaoWire.sessionCreate(
+                "s-1",
+                "v",
+                "你是口语搭档",
+                listOf("user" to "I went to the shop.", "assistant" to "How was it?"),
+            ),
+        ).jsonObject
+        val session = root.getValue("session").jsonObject
+        val dialog = session.getValue("extension").jsonObject.getValue("dialog").jsonObject
+        val context = dialog.getValue("dialog_context")
+
+        assertEquals("你是口语搭档", session.getValue("instructions").jsonPrimitive.content)
+        assertEquals(
+            """[{"role":"user","text":"I went to the shop."},{"role":"assistant","text":"How was it?"}]""",
+            context.toString(),
+        )
     }
 
     @Test
@@ -145,6 +172,17 @@ class DoubaoWireTest {
 
         assertEquals(RealtimeEvent.Failed(ProviderFault.Quota), quota.event())
         assertEquals(RealtimeEvent.Failed(""), noise.event())
+    }
+
+    @Test
+    fun `按住时模型开口算抢话，用户转写不算`() {
+        assertTrue(
+            DoubaoInbound.Audio(byteArrayOf(1), "r-1").isModelTalk(),
+        )
+        assertTrue(DoubaoInbound.AssistantText("Hi", "r-1").isModelTalk())
+        assertTrue(DoubaoInbound.TurnComplete("r-1").isModelTalk())
+        assertFalse(DoubaoInbound.UserText("I went").isModelTalk())
+        assertFalse(DoubaoInbound.Committed.isModelTalk())
     }
 
     @Test

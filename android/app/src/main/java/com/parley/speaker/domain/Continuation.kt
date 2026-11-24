@@ -33,3 +33,33 @@ fun promptWithHistory(prompt: String, history: String?): String {
     if (block.isEmpty()) return prompt
     return if (prompt.isBlank()) block else "$prompt\n\n$block"
 }
+
+/**
+ * 豆包开会话时的成对上下文。官方要求 user / assistant 成对传入，
+ * 角色写在字段里，正文不再加「学生」「助教」前缀。
+ */
+data class DialogTurn(val role: String, val text: String)
+
+/**
+ * 从现有轮次抽出豆包能读的成对上下文。超预算从最早的轮次丢，
+ * 开头若是助教半句、末尾若是还没回的学生半句，一起去掉，凑不成一对就空着。
+ */
+fun dialogContextOf(turns: List<Turn>, budget: Int = ContinuationChars): List<DialogTurn> {
+    val items = turns.mapNotNull { turn ->
+        val text = turn.text.trim()
+        if (text.isEmpty()) return@mapNotNull null
+        val role = if (turn.speaker == Speaker.User) "user" else "assistant"
+        DialogTurn(role, text)
+    }
+    val kept = mutableListOf<DialogTurn>()
+    var remaining = budget
+    for (item in items.reversed()) {
+        if (item.text.length > remaining) break
+        kept.add(0, item)
+        remaining -= item.text.length
+    }
+    while (kept.isNotEmpty() && kept.first().role != "user") kept.removeAt(0)
+    while (kept.isNotEmpty() && kept.last().role != "assistant") kept.removeAt(kept.lastIndex)
+    if (kept.size < 2) return emptyList()
+    return kept
+}
