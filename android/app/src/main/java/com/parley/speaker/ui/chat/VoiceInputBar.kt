@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,7 +58,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -279,6 +279,9 @@ fun VoiceInputBar(
     var gesture by remember { mutableStateOf(VoiceGestureState()) }
     var discard by remember { mutableStateOf<DiscardVisual?>(null) }
     var discardToken by remember { mutableLongStateOf(0L) }
+    // 弹键盘的请求次数。键盘被返回键收掉之后输入框还挂在树上、编辑态没有翻转，
+    // 拿编辑态当触发器的话下一次点击只是重复设真，焦点与键盘都不会回来。
+    var draftRequest by remember { mutableIntStateOf(0) }
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -292,6 +295,11 @@ fun VoiceInputBar(
 
     // 可走距离取整个会话窗口的宽度，与源码里 sizeNotifierLayout 的实测宽度同一个口径。
     val span = VoiceGesture.cancelSpan(LocalConfiguration.current.screenWidthDp.toFloat())
+
+    val requestDraft: () -> Unit = {
+        editing = true
+        draftRequest += 1
+    }
 
     val dispatch: (VoiceInputEvent) -> Unit = { event ->
         // 上一段作废还在播垃圾桶：只有新的按压才算接管，抬手与移动不能把动效打断——
@@ -333,7 +341,7 @@ fun VoiceInputBar(
                     ended.value(false)
                 }
 
-                VoiceEffect.OpenDraft -> editing = true
+                VoiceEffect.OpenDraft -> requestDraft()
             }
         }
     }
@@ -366,9 +374,10 @@ fun VoiceInputBar(
     }
 
     // 焦点要等输入框挂上去、摆好那一帧再要：同一帧里连键盘一起叫，部分机型只认后者不认前者。
-    LaunchedEffect(editing) {
-        if (!editing) return@LaunchedEffect
+    LaunchedEffect(draftRequest) {
+        if (draftRequest == 0) return@LaunchedEffect
         withFrameNanos { }
+        if (!editing) return@LaunchedEffect
         focus.requestFocus()
         keyboard?.show()
     }
@@ -461,8 +470,7 @@ fun VoiceInputBar(
                             editing = editing,
                             onChange = { draft = it },
                             onSend = sendDraft,
-                            onTap = { editing = true },
-                            onExitEdit = { editing = false },
+                            onTap = requestDraft,
                             focus = focus,
                         )
 
@@ -725,13 +733,8 @@ private fun DraftRow(
     onChange: (String) -> Unit,
     onSend: () -> Unit,
     onTap: () -> Unit,
-    onExitEdit: () -> Unit,
     focus: FocusRequester,
 ) {
-    // 编辑态由焦点决定：输入框真拿到过焦点之后的失焦才算退出。
-    // 刚挂上去那一帧报的失焦不算，否则草稿态一进去就自己弹回来。
-    var hadFocus by remember { mutableStateOf(false) }
-    val keyboard = LocalSoftwareKeyboardController.current
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -764,16 +767,8 @@ private fun DraftRow(
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                             if (waitForUpOrCancellation(pass = PointerEventPass.Initial) != null) {
-                                keyboard?.show()
+                                onTap()
                             }
-                        }
-                    }
-                    .onFocusChanged { state ->
-                        if (state.isFocused) {
-                            hadFocus = true
-                        } else if (hadFocus) {
-                            hadFocus = false
-                            onExitEdit()
                         }
                     },
             )
