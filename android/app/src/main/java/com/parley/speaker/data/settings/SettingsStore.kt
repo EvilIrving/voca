@@ -13,10 +13,9 @@ import com.parley.speaker.domain.AppSettings
 import com.parley.speaker.domain.AssessorProvider
 import com.parley.speaker.domain.AssessorSettings
 import com.parley.speaker.domain.AuthKind
-import com.parley.speaker.domain.LiveDefaults
 import com.parley.speaker.domain.LiveSettings
+import com.parley.speaker.domain.LiveTuning
 import com.parley.speaker.domain.LiveVendor
-import com.parley.speaker.domain.VoiceCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,29 +40,37 @@ class SettingsStore(context: Context) {
     private val _settings = MutableStateFlow(read())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
-    private fun defaults(): AppSettings = AppSettings(
-        live = settled(
-            LiveSettings(
-                geminiKey = BuildConfig.DEV_GEMINI_API_KEY,
-                model = BuildConfig.DEV_GEMINI_LIVE_MODEL,
-                voice = BuildConfig.DEV_GEMINI_VOICE,
+    // 出厂这份只在开发构建里带密钥：带得进来就顺手选中那一家，装到机器上就能直接开口。
+    private fun defaults(): AppSettings {
+        val live = LiveSettings(
+            geminiKey = BuildConfig.DEV_GEMINI_API_KEY,
+            tuning = mapOf(
+                LiveVendor.Gemini to LiveTuning(
+                    BuildConfig.DEV_GEMINI_LIVE_MODEL,
+                    BuildConfig.DEV_GEMINI_VOICE,
+                ),
             ),
-        ),
-        analysis = AnalysisSettings(
+        )
+        val analysis = AnalysisSettings(
             saved = mapOf(
                 TextProviderCatalog.GeminiId to AnalysisCredentials(
                     apiKey = BuildConfig.DEV_GEMINI_API_KEY,
                     model = BuildConfig.DEV_GEMINI_TEXT_MODEL,
                 ),
             ),
-        ),
-        assessor = AssessorSettings(
-            xfyunAppId = BuildConfig.DEV_XFYUN_APP_ID,
-            xfyunApiKey = BuildConfig.DEV_XFYUN_API_KEY,
-            xfyunApiSecret = BuildConfig.DEV_XFYUN_API_SECRET,
-        ),
-        prompt = defaultPrompt,
-    )
+        )
+        return AppSettings(
+            live = live.selectIfReady(LiveVendor.Gemini),
+            analysis = analysis.selectIfReady(TextProviderCatalog.GeminiId),
+            assessor = AssessorSettings()
+                .withXfyun(
+                    BuildConfig.DEV_XFYUN_APP_ID,
+                    BuildConfig.DEV_XFYUN_API_KEY,
+                    BuildConfig.DEV_XFYUN_API_SECRET,
+                ),
+            prompt = defaultPrompt,
+        )
+    }
 
     private fun read(): AppSettings {
         if (!prefs.contains(KEY_SEEDED)) {
@@ -89,13 +96,10 @@ class SettingsStore(context: Context) {
             .apply()
     }
 
-    // 存储器里的 provider 是推导后的值，内存里那份也按同一规则归位，免得重启前后看到两家不同的状态。
-    // 实时对话那组同规矩：换了供应商就落到那家的默认模型与音色，音色不在目录里拉回默认。
+    // 每次改动都由调用方按设置自己那几条规矩落定（存一家就切过去、清一家就找同组另一个），
+    // 这里不再按凭据齐备重排谁生效，否则显式选中的那家会被推导规则顶掉。
     fun update(transform: (AppSettings) -> AppSettings) {
-        val before = _settings.value
-        val next = transform(before)
-            .let { it.copy(assessor = it.assessor.copy(provider = it.assessor.resolvedProvider)) }
-            .let { it.copy(live = normalizedLive(before.live, it.live)) }
+        val next = transform(_settings.value)
         write(next)
         _settings.value = next
     }
@@ -228,45 +232,37 @@ internal fun readPrompt(prefs: SharedPreferences, fallback: String): String {
 }
 
 private const val KEY_LIVE_PROVIDER = "live_provider"
-
-/** 旧版本只有这一把密钥，读出来当 Gemini 的密钥，已经填过的人不必重填。 */
-private const val KEY_LIVE_KEY = "live_api_key"
+private const val KEY_LIVE_GEMINI_KEY = "live_api_key"
 private const val KEY_LIVE_OPENAI_KEY = "live_openai_key"
 private const val KEY_LIVE_DOUBAO_API_KEY = "live_doubao_api_key"
-private const val KEY_LIVE_MODEL = "live_model"
-private const val KEY_LIVE_VOICE = "live_voice"
 
-internal fun readLive(prefs: SharedPreferences): LiveSettings {
-    val provider = prefs.getString(KEY_LIVE_PROVIDER, null)
-        ?.let { name -> LiveVendor.entries.firstOrNull { it.name == name } }
-        ?: LiveVendor.Gemini
-    return settled(
-        LiveSettings(
-            provider = provider,
-            geminiKey = prefs.getString(KEY_LIVE_KEY, "").orEmpty(),
-            openAiKey = prefs.getString(KEY_LIVE_OPENAI_KEY, "").orEmpty(),
-            doubaoApiKey = prefs.getString(KEY_LIVE_DOUBAO_API_KEY, "").orEmpty(),
-            model = prefs.getString(KEY_LIVE_MODEL, "").orEmpty(),
-            voice = prefs.getString(KEY_LIVE_VOICE, "").orEmpty(),
-        ),
-    )
-}
+/** 模型与音色按家各存一格：live.<家>.<字段>，换走再换回来还是原先那一对。 */
+private fun tuningKey(vendor: LiveVendor, field: String): String =
+    "live.${vendor.name.lowercase()}.$field"
 
-internal fun SharedPreferences.Editor.putLive(live: LiveSettings): SharedPreferences.Editor =
-    putString(KEY_LIVE_PROVIDER, live.provider.name)
-        .putString(KEY_LIVE_KEY, live.geminiKey)
-        .putString(KEY_LIVE_OPENAI_KEY, live.openAiKey)
-        .putString(KEY_LIVE_DOUBAO_API_KEY, live.doubaoApiKey)
-        .putString(KEY_LIVE_MODEL, live.model)
-        .putString(KEY_LIVE_VOICE, live.voice)
-
-/** 音色必须落在这一家的目录里，不在就拉回默认；模型空着取该家的默认值。 */
-internal fun settled(live: LiveSettings): LiveSettings = live.copy(
-    model = live.model.ifBlank { LiveDefaults.model(live.provider) },
-    voice = live.voice.takeIf { VoiceCatalog.isKnown(live.provider, it) }
-        ?: LiveDefaults.voice(live.provider),
+internal fun readLive(prefs: SharedPreferences): LiveSettings = LiveSettings(
+    provider = prefs.getString(KEY_LIVE_PROVIDER, null)
+        ?.let { name -> LiveVendor.entries.firstOrNull { it.name == name } },
+    geminiKey = prefs.getString(KEY_LIVE_GEMINI_KEY, "").orEmpty(),
+    openAiKey = prefs.getString(KEY_LIVE_OPENAI_KEY, "").orEmpty(),
+    doubaoApiKey = prefs.getString(KEY_LIVE_DOUBAO_API_KEY, "").orEmpty(),
+    tuning = LiveVendor.entries.associateWith { vendor ->
+        LiveTuning(
+            model = prefs.getString(tuningKey(vendor, "model"), "").orEmpty(),
+            voice = prefs.getString(tuningKey(vendor, "voice"), "").orEmpty(),
+        )
+    },
 )
 
-/** 换到另一家时模型与音色整体落到那家的默认值，再按目录归位。 */
-internal fun normalizedLive(before: LiveSettings, after: LiveSettings): LiveSettings =
-    settled(if (before.provider == after.provider) after else after.copy(model = "", voice = ""))
+internal fun SharedPreferences.Editor.putLive(live: LiveSettings): SharedPreferences.Editor {
+    putString(KEY_LIVE_PROVIDER, live.provider?.name)
+    putString(KEY_LIVE_GEMINI_KEY, live.geminiKey)
+    putString(KEY_LIVE_OPENAI_KEY, live.openAiKey)
+    putString(KEY_LIVE_DOUBAO_API_KEY, live.doubaoApiKey)
+    LiveVendor.entries.forEach { vendor ->
+        val tuning = live.tuningOf(vendor)
+        putString(tuningKey(vendor, "model"), tuning.model)
+        putString(tuningKey(vendor, "voice"), tuning.voice)
+    }
+    return this
+}

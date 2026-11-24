@@ -195,13 +195,23 @@ private fun VocabCard.matches(query: String): Boolean {
         meaning.contains(needle, ignoreCase = true)
 }
 
-enum class LinkStatus { Connected, Configured, Unconfigured, Failed, NotSupported }
+/** 设置页三组：实时对话、发音评测、文本分析。组内几家可以并存，谁被选中谁生效。 */
+enum class ProviderGroup { Realtime, Assessor, Analysis }
 
+/** 组内一家的标识，界面用它记住摊开的是哪一行。 */
+val LiveVendor.key: String get() = name.lowercase()
+
+val AssessorProvider.key: String get() = name.lowercase()
+
+/**
+ * 设置页一行：家名、第二行的模型号或端点，这一家自己配没配好，以及是不是生效那家。
+ * 收起一组只画生效那 1 行，摊开画同组全部几家。
+ */
 data class ProviderLine(
+    val group: ProviderGroup,
     val key: String,
-    val group: String,
     val name: String,
     val detail: String,
-    val status: LinkStatus,
-    val editable: Boolean = false,
+    val configured: Boolean,
+    val active: Boolean,
 )

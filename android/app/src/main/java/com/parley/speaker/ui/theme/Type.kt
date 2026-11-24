@@ -118,16 +118,23 @@ object Type {
     val uiInk3 = ui.copy(color = Palette.ink3)
     val uiInk4 = ui.copy(color = Palette.ink4)
     val uiStrongClay = uiStrong.copy(color = Palette.clayDeep)
+    val uiStrongInk3 = uiStrong.copy(color = Palette.ink3)
+    val captionInk2 = caption.copy(color = Palette.ink2)
     val uiStrongInk2 = uiStrong.copy(color = Palette.ink2)
     val uiStrongDanger = uiStrong.copy(color = Palette.danger)
     val uiStrongOnDark = uiStrong.copy(color = Color.White)
     val clock = mono.copy(fontSize = 10.5.sp, lineHeight = 14.sp)
+    val clockInk4 = clock.copy(color = Palette.ink4)
+    val clockClay = clock.copy(color = Palette.clayDeep)
 
     /** 打卡热力图的月份与周标：八点五号，只在轴上一行，字号再大就把格子挤走。 */
     val heatAxis = mono.copy(fontSize = 8.5.sp, lineHeight = 12.sp, color = Palette.ink4)
     val translation = ui.copy(fontSize = 12.5.sp, lineHeight = 19.sp, color = Palette.ink3)
     val translationTight = ui.copy(fontSize = 12.5.sp, lineHeight = 18.sp, color = Palette.ink3)
     val badge = ui.copy(fontSize = 11.5.sp, lineHeight = 16.sp)
+
+    /** 设置页的分组标题：十号字拉开一点字距，读起来像一行轴标。 */
+    val sectionLabel = captionInk4.copy(fontSize = 10.sp, letterSpacing = 1.sp)
 }
 
 val ParleyTypography = Typography(

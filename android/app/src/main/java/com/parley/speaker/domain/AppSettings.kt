@@ -9,27 +9,78 @@ enum class AssessorProvider(val label: String) {
 /** 文本分析请求把密钥放在哪里，三档对应 Bearer 头、自定义头与查询参数。 */
 enum class AuthKind { Bearer, Header, Query }
 
+/** 一家挑好的模型号与音色。三家的各存一格，切走再切回来还是原先那一对。 */
+data class LiveTuning(val model: String, val voice: String) {
+
+    /** 模型空着取这一家的默认，音色不在这一家的目录里拉回默认。 */
+    fun settled(vendor: LiveVendor): LiveTuning = LiveTuning(
+        model = model.ifBlank { LiveDefaults.model(vendor) },
+        voice = voice.takeIf { VoiceCatalog.isKnown(vendor, it) } ?: LiveDefaults.voice(vendor),
+    )
+}
+
 /**
- * 实时对话设置按供应商分档：三家的凭据各自一格，模型与音色跟着当前供应商走。
- * 齐备条件三家一致，各认一把密钥：豆包 3.0 全双工版与另外两家一样，只吃一个 X-Api-Key，
- * 不再要 AppID 与 AccessKey 那套旧控制台三件套。
+ * 实时对话设置按供应商分档：三家的凭据各自一格，模型与音色也按家各存一格。
+ * provider 是生效的那家，为空表示还没选过；谁被选中谁生效，不再按凭据齐备推导。
+ * 齐备条件三家一致，各认一把密钥：豆包 3.0 全双工版与另外两家一样，只吃一个 X-Api-Key。
  */
 data class LiveSettings(
-    val provider: LiveVendor = LiveVendor.Gemini,
+    val provider: LiveVendor? = null,
     val geminiKey: String = "",
     val openAiKey: String = "",
     val doubaoApiKey: String = "",
-    val model: String = LiveDefaults.model(LiveVendor.Gemini),
-    val voice: String = LiveDefaults.voice(LiveVendor.Gemini),
+    val tuning: Map<LiveVendor, LiveTuning> = emptyMap(),
 ) {
-    fun ready(vendor: LiveVendor): Boolean = when (vendor) {
-        LiveVendor.Gemini -> geminiKey.isNotBlank()
-        LiveVendor.OpenAi -> openAiKey.isNotBlank()
-        LiveVendor.Doubao -> doubaoApiKey.isNotBlank()
+    fun keyOf(vendor: LiveVendor): String = when (vendor) {
+        LiveVendor.Gemini -> geminiKey
+        LiveVendor.OpenAi -> openAiKey
+        LiveVendor.Doubao -> doubaoApiKey
     }
 
+    fun ready(vendor: LiveVendor): Boolean = keyOf(vendor).isNotBlank()
+
     /** 当前选中的这家能不能建连接。界面与建连判定都读这一格，不再各自数密钥。 */
-    val ready: Boolean get() = ready(provider)
+    val ready: Boolean get() = provider?.let(::ready) == true
+
+    /** 这一家挑好的那一对，没挑过就是目录默认的模型号与默认音色。 */
+    fun tuningOf(vendor: LiveVendor): LiveTuning = tuning[vendor]?.settled(vendor)
+        ?: LiveTuning(LiveDefaults.model(vendor), LiveDefaults.voice(vendor))
+
+    /** 生效那家挑好的模型与音色，适配器建连接时读这两格。 */
+    val model: String get() = provider?.let { tuningOf(it).model }.orEmpty()
+    val voice: String get() = provider?.let { tuningOf(it).voice }.orEmpty()
+
+    fun withKey(vendor: LiveVendor, key: String): LiveSettings = when (vendor) {
+        LiveVendor.Gemini -> copy(geminiKey = key.trim())
+        LiveVendor.OpenAi -> copy(openAiKey = key.trim())
+        LiveVendor.Doubao -> copy(doubaoApiKey = key.trim())
+    }
+
+    fun withTuning(
+        vendor: LiveVendor,
+        model: String = tuningOf(vendor).model,
+        voice: String = tuningOf(vendor).voice,
+    ): LiveSettings = copy(tuning = tuning + (vendor to LiveTuning(model, voice)))
+
+    /** 存一家：写凭据与音色，参数齐了才把它设为生效那家，空着保存不动别人。 */
+    fun saved(vendor: LiveVendor, key: String, voice: String): LiveSettings =
+        withKey(vendor, key).withTuning(vendor, voice = voice).selectIfReady(vendor)
+
+    fun select(vendor: LiveVendor): LiveSettings = copy(provider = vendor)
+
+    /** 参数齐了才切过去：没填密钥那家选了也建不起连接。 */
+    fun selectIfReady(vendor: LiveVendor): LiveSettings =
+        if (ready(vendor)) select(vendor) else this
+
+    /**
+     * 清掉一家的凭据。清的是生效那家就落到同组另一个还配着的家，一家不剩就空着。
+     * 挑好的音色不清，重填密钥时还是原先那只。
+     */
+    fun cleared(vendor: LiveVendor): LiveSettings {
+        val rest = withKey(vendor, "")
+        if (provider != vendor) return rest
+        return rest.copy(provider = LiveVendor.entries.firstOrNull { it != vendor && rest.ready(it) })
+    }
 }
 
 /**
@@ -55,8 +106,8 @@ enum class LiveChange { None, Rebuild, Voice, Model, Prompt }
 fun liveChange(before: AppSettings, after: AppSettings): LiveChange = when {
     before.live.provider != after.live.provider -> LiveChange.Rebuild
     before.live.credentials() != after.live.credentials() -> LiveChange.Rebuild
-    before.live.voice != after.live.voice -> LiveChange.Voice
     before.live.model != after.live.model -> LiveChange.Model
+    before.live.voice != after.live.voice -> LiveChange.Voice
     before.prompt != after.prompt -> LiveChange.Prompt
     else -> LiveChange.None
 }
@@ -82,11 +133,11 @@ data class AnalysisCredentials(
 
 /**
  * 文本分析设置。provider 是当前生效的那家，saved 按供应商 id 各存一份，
- * 配第二家不会把第一家顶掉，换回来时密钥与挑好的模型都还在。
+ * 配第二家不会把第一家顶掉，换回来时密钥与挑好的模型都还在。空串表示一家都没选。
  * 下面那几个读的是当前这家的格子，请求装配与界面取的都是同一份。
  */
 data class AnalysisSettings(
-    val provider: String = "gemini",
+    val provider: String = "",
     val saved: Map<String, AnalysisCredentials> = emptyMap(),
     val thinking: Boolean = false,
 ) {
@@ -100,6 +151,16 @@ data class AnalysisSettings(
 
     fun select(id: String): AnalysisSettings = copy(provider = id)
 
+    /** 配好的那家才算生效：没填密钥的家选了也建不起请求。 */
+    fun selectIfReady(id: String): AnalysisSettings = if (of(id).ready) select(id) else this
+
+    /** 清掉一家的凭据。清的是生效那家就落到同组另一个还配着的家，一家不剩就空着。 */
+    fun cleared(id: String): AnalysisSettings {
+        val rest = copy(saved = saved - id)
+        if (provider != id) return rest
+        return rest.copy(provider = rest.saved.entries.firstOrNull { it.value.ready }?.key.orEmpty())
+    }
+
     val apiKey: String get() = active.apiKey
     val model: String get() = active.model
     val endpoint: String get() = active.endpoint
@@ -109,9 +170,9 @@ data class AnalysisSettings(
 }
 
 /**
- * 两家的凭据各占一组，齐备即启用。Azure 认密钥与区域两项；讯飞认 AppID、APIKey、APISecret 三件套。
- * resolvedProvider 是唯一判定点：显式选中的那家参数齐备就照办，否则按齐备情况退回推导，
- * 两家都齐备又没有显式选择时 Azure 在前，因此同一时刻只有一家生效。
+ * 两家的凭据各占一组。Azure 认密钥与区域两项，讯飞认 AppID、APIKey、APISecret 三件套。
+ * resolvedProvider 只认显式选择：选中的那家参数齐备才生效，别家齐备也不再顶上来，
+ * 因此两家都填好时到底用哪家由单选点说了算。
  */
 data class AssessorSettings(
     val provider: AssessorProvider = AssessorProvider.None,
@@ -121,18 +182,44 @@ data class AssessorSettings(
     val xfyunApiKey: String = "",
     val xfyunApiSecret: String = "",
 ) {
-    val azureReady: Boolean get() = azureKey.isNotBlank() && azureRegion.isNotBlank()
+    fun ready(vendor: AssessorProvider): Boolean = when (vendor) {
+        AssessorProvider.Azure -> azureKey.isNotBlank() && azureRegion.isNotBlank()
+        AssessorProvider.Xfyun ->
+            xfyunAppId.isNotBlank() && xfyunApiKey.isNotBlank() && xfyunApiSecret.isNotBlank()
 
-    val xfyunReady: Boolean
-        get() = xfyunAppId.isNotBlank() && xfyunApiKey.isNotBlank() && xfyunApiSecret.isNotBlank()
+        AssessorProvider.None -> false
+    }
 
     val resolvedProvider: AssessorProvider
-        get() = when {
-            provider == AssessorProvider.Xfyun && xfyunReady -> AssessorProvider.Xfyun
-            azureReady -> AssessorProvider.Azure
-            xfyunReady -> AssessorProvider.Xfyun
-            else -> AssessorProvider.None
+        get() = provider.takeIf(::ready) ?: AssessorProvider.None
+
+    fun select(vendor: AssessorProvider): AssessorSettings = if (ready(vendor)) copy(provider = vendor) else this
+
+    /** Azure 认密钥与区域两项，填完齐备就切到它。 */
+    fun withAzure(key: String, region: String): AssessorSettings =
+        copy(azureKey = key.trim(), azureRegion = region.trim()).select(AssessorProvider.Azure)
+
+    /** 讯飞认 AppID、APIKey、APISecret 三件套，填完齐备就切到它。 */
+    fun withXfyun(appId: String, apiKey: String, apiSecret: String): AssessorSettings =
+        copy(
+            xfyunAppId = appId.trim(),
+            xfyunApiKey = apiKey.trim(),
+            xfyunApiSecret = apiSecret.trim(),
+        ).select(AssessorProvider.Xfyun)
+
+    /** 清掉一家的凭据。清的是生效那家就落到另一家还配着的，一家不剩就空着。 */
+    fun cleared(vendor: AssessorProvider): AssessorSettings {
+        val rest = when (vendor) {
+            AssessorProvider.Azure -> copy(azureKey = "", azureRegion = "")
+            AssessorProvider.Xfyun -> copy(xfyunAppId = "", xfyunApiKey = "", xfyunApiSecret = "")
+            AssessorProvider.None -> this
         }
+        if (provider != vendor) return rest
+        return rest.copy(
+            provider = AssessorProvider.entries.firstOrNull { it != vendor && rest.ready(it) }
+                ?: AssessorProvider.None,
+        )
+    }
 }
 
 data class AppSettings(

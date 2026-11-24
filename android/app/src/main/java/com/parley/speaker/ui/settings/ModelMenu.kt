@@ -28,15 +28,13 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import com.parley.speaker.data.analysis.TextModel
 import com.parley.speaker.data.analysis.TextProvider
 import com.parley.speaker.domain.AnalysisCredentials
 import com.parley.speaker.domain.AppSettings
-import com.parley.speaker.domain.AssessorProvider
-import com.parley.speaker.domain.AssessorSettings
 import com.parley.speaker.domain.AuthKind
 import com.parley.speaker.domain.LiveDefaults
 import com.parley.speaker.domain.LiveSettings
@@ -61,55 +59,61 @@ internal val MenuWidth = 320.dp
 private val MenuMaxHeight = 340.dp
 
 /**
- * 菜单里的一行。[group] 换了就插一段小标题，音色按族分档时用；
- * [note] 是副行，模型摆参数、音色摆风格词。
+ * 菜单里的一行。[label] 是显示的名字，音色这类中文名与协议里那个 id 不是一回事；
+ * [note] 是副行，模型摆参数、音色摆风格词，[group] 换了就插一段小标题。
  */
-data class MenuOption(val id: String, val note: String? = null, val group: String = "")
+data class MenuOption(
+    val id: String,
+    val label: String = id,
+    val note: String? = null,
+    val group: String = "",
+)
 
 /** 一份菜单：候选项与当前选中项。选中项不在候选项里就一行都不勾。 */
 data class MenuSpec(val options: List<MenuOption>, val selected: String)
 
-/** 音色下拉：清单来自这一家的静态目录，风格词作副行，分族的名字作分段标题。 */
+/** 音色下拉：清单来自这一家的静态目录，名字作行名、风格词作副行，分族的名字作分段标题。 */
 fun voiceMenu(vendor: LiveVendor, selected: String): MenuSpec = MenuSpec(
-    options = VoiceCatalog.voices(vendor).map { MenuOption(it.id, it.style, it.group) },
+    options = VoiceCatalog.voices(vendor).map {
+        MenuOption(id = it.id, label = it.name, note = it.style, group = it.group)
+    },
     selected = selected,
 )
 
-/** 打开对话框时的音色：这一家的旧值还在目录里就留着，否则回该家的默认音色。 */
+/** 界面上写的那只音色：目录里的名字，目录外的旧值原样写回去。 */
+fun voiceName(vendor: LiveVendor, id: String): String =
+    VoiceCatalog.voices(vendor).firstOrNull { it.id == id }?.name ?: id
+
+/** 这一家挑好的音色，不在目录里就回默认。 */
 fun currentVoice(live: LiveSettings, vendor: LiveVendor): String =
-    live.voice.takeIf { live.provider == vendor && VoiceCatalog.isKnown(vendor, it) }
+    live.tuningOf(vendor).voice.takeIf { VoiceCatalog.isKnown(vendor, it) }
         ?: LiveDefaults.voice(vendor)
 
-/** 音色名下面那一行风格词。 */
-fun voiceStyle(vendor: LiveVendor, id: String): String? =
-    VoiceCatalog.voices(vendor).firstOrNull { it.id == id }?.style
+/** 模型空着或不在这一家的清单里时，下拉的值就这么写。 */
+internal const val Unpicked = "未选择"
 
-/** 一家的凭据表单项。key 既是草稿的键，也是 [liveSaved] 认的格子。 */
-internal data class LiveField(val key: String, val label: String, val value: String, val secret: Boolean = false)
-
-internal fun liveFields(live: LiveSettings, vendor: LiveVendor): List<LiveField> = when (vendor) {
-    LiveVendor.Gemini -> listOf(LiveField("geminiKey", "密钥", live.geminiKey, secret = true))
-    LiveVendor.OpenAi -> listOf(LiveField("openAiKey", "密钥", live.openAiKey, secret = true))
-    LiveVendor.Doubao -> listOf(LiveField("doubaoApiKey", "密钥", live.doubaoApiKey, secret = true))
+private fun tokens(value: Int): String = when {
+    value >= 1_000_000 -> "${value / 1_000_000}M"
+    value >= 1_000 -> "${value / 1_000}K"
+    else -> value.toString()
 }
 
-/**
- * 保存这一家的凭据并切过去。模型与音色不在这里定，存储器按目录归位：
- * 换到另一家整体落到那家的默认模型与默认音色，同一家则留住挑好的音色。
- */
-fun AppSettings.liveSaved(vendor: LiveVendor, values: Map<String, String>, voice: String): AppSettings {
-    val trimmed = values.mapValues { (_, value) -> value.trim() }
-    val credentials = when (vendor) {
-        LiveVendor.Gemini -> live.copy(geminiKey = trimmed["geminiKey"].orEmpty())
-        LiveVendor.OpenAi -> live.copy(openAiKey = trimmed["openAiKey"].orEmpty())
-        LiveVendor.Doubao -> live.copy(doubaoApiKey = trimmed["doubaoApiKey"].orEmpty())
-    }
-    return copy(live = credentials.copy(provider = vendor, voice = voice))
-}
+/** 模型行副行只摆真实元数据，没同步到的留空，不编数字。 */
+private fun metaLine(model: TextModel): String? = buildList {
+    if (model.context > 0) add("${tokens(model.context)} 上下文")
+    if (model.maxOutput > 0) add("${tokens(model.maxOutput)} 输出")
+    if (model.thinking) add("思考")
+}.joinToString(" · ").ifBlank { null }
+
+/** 模型下拉的候选只来自这一家拉到的清单，选中项不在清单里就一行都不勾。 */
+internal fun modelChoices(provider: TextProvider, selected: String): MenuSpec = MenuSpec(
+    options = provider.models.map { MenuOption(id = it.id, note = metaLine(it)) },
+    selected = selected,
+)
 
 /**
- * 目录里的供应商只存密钥，端点与鉴权走默认值；自定义端点那几项都落盘。
- * 每一家各写自己那一格，配第二家不会动第一家的密钥；存完顺带把这家设为生效的那家。
+ * 保存这一家的凭据并切过去。目录里的供应商只存密钥，端点与鉴权走默认值；自定义端点那几项都落盘。
+ * 每家各写自己那一格，配第二家不会动第一家的密钥；存完齐备就把这家设为生效那家。
  * 模型留空表示沿用这一家旧值，界面不往这里塞空串。
  */
 fun AppSettings.withAnalysisCredentials(
@@ -130,36 +134,24 @@ fun AppSettings.withAnalysisCredentials(
         authName = if (provider.custom) authName.trim() else "",
         authPrefix = if (provider.custom) authPrefix.trim() else "",
     )
-    return copy(analysis = analysis.amend(provider.id) { next }.select(provider.id))
+    return copy(analysis = analysis.amend(provider.id) { next }.selectIfReady(provider.id))
 }
 
 /**
- * 只认这一家清单里的模型 id。清单外的值与空串都不写回去，界面显示未选择等用户挑一个。
+ * 只认这一家清单里的模型 id。清单外的值与空串都不写回去。
  * 挑谁家的模型就用谁家，因此写模型的同时把这家设为生效。返回 null 表示这次点击不改设置。
  */
 fun AppSettings.withAnalysisModel(provider: TextProvider, modelId: String): AppSettings? {
     if (provider.models.none { it.id == modelId }) return null
-    return copy(analysis = analysis.amend(provider.id) { it.copy(model = modelId) }.select(provider.id))
+    return copy(analysis = analysis.amend(provider.id) { it.copy(model = modelId) }.selectIfReady(provider.id))
 }
 
-/** Azure 认密钥与区域两项，填完按齐备情况归位。 */
-fun AssessorSettings.withAzure(key: String, region: String): AssessorSettings =
-    copy(azureKey = key.trim(), azureRegion = region.trim()).resolvedAfterSaving(AssessorProvider.Azure)
-
-/** 讯飞认 AppID、APIKey、APISecret 三件套，填完按齐备情况归位。 */
-fun AssessorSettings.withXfyun(appId: String, apiKey: String, apiSecret: String): AssessorSettings =
-    copy(
-        xfyunAppId = appId.trim(),
-        xfyunApiKey = apiKey.trim(),
-        xfyunApiSecret = apiSecret.trim(),
-    ).resolvedAfterSaving(AssessorProvider.Xfyun)
-
-/**
- * 保存后归位：刚填的那家作候选，它参数不齐就退回另一家，两家都不齐落到未选择。
- * 两家都齐备时认刚填的那家，免得改完讯飞又被 Azure 那格夺回去。
- */
-internal fun AssessorSettings.resolvedAfterSaving(vendor: AssessorProvider): AssessorSettings =
-    copy(provider = copy(provider = vendor).resolvedProvider)
+/** 鉴权落点的三档名字，只给设置页那排小钮用。 */
+internal fun AuthKind.label(): String = when (this) {
+    AuthKind.Bearer -> "Bearer"
+    AuthKind.Header -> "请求头"
+    AuthKind.Query -> "查询参数"
+}
 
 @Composable
 fun ModelMenu(spec: MenuSpec, onPick: (String) -> Unit, onDismiss: () -> Unit) {
@@ -218,7 +210,7 @@ private fun MenuRow(option: MenuOption, selected: Boolean, onPick: (String) -> U
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                 Text(
-                    text = option.id,
+                    text = option.label,
                     style = Type.uiStrong,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

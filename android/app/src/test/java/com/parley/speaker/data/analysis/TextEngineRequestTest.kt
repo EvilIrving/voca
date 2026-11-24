@@ -1,7 +1,6 @@
 package com.parley.speaker.data.analysis
 
 import com.parley.speaker.domain.AuthKind
-import com.parley.speaker.domain.LinkStatus
 import com.parley.speaker.domain.analysisOf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
@@ -175,38 +174,6 @@ class TextEngineRequestTest {
         assertEquals("https://llm.example.com/v1/chat/completions", config.chatUrl)
         assertEquals("https://llm.example.com/v1/models", modelsUrl(config.endpoint))
         assertFalse(bodyOf(config.request("hi", structured = true)!!).contains("max_tokens"))
-    }
-
-    @Test
-    fun `探针先判本地配置再给最小请求`() {
-        val unconfigured = AnalysisProbe.plan(
-            TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-chat", ""),
-        )
-        val catalog = AnalysisProbe.plan(
-            TextEngineConfig.of(TextProviderCatalog.deepseek, "deepseek-chat", "sk-1"),
-        )
-        val custom = AnalysisProbe.plan(
-            TextEngineConfig(
-                provider = TextProviderCatalog.custom,
-                model = "local",
-                endpoint = "https://llm.example.com/v1/chat/completions",
-                auth = AuthSpec.query("api_key"),
-                apiKey = "sk-3",
-            ),
-        )
-
-        assertEquals(LinkStatus.Unconfigured, unconfigured.status)
-        assertNull(unconfigured.request)
-
-        assertEquals(LinkStatus.Configured, catalog.status)
-        assertEquals("GET", catalog.request!!.method)
-        assertEquals("https://api.deepseek.com/v1/models", catalog.request!!.url.toString())
-        assertEquals("Bearer sk-1", catalog.request!!.header("Authorization"))
-
-        assertEquals(LinkStatus.Configured, custom.status)
-        assertEquals("POST", custom.request!!.method)
-        assertTrue(custom.request!!.url.toString().contains("api_key=sk-3"))
-        assertEquals(1, Json.parseToJsonElement(bodyOf(custom.request!!)).jsonObject["max_tokens"]!!.jsonPrimitive.int)
     }
 
     @Test

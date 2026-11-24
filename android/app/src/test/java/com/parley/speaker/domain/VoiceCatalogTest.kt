@@ -23,6 +23,7 @@ class VoiceCatalogTest {
             )
             assertTrue("${vendor.label} 的 id 不该重复", voices.map { it.id }.toSet().size == voices.size)
             assertTrue("${vendor.label} 的每一项都要有风格词", voices.all { it.style.isNotBlank() })
+            assertTrue("${vendor.label} 的每一项都要有显示名", voices.all { it.name.isNotBlank() })
             assertEquals(VoiceCatalog.defaultId(vendor), voices.first { it.default }.id)
         }
     }
@@ -52,6 +53,18 @@ class VoiceCatalogTest {
             listOf("alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar"),
             ids,
         )
+    }
+
+    @Test
+    fun `豆包写音色表上的中文名，不写 voice_type`() {
+        val names = VoiceCatalog.voices(LiveVendor.Doubao).associate { it.id to it.name }
+
+        assertEquals("vivi", names["zh_female_vv_jupiter_bigtts"])
+        assertEquals("小何", names["zh_female_xiaohe_jupiter_bigtts"])
+        assertEquals("云舟", names["zh_male_yunzhou_jupiter_bigtts"])
+        assertEquals("小天", names["zh_male_xiaotian_jupiter_bigtts"])
+        assertFalse("行名里不该出现 voice_type", names.values.any { it.contains("_") || it.contains("bigtts") })
+        assertEquals("Gemini 与 OpenAI 的名字本来就是英文名", names.size, names.values.toSet().size)
     }
 
     @Test

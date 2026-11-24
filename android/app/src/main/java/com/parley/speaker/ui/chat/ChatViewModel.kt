@@ -31,9 +31,7 @@ import com.parley.speaker.data.analysis.TurnAnalyzerFactory
 import com.parley.speaker.data.analysis.authSpec
 import com.parley.speaker.data.assessor.AssessFailure
 import com.parley.speaker.data.assessor.AssessOutcome
-import com.parley.speaker.data.assessor.AzureAssessor
 import com.parley.speaker.data.assessor.SpeechAssessor
-import com.parley.speaker.data.assessor.XfyunAssessor
 import com.parley.speaker.data.assessor.assessorOf
 import com.parley.speaker.data.assessor.scorableText
 import com.parley.speaker.data.db.MIGRATION_1_2
@@ -49,19 +47,19 @@ import com.parley.speaker.data.realtime.RealtimeSession
 import com.parley.speaker.data.realtime.doubao.DoubaoRealtimeSession
 import com.parley.speaker.data.realtime.gemini.GeminiLiveSession
 import com.parley.speaker.data.realtime.openai.OpenAiRealtimeSession
-import com.parley.speaker.data.settings.ConnectivityProbe
 import com.parley.speaker.data.settings.SettingsStore
 import com.parley.speaker.domain.CaptureFailure
 import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AppSettings
 import com.parley.speaker.domain.AssessorProvider
+import com.parley.speaker.domain.AssessorSettings
 import com.parley.speaker.domain.CheckInWeeks
-import com.parley.speaker.domain.LinkStatus
 import com.parley.speaker.domain.LiveChange
-import com.parley.speaker.domain.LiveDefaults
 import com.parley.speaker.domain.LiveSettings
 import com.parley.speaker.domain.LiveVendor
+import com.parley.speaker.domain.key
 import com.parley.speaker.domain.PronunciationReview
+import com.parley.speaker.domain.ProviderGroup
 import com.parley.speaker.domain.ProviderLine
 import com.parley.speaker.domain.Review
 import com.parley.speaker.domain.Speaker
@@ -125,7 +123,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val clipPlayer = ClipPlayer()
     private val player = AudioPlayer(application)
     private val settingsStore = SettingsStore(application)
-    private val connectivity = ConnectivityProbe()
     private val store = SessionStore(application)
     private val turnAudio = TurnAudioStore(application)
 
@@ -205,9 +202,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _textProviders = MutableStateFlow(TextProviderCatalog.all)
     val textProviders: StateFlow<List<TextProvider>> = _textProviders.asStateFlow()
 
-    private val _report = MutableStateFlow<String?>(null)
-    val report: StateFlow<String?> = _report.asStateFlow()
-
     private val events = Channel<TurnEvent>(Channel.UNLIMITED)
     private var flow = TurnFlowState()
     private var connection = Connection.Connecting
@@ -252,7 +246,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var startedAt = 0L
     private var greeted = false
     private val turnVocab = mutableMapOf<String, List<VocabCard>>()
-    private val _linkStatus = MutableStateFlow<Map<String, LinkStatus>>(emptyMap())
 
     private val sessionId: String get() = ledger.current.id
 
@@ -513,11 +506,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * 按供应商分发到各自的适配器。未配置判定按当前供应商的凭据，构造参数与各家真实签名对齐：
      * Gemini 吃密钥、模型、音色与系统提示，OpenAI 叫 instructions，豆包吃一把密钥且模型号写在协议里。
      * [history] 是接着一条历史会话聊时要先交代的那段流水，新开的一段为 null。
+     * 豆包不吃这段文字，它从当前轮次抽出成对上下文走 dialog_context。
      */
     private fun connect(history: String? = historyOf) {
         val current = settingsStore.settings.value
         val live = current.live
-        if (!live.ready) {
+        val vendor = live.provider
+        if (vendor == null || !live.ready(vendor)) {
             connection = Connection.Unconfigured
             cancelReconnect()
             project()
@@ -528,11 +523,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // 记忆每一轮都在变，连接却只在开场、换连接与重连时建，系统提示与全局记忆在这里一起进 setup。
         // 正在进行的那条连接上下文里本来就有这段对话，中途再灌一份只会把上下文撑大。
         val instructions = systemPromptOf(plan.prompt, memory.text)
-        val created = when (live.provider) {
+        val created = when (vendor) {
             LiveVendor.Gemini -> GeminiLiveSession(
                 apiKey = live.geminiKey,
-                model = live.model,
-                voice = live.voice,
+                model = live.tuningOf(vendor).model,
+                voice = live.tuningOf(vendor).voice,
                 systemPrompt = instructions,
                 onEvent = { event -> onEvent(seq, event) },
                 history = history,
@@ -540,8 +535,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             LiveVendor.OpenAi -> OpenAiRealtimeSession(
                 apiKey = live.openAiKey,
-                model = live.model,
-                voice = live.voice,
+                model = live.tuningOf(vendor).model,
+                voice = live.tuningOf(vendor).voice,
                 instructions = instructions,
                 onEvent = { event -> onEvent(seq, event) },
                 history = history,
@@ -549,7 +544,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             LiveVendor.Doubao -> DoubaoRealtimeSession(
                 apiKey = live.doubaoApiKey,
-                voice = live.voice,
+                voice = live.tuningOf(vendor).voice,
                 systemPrompt = instructions,
                 onEvent = { event -> onEvent(seq, event) },
                 context = dialogContextOf(flow.turns),
@@ -1153,29 +1148,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val before = settingsStore.settings.value
         settingsStore.update(transform)
         val after = settingsStore.settings.value
-        _linkStatus.value = emptyMap()
         refreshProviders()
         viewModelScope.launch { syncCatalog(before.analysis, after.analysis) }
     }
 
-    fun probe() {
-        viewModelScope.launch {
-            _report.value = "正在自检"
-            val live = settingsStore.settings.value.live
-            // 只有 Gemini 有能真发出去的只读探针：列一次模型。其余两家没有轻量接口，只判参数齐备。
-            val status = when (live.provider) {
-                LiveVendor.Gemini -> connectivity.checkGemini(live.geminiKey)
-                LiveVendor.OpenAi, LiveVendor.Doubao ->
-                    if (live.ready) LinkStatus.Configured else LinkStatus.Unconfigured
-            }
-            _linkStatus.value = _linkStatus.value + (liveKey(live.provider) to status)
-            refreshProviders()
-            _report.value = probeReport(live, status)
-        }
-    }
-
     private fun refreshProviders() {
-        _providers.value = providerLines(settingsStore.settings.value, _linkStatus.value)
+        _providers.value = providerLines(settingsStore.settings.value)
     }
 
     /**
@@ -1233,13 +1211,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun syncCatalog(before: AnalysisSettings, after: AnalysisSettings) {
         val ids = (before.saved.keys + after.saved.keys).ifEmpty { setOf(after.provider) }
         ids.forEach { id -> if (before.of(id) != after.of(id)) refreshModels(id) }
-    }
-
-    private fun probeReport(live: LiveSettings, status: LinkStatus): String = when {
-        !live.ready -> "凭据不齐，${live.provider.label} 还缺参数"
-        live.provider == LiveVendor.Gemini && status == LinkStatus.Connected -> "自检通过，Gemini Live 可连"
-        live.provider == LiveVendor.Gemini -> "自检失败，检查密钥与网络"
-        else -> "${live.provider.label} 参数齐备；自检会真发请求的只有 Gemini，这两家只判参数"
     }
 
     fun saveTurnVocab(turnId: String) {
@@ -1488,51 +1459,42 @@ internal fun analysisRoute(turns: List<Turn>, turnId: String): AnalysisRoute =
     if (turns.any { it.id == turnId }) AnalysisRoute.Flow else AnalysisRoute.Store
 
 /**
- * 设置页每行的读数。状态是判定结果，不是密钥填满与否的代理：
- * 实时对话三行看该家自己的凭据，评测两行看 [assessorOf] 出来的实际产物，两家互斥只有一家算已配置。
+ * 设置页每行的读数。已配置只看这一家自己的凭据，同组几家互不影响；
+ * 生效那家由设置里的 provider 说了算，界面把单选点填在 active 那一行。
  */
-internal fun providerLines(settings: AppSettings, status: Map<String, LinkStatus>): List<ProviderLine> {
+internal fun providerLines(settings: AppSettings): List<ProviderLine> {
     val live = settings.live
     val realtime = LiveVendor.entries.map { vendor ->
         ProviderLine(
-            key = liveKey(vendor),
-            group = "realtime",
+            group = ProviderGroup.Realtime,
+            key = vendor.key,
             name = vendor.label,
-            detail = liveDetail(live, vendor),
-            status = status[liveKey(vendor)]
-                ?: if (live.ready(vendor)) LinkStatus.Configured else LinkStatus.Unconfigured,
-            editable = true,
+            detail = live.tuningOf(vendor).model,
+            configured = live.ready(vendor),
+            active = live.provider == vendor,
         )
     }
-    val assessor = assessorOf(settings.assessor)
-    val assessors = listOf(
+    val assessor = settings.assessor
+    val assessors = listOf(AssessorProvider.Azure, AssessorProvider.Xfyun).map { vendor ->
         ProviderLine(
-            key = "azure",
-            group = "assessor",
-            name = AssessorProvider.Azure.label,
-            detail = settings.assessor.azureRegion.ifBlank { "密钥与区域" },
-            status = if (assessor is AzureAssessor) LinkStatus.Configured else LinkStatus.Unconfigured,
-            editable = true,
-        ),
-        ProviderLine(
-            key = "xfyun",
-            group = "assessor",
-            name = AssessorProvider.Xfyun.label,
-            detail = "AppID、APIKey、APISecret",
-            status = if (assessor is XfyunAssessor) LinkStatus.Configured else LinkStatus.Unconfigured,
-            editable = true,
-        ),
-    )
+            group = ProviderGroup.Assessor,
+            key = vendor.key,
+            name = vendor.label,
+            detail = assessorDetail(assessor, vendor),
+            configured = assessor.ready(vendor),
+            active = assessor.resolvedProvider == vendor,
+        )
+    }
     val analysis = settings.analysis
     val text = TextProviderCatalog.all.map { provider ->
         val own = analysis.of(provider.id)
         ProviderLine(
-            key = analysisKey(provider.id),
-            group = "analysis",
+            group = ProviderGroup.Analysis,
+            key = provider.id,
             name = provider.label,
             detail = own.model.ifBlank { hostOf(provider) },
-            status = if (own.ready) LinkStatus.Configured else LinkStatus.Unconfigured,
-            editable = true,
+            configured = own.ready,
+            active = analysis.provider == provider.id,
         )
     }
     return realtime + assessors + text
@@ -1590,18 +1552,12 @@ internal fun pickedAnalysis(
     return analysis.amend(providerId) { it.copy(model = picked) }
 }
 
-internal fun liveKey(vendor: LiveVendor): String = vendor.name.lowercase()
-
-/** 行内第二行只放真实读数：模型名；豆包的端到端接口没有模型名，用它当前的音色。 */
-private fun liveDetail(live: LiveSettings, vendor: LiveVendor): String {
-    val own = live.provider == vendor
-    val model = if (own) live.model else LiveDefaults.model(vendor)
-    return model.ifBlank { if (own) live.voice else LiveDefaults.voice(vendor) }
+/** 行内第二行写这一家自己的东西：Azure 写区域，讯飞写它认的三件套。 */
+private fun assessorDetail(assessor: AssessorSettings, vendor: AssessorProvider): String = when (vendor) {
+    AssessorProvider.Azure -> assessor.azureRegion.ifBlank { "密钥与区域" }
+    AssessorProvider.Xfyun -> "AppID、APIKey、APISecret"
+    AssessorProvider.None -> ""
 }
-
-/** 文本分析的 key 沿用界面已有的映射：Gemini 那条叫 analysis，其余用目录 id。 */
-private fun analysisKey(providerId: String): String =
-    if (providerId == TextProviderCatalog.GeminiId) "analysis" else providerId
 
 private fun hostOf(provider: TextProvider): String =
     provider.endpoint.substringAfter("://").substringBefore('/').ifBlank { "未填写" }

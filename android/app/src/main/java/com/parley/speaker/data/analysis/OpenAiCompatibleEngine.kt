@@ -156,24 +156,6 @@ internal fun TextEngineConfig.modelsRequest(): Request? {
     return builder(url).get().build()
 }
 
-/** 探针要的最小请求：能取模型清单就只要一次清单，端点是完整 chat 地址时改发一条一 token 的生成。 */
-internal fun TextEngineConfig.probeRequest(): Request? {
-    if (!endpoint.trimEnd('/').endsWith("/chat/completions")) return modelsRequest()
-    val url = signed(chatUrl) ?: return null
-    val body = buildJsonObject {
-        put("model", model)
-        putJsonArray("messages") {
-            add(buildJsonObject {
-                put("role", "user")
-                put("content", "hi")
-            })
-        }
-        put("max_tokens", 1)
-        put("stream", false)
-    }
-    return builder(url).post(body.toString().toRequestBody(JsonMedia)).build()
-}
-
 private fun TextEngineConfig.builder(url: HttpUrl): Request.Builder {
     val builder = Request.Builder().url(url)
     headers.forEach { (name, value) -> builder.header(name, value) }

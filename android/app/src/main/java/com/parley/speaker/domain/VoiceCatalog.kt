@@ -9,12 +9,15 @@ enum class LiveVendor(val label: String) {
 
 /**
  * 一条音色。id 是要原样填进协议里的那个值：Gemini 的 voiceName、OpenAI 的 voice、豆包的 voice_type。
+ * name 是界面上的名字：Gemini 与 OpenAI 的音色本来就是英文名，名字就是 id；
+ * 豆包那串 voice_type 换成音色表上的中文名，行内与下拉都只写名字。
  * style 是下拉里第二行的风格词，豆包这档把它写成「语种 · 场景」，因为豆包的清单本来就这么分。
  * group 是分族标签，单族供应商给一个固定组名，界面按 group 折成一段。
  */
 data class VoiceOption(
     val id: String,
     val style: String,
+    val name: String = id,
     val default: Boolean = false,
     val group: String = "",
 )
@@ -115,16 +118,16 @@ object VoiceCatalog {
      * saturn_zh_male_lengjundashu_tob 三把，开会话不报错、文本也生成了，但一块音频都不出，没有收进目录。
      */
     private val DOUBAO: List<VoiceOption> = listOf(
-        VoiceOption("zh_female_vv_jupiter_bigtts", "中文女声 · 多情感，日常对话", default = true, group = DOUBAO_O),
-        VoiceOption("zh_female_xiaohe_jupiter_bigtts", "中文女声 · 温柔，长对话陪伴", group = DOUBAO_O),
-        VoiceOption("zh_male_yunzhou_jupiter_bigtts", "中文男声 · 沉稳，讲解与叙事", group = DOUBAO_O),
-        VoiceOption("zh_male_xiaotian_jupiter_bigtts", "中文男声 · 活泼，日常闲聊", group = DOUBAO_O),
-        VoiceOption("en_male_tim_uranus_bigtts", "英文男声 · 自然，英文对练", group = DOUBAO_O),
+        VoiceOption("zh_female_vv_jupiter_bigtts", "中文女声 · 多情感，日常对话", name = "vivi", default = true, group = DOUBAO_O),
+        VoiceOption("zh_female_xiaohe_jupiter_bigtts", "中文女声 · 温柔，长对话陪伴", name = "小何", group = DOUBAO_O),
+        VoiceOption("zh_male_yunzhou_jupiter_bigtts", "中文男声 · 沉稳，讲解与叙事", name = "云舟", group = DOUBAO_O),
+        VoiceOption("zh_male_xiaotian_jupiter_bigtts", "中文男声 · 活泼，日常闲聊", name = "小天", group = DOUBAO_O),
+        VoiceOption("en_male_tim_uranus_bigtts", "英文男声 · 自然，英文对练", name = "Tim", group = DOUBAO_O),
 
-        VoiceOption("zh_female_cancan_mars_bigtts", "中文女声 · 通用，播报与客服", group = DOUBAO_SC),
-        VoiceOption("ICL_zh_female_keainvsheng_tob", "中文女声 · 声音复刻，SC 独有", group = DOUBAO_SC),
+        VoiceOption("zh_female_cancan_mars_bigtts", "中文女声 · 通用，播报与客服", name = "灿灿", group = DOUBAO_SC),
+        VoiceOption("ICL_zh_female_keainvsheng_tob", "中文女声 · 声音复刻，SC 独有", name = "可爱女生", group = DOUBAO_SC),
 
-        VoiceOption("saturn_zh_female_keainvsheng_tob", "中文女声 · 甜美人设，角色扮演", group = DOUBAO_SC2),
-        VoiceOption("saturn_zh_female_tiaopigongzhu_tob", "中文女声 · 俏皮公主", group = DOUBAO_SC2),
+        VoiceOption("saturn_zh_female_keainvsheng_tob", "中文女声 · 甜美人设，角色扮演", name = "甜美女声", group = DOUBAO_SC2),
+        VoiceOption("saturn_zh_female_tiaopigongzhu_tob", "中文女声 · 俏皮公主", name = "调皮公主", group = DOUBAO_SC2),
     )
 }

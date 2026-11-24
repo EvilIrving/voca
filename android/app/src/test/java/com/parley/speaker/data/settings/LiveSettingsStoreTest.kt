@@ -2,11 +2,14 @@ package com.parley.speaker.data.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.parley.speaker.domain.LiveDefaults
 import com.parley.speaker.domain.LiveSettings
+import com.parley.speaker.domain.LiveTuning
 import com.parley.speaker.domain.LiveVendor
 import com.parley.speaker.domain.VoiceCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -15,8 +18,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 
 /**
- * 实时对话设置的存取：三家凭据齐备判定、旧单密钥的兼容读法、
- * 换供应商后模型与音色落到那家的默认值、音色越出目录就拉回默认。
+ * 实时对话设置的存取：三家凭据各一格，模型与音色也按家各存一格，
+ * 切到豆包再切回来仍是原先那只音色；目录外的音色与空模型都拉回这一家的默认。
  */
 @RunWith(RobolectricTestRunner::class)
 class LiveSettingsStoreTest {
@@ -30,62 +33,75 @@ class LiveSettingsStoreTest {
     }
 
     @Test
-    fun `旧单密钥键读出来当 Gemini 的密钥`() {
-        prefs.edit()
-            .putString("live_api_key", "AIza-legacy")
-            .putString("live_model", "gemini-3.5-transcribe-live")
-            .putString("live_voice", "Puck")
-            .commit()
-
+    fun `空存储谁都不生效，三家都用目录默认的模型与音色`() {
         val loaded = readLive(prefs)
 
-        assertEquals(LiveVendor.Gemini, loaded.provider)
-        assertEquals("AIza-legacy", loaded.geminiKey)
-        assertEquals("gemini-3.5-transcribe-live", loaded.model)
-        assertEquals("Puck", loaded.voice)
-        assertTrue(loaded.ready)
-    }
-
-    @Test
-    fun `空存储给出 Gemini 的默认模型与音色`() {
-        val loaded = readLive(prefs)
-
-        assertEquals(LiveVendor.Gemini, loaded.provider)
-        assertEquals("", loaded.geminiKey)
-        assertEquals(LiveCatalogGeminiModel, loaded.model)
-        assertEquals(VoiceCatalog.defaultId(LiveVendor.Gemini), loaded.voice)
+        assertNull("没选过就不该有生效那家", loaded.provider)
         assertFalse(loaded.ready)
+        LiveVendor.entries.forEach { vendor ->
+            assertEquals(LiveDefaults.model(vendor), loaded.tuningOf(vendor).model)
+            assertEquals(VoiceCatalog.defaultId(vendor), loaded.tuningOf(vendor).voice)
+            assertFalse(loaded.ready(vendor))
+        }
     }
 
     @Test
-    fun `存在库里的音色不属于这家就拉回默认`() {
-        prefs.edit()
-            .putString("live_provider", LiveVendor.OpenAi.name)
-            .putString("live_openai_key", "sk-openai")
-            .putString("live_voice", "Aoede")
-            .commit()
-
-        val loaded = readLive(prefs)
-
-        assertEquals(LiveVendor.OpenAi, loaded.provider)
-        assertEquals(VoiceCatalog.defaultId(LiveVendor.OpenAi), loaded.voice)
-        assertTrue(loaded.ready)
-    }
-
-    @Test
-    fun `四家的密钥与模型音色存回后原样读出`() {
+    fun `凭据、生效那家与各家的模型音色存回后原样读出`() {
         val live = LiveSettings(
-            provider = LiveVendor.OpenAi,
+            provider = LiveVendor.Doubao,
             geminiKey = "AIza-key",
             openAiKey = "sk-openai",
             doubaoApiKey = "doubao-key",
-            model = "gpt-realtime-2.1",
-            voice = "verse",
+            tuning = mapOf(
+                LiveVendor.Gemini to LiveTuning("gemini-3.8-live", "Puck"),
+                LiveVendor.Doubao to LiveTuning("1.2.6.1", "zh_female_xiaohe_jupiter_bigtts"),
+            ),
         )
 
         prefs.edit().putLive(live).commit()
 
-        assertEquals(live, readLive(prefs))
+        val loaded = readLive(prefs)
+        assertEquals(LiveVendor.Doubao, loaded.provider)
+        assertEquals("AIza-key", loaded.geminiKey)
+        assertEquals("sk-openai", loaded.openAiKey)
+        assertEquals("doubao-key", loaded.doubaoApiKey)
+        assertEquals("Puck", loaded.tuningOf(LiveVendor.Gemini).voice)
+        assertEquals("gemini-3.8-live", loaded.tuningOf(LiveVendor.Gemini).model)
+        assertEquals("zh_female_xiaohe_jupiter_bigtts", loaded.tuningOf(LiveVendor.Doubao).voice)
+        assertEquals("1.2.6.1", loaded.tuningOf(LiveVendor.Doubao).model)
+        assertEquals("没挑过的那家落在目录默认", LiveDefaults.voice(LiveVendor.OpenAi), loaded.tuningOf(LiveVendor.OpenAi).voice)
+    }
+
+    @Test
+    fun `切到豆包再切回来仍是原先那只音色`() {
+        val gemini = LiveSettings(geminiKey = "AIza")
+            .withTuning(LiveVendor.Gemini, voice = "Puck")
+            .select(LiveVendor.Gemini)
+        prefs.edit().putLive(gemini).commit()
+
+        val doubao = readLive(prefs)
+            .withKey(LiveVendor.Doubao, "key")
+            .withTuning(LiveVendor.Doubao, voice = "zh_male_yunzhou_jupiter_bigtts")
+            .selectIfReady(LiveVendor.Doubao)
+        prefs.edit().putLive(doubao).commit()
+
+        val reloaded = readLive(prefs)
+        assertEquals(LiveVendor.Doubao, reloaded.provider)
+        assertEquals("zh_male_yunzhou_jupiter_bigtts", reloaded.tuningOf(LiveVendor.Doubao).voice)
+
+        val back = reloaded.select(LiveVendor.Gemini)
+        assertEquals(LiveVendor.Gemini, back.provider)
+        assertEquals("Puck", back.voice)
+        assertEquals("AIza", back.geminiKey)
+        assertEquals("key", back.doubaoApiKey)
+    }
+
+    @Test
+    fun `目录外的音色与空模型都拉回这一家的默认`() {
+        val live = LiveSettings(tuning = mapOf(LiveVendor.OpenAi to LiveTuning("", "Aoede")))
+
+        assertEquals("gpt-realtime-2.1", live.tuningOf(LiveVendor.OpenAi).model)
+        assertEquals(VoiceCatalog.defaultId(LiveVendor.OpenAi), live.tuningOf(LiveVendor.OpenAi).voice)
     }
 
     @Test
@@ -99,53 +115,23 @@ class LiveSettingsStoreTest {
     }
 
     @Test
-    fun `齐备判定只看当前供应商`() {
+    fun `齐备判定只看生效那家`() {
         val doubao = LiveSettings(provider = LiveVendor.Doubao, doubaoApiKey = "key")
 
         assertTrue(doubao.ready)
         assertFalse(doubao.copy(provider = LiveVendor.Gemini).ready)
         assertTrue(doubao.copy(geminiKey = "AIza", provider = LiveVendor.Gemini).ready)
+        assertFalse("没选过谁都不生效", doubao.copy(provider = null).ready)
     }
 
     @Test
-    fun `切换供应商后模型与音色落到那家的默认`() {
-        val gemini = LiveSettings(geminiKey = "AIza", model = "gemini-3.8-live", voice = "Puck")
+    fun `换走再换回来，别家的音色也没被顶掉`() {
+        val picked = LiveSettings(provider = LiveVendor.OpenAi, openAiKey = "sk", geminiKey = "AIza")
+            .withTuning(LiveVendor.OpenAi, voice = "verse")
+            .withTuning(LiveVendor.Gemini, voice = "Puck")
 
-        val openai = normalizedLive(gemini, gemini.copy(provider = LiveVendor.OpenAi, openAiKey = "sk"))
-        assertEquals("gpt-realtime-2.1", openai.model)
-        assertEquals("alloy", openai.voice)
-        assertEquals("AIza", openai.geminiKey)
-
-        val doubao = normalizedLive(
-            openai,
-            openai.copy(provider = LiveVendor.Doubao, doubaoApiKey = "key"),
-        )
-        assertEquals("1.2.6.1", doubao.model)
-        assertEquals(VoiceCatalog.defaultId(LiveVendor.Doubao), doubao.voice)
-
-        val back = normalizedLive(doubao, doubao.copy(provider = LiveVendor.Gemini))
-        assertEquals("gemini-3.8-live", back.model)
-        assertEquals("Aoede", back.voice)
-        assertEquals("sk", back.openAiKey)
-    }
-
-    @Test
-    fun `同一家内换音色不被覆盖`() {
-        val before = LiveSettings(provider = LiveVendor.OpenAi, openAiKey = "sk", model = "gpt-realtime-2.1", voice = "alloy")
-        val after = normalizedLive(before, before.copy(voice = "verse"))
-
-        assertEquals("verse", after.voice)
-        assertEquals("gpt-realtime-2.1", after.model)
-    }
-
-    @Test
-    fun `模型空着就取该家的默认`() {
-        val settled = settled(LiveSettings(provider = LiveVendor.OpenAi, openAiKey = "sk", model = "", voice = "alloy"))
-
-        assertEquals("gpt-realtime-2.1", settled.model)
-    }
-
-    private companion object {
-        const val LiveCatalogGeminiModel = "gemini-3.8-live"
+        assertEquals("verse", picked.select(LiveVendor.OpenAi).voice)
+        assertEquals("Puck", picked.select(LiveVendor.Gemini).voice)
+        assertEquals(LiveDefaults.model(LiveVendor.Gemini), picked.select(LiveVendor.Gemini).model)
     }
 }

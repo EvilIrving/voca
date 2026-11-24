@@ -5,83 +5,80 @@ import com.parley.speaker.data.analysis.TextProviderCatalog
 import com.parley.speaker.domain.AnalysisCredentials
 import com.parley.speaker.domain.AnalysisSettings
 import com.parley.speaker.domain.AppSettings
+import com.parley.speaker.domain.AssessorProvider
 import com.parley.speaker.domain.AssessorSettings
 import com.parley.speaker.domain.AuthKind
-import com.parley.speaker.domain.LinkStatus
+import com.parley.speaker.domain.LiveSettings
 import com.parley.speaker.domain.LiveVendor
+import com.parley.speaker.domain.ProviderGroup
+import com.parley.speaker.domain.ProviderLine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 设置页的读数：实时对话三行按各自凭据齐备显示，评测两行取工厂产物，
- * 文本分析每家的清单是注入进来的那一份，不是静态目录。
+ * 设置页每行的那份读数：已配置只看这一家自己的凭据，同组几家互不影响；
+ * 单选点只填在生效那家，第二行写这一家的模型号或端点。
  */
 class ProviderLinesTest {
 
     @Test
-    fun `实时对话三行按各自凭据齐备显示`() {
-        val lines = realtime(AppSettings())
+    fun `实时对话三行，第二行是这一家的模型号`() {
+        val lines = group(AppSettings(), ProviderGroup.Realtime)
 
         assertEquals(listOf("gemini", "openai", "doubao"), lines.map { it.key })
         assertEquals(listOf("Gemini Live", "OpenAI Realtime", "豆包实时语音"), lines.map { it.name })
-        assertTrue("没填凭据都要能点开去填", lines.all { it.editable })
-        assertTrue(lines.all { it.status == LinkStatus.Unconfigured })
+        assertEquals(listOf("gemini-3.8-live", "gpt-realtime-2.1", "1.2.6.1"), lines.map { it.detail })
+        assertTrue(lines.none { it.configured })
+        assertTrue("谁都没选中时单选点不填", lines.none { it.active })
+    }
+
+    @Test
+    fun `三家都配齐就三行都已配置，单选点只落在一家`() {
+        val live = LiveSettings(geminiKey = "AIza", openAiKey = "sk", doubaoApiKey = "key")
+            .select(LiveVendor.Doubao)
+
+        val lines = group(AppSettings(live = live), ProviderGroup.Realtime)
+
+        assertTrue(lines.all { it.configured })
+        assertEquals(listOf("doubao"), lines.filter { it.active }.map { it.key })
     }
 
     @Test
     fun `填了哪家就哪家已配置`() {
-        val gemini = realtime(AppSettings(live = liveSettings(provider = LiveVendor.Gemini, geminiKey = "AIza")))
-        assertEquals(LinkStatus.Configured, gemini.first { it.key == "gemini" }.status)
-        assertEquals(LinkStatus.Unconfigured, gemini.first { it.key == "openai" }.status)
+        val gemini = group(AppSettings(live = LiveSettings(geminiKey = "AIza")), ProviderGroup.Realtime)
+        assertTrue(gemini.first { it.key == "gemini" }.configured)
+        assertFalse(gemini.first { it.key == "openai" }.configured)
 
-        val openai = realtime(AppSettings(live = liveSettings(provider = LiveVendor.OpenAi, openAiKey = "sk")))
-        assertEquals(LinkStatus.Configured, openai.first { it.key == "openai" }.status)
-
-        val doubao = realtime(
-            AppSettings(live = liveSettings(provider = LiveVendor.Doubao, doubaoApiKey = "key")),
-        )
-        assertEquals(LinkStatus.Configured, doubao.first { it.key == "doubao" }.status)
+        val openai = group(AppSettings(live = LiveSettings(openAiKey = "sk")), ProviderGroup.Realtime)
+        assertTrue(openai.first { it.key == "openai" }.configured)
+        assertFalse(openai.first { it.key == "gemini" }.configured)
     }
 
     @Test
-    fun `探针结果压过参数齐备`() {
-        val settings = AppSettings(live = liveSettings(provider = LiveVendor.Gemini, geminiKey = "AIza"))
+    fun `评测两行各看自己的凭据，生效只认显式选中的那家`() {
+        val bare = group(AppSettings(), ProviderGroup.Assessor)
+        assertEquals(listOf("azure", "xfyun"), bare.map { it.key })
+        assertTrue(bare.none { it.configured })
+        assertTrue(bare.none { it.active })
 
-        val line = providerLines(settings, mapOf("gemini" to LinkStatus.Failed)).first { it.key == "gemini" }
+        val azure = AssessorSettings().withAzure("key", "eastasia")
+        val azureRows = group(AppSettings(assessor = azure), ProviderGroup.Assessor)
+        assertTrue(azureRows.first { it.key == "azure" }.configured)
+        assertFalse(azureRows.first { it.key == "xfyun" }.configured)
+        assertEquals("eastasia", azureRows.first { it.key == "azure" }.detail)
+        assertEquals(listOf("azure"), azureRows.filter { it.active }.map { it.key })
 
-        assertEquals(LinkStatus.Failed, line.status)
+        val both = azure.withXfyun("app", "key", "secret")
+        val bothRows = group(AppSettings(assessor = both), ProviderGroup.Assessor)
+        assertTrue("两家齐备就都算已配置", bothRows.all { it.configured })
+        assertEquals("填完讯飞就切到讯飞", listOf("xfyun"), bothRows.filter { it.active }.map { it.key })
+        assertEquals(AssessorProvider.Xfyun, both.resolvedProvider)
     }
 
     @Test
-    fun `评测行状态取自工厂产物`() {
-        val azure = assessor(AppSettings(assessor = AssessorSettings(azureKey = "key", azureRegion = "eastasia")))
-        assertEquals(listOf("azure", "xfyun"), azure.map { it.key })
-        assertEquals(LinkStatus.Configured, azure[0].status)
-        assertEquals(LinkStatus.Unconfigured, azure[1].status)
-        assertTrue("缺参数那家点开就能去填", azure.all { it.editable })
-
-        val xfyun = assessor(
-            AppSettings(
-                assessor = AssessorSettings(xfyunAppId = "app", xfyunApiKey = "key", xfyunApiSecret = "secret"),
-            ),
-        )
-        assertEquals(LinkStatus.Unconfigured, xfyun[0].status)
-        assertEquals(LinkStatus.Configured, xfyun[1].status)
-    }
-
-    @Test
-    fun `评测两家都没配齐时两行都未配置，不出现未接入`() {
-        val lines = providerLines(AppSettings(), emptyMap())
-
-        assertEquals(LinkStatus.Unconfigured, assessor(AppSettings())[0].status)
-        assertEquals(LinkStatus.Unconfigured, assessor(AppSettings())[1].status)
-        assertFalse("未接入不再出现在任何一行", lines.any { it.status == LinkStatus.NotSupported })
-    }
-
-    @Test
-    fun `文本分析七家一行不落，只有当前那家有密钥才算已配置`() {
+    fun `文本分析七家一行不落，第二行是挑好的模型或端点`() {
         val settings = AppSettings(
             analysis = AnalysisSettings(
                 provider = "deepseek",
@@ -89,15 +86,62 @@ class ProviderLinesTest {
             ),
         )
 
-        val lines = providerLines(settings, emptyMap()).filter { it.group == "analysis" }
+        val lines = group(settings, ProviderGroup.Analysis)
 
         assertEquals(7, lines.size)
         assertEquals(
-            listOf("deepseek", "analysis", "openai", "anthropic", "kimi", "glm", "custom"),
+            listOf("deepseek", "gemini", "openai", "anthropic", "kimi", "glm", "custom"),
             lines.map { it.key },
         )
-        assertEquals(LinkStatus.Configured, lines.first { it.key == "deepseek" }.status)
-        assertEquals(LinkStatus.Unconfigured, lines.first { it.key == "analysis" }.status)
+        assertEquals("deepseek-chat", lines.first { it.key == "deepseek" }.detail)
+        assertTrue(lines.first { it.key == "deepseek" }.configured)
+        assertTrue(lines.first { it.key == "deepseek" }.active)
+        assertFalse(lines.first { it.key == "kimi" }.configured)
+        assertEquals("api.moonshot.cn", lines.first { it.key == "kimi" }.detail)
+    }
+
+    @Test
+    fun `文本分析没挑模型时第二行写端点域名`() {
+        val settings = AppSettings(
+            analysis = AnalysisSettings(
+                saved = mapOf("deepseek" to AnalysisCredentials(apiKey = "sk-deep")),
+            ),
+        )
+
+        val deepseek = group(settings, ProviderGroup.Analysis).first { it.key == "deepseek" }
+
+        assertTrue(deepseek.configured)
+        assertFalse("没选中的那家不占单选点", deepseek.active)
+        assertEquals("api.deepseek.com", deepseek.detail)
+    }
+
+    @Test
+    fun `自定义端点那一行也用目录 id 作 key`() {
+        val settings = AppSettings(
+            analysis = AnalysisSettings(
+                provider = TextProviderCatalog.CustomId,
+                saved = mapOf(
+                    TextProviderCatalog.CustomId to AnalysisCredentials(
+                        apiKey = "sk-custom",
+                        model = "deepseek-chat",
+                        endpoint = "https://api.example.com/v1",
+                        authKind = AuthKind.Header,
+                        authName = "x-api-key",
+                    ),
+                ),
+            ),
+        )
+
+        val lines = group(settings, ProviderGroup.Analysis)
+        val custom = lines.first { it.key == TextProviderCatalog.CustomId }
+
+        assertEquals("deepseek-chat", custom.detail)
+        assertTrue(custom.configured)
+        assertTrue(custom.active)
+        assertTrue(
+            "其它几家没密钥就不算已配置",
+            lines.filter { it.key != TextProviderCatalog.CustomId }.none { it.configured },
+        )
     }
 
     @Test
@@ -128,47 +172,6 @@ class ProviderLinesTest {
         assertTrue(cleared.first { it.id == TextProviderCatalog.deepseek.id }.models.isEmpty())
     }
 
-    @Test
-    fun `自定义端点那一行也用目录 id 作 key`() {
-        val settings = AppSettings(
-            analysis = AnalysisSettings(
-                provider = TextProviderCatalog.CustomId,
-                saved = mapOf(
-                    TextProviderCatalog.CustomId to AnalysisCredentials(
-                        apiKey = "sk-custom",
-                        model = "deepseek-chat",
-                        endpoint = "https://api.example.com/v1",
-                        authKind = AuthKind.Header,
-                        authName = "x-api-key",
-                    ),
-                ),
-            ),
-        )
-
-        val lines = providerLines(settings, emptyMap()).filter { it.group == "analysis" }
-
-        assertEquals(7, lines.size)
-        val custom = lines.first { it.key == TextProviderCatalog.CustomId }
-        assertEquals(LinkStatus.Configured, custom.status)
-        assertEquals("deepseek-chat", custom.detail)
-        assertTrue("其它几家没密钥就不算已配置", lines.filter { it.key != TextProviderCatalog.CustomId }.all { it.status == LinkStatus.Unconfigured })
-    }
-
-    private fun realtime(settings: AppSettings) = providerLines(settings, emptyMap()).filter { it.group == "realtime" }
-
-    private fun assessor(settings: AppSettings) = providerLines(settings, emptyMap()).filter { it.group == "assessor" }
-
-    private fun liveSettings(
-        provider: LiveVendor,
-        geminiKey: String = "",
-        openAiKey: String = "",
-        doubaoApiKey: String = "",
-    ) = com.parley.speaker.domain.LiveSettings(
-        provider = provider,
-        geminiKey = geminiKey,
-        openAiKey = openAiKey,
-        doubaoApiKey = doubaoApiKey,
-        model = com.parley.speaker.domain.LiveDefaults.model(provider),
-        voice = com.parley.speaker.domain.LiveDefaults.voice(provider),
-    )
+    private fun group(settings: AppSettings, group: ProviderGroup): List<ProviderLine> =
+        providerLines(settings).filter { it.group == group }
 }

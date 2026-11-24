@@ -10,13 +10,13 @@ import org.junit.Test
 
 /**
  * 工厂是供应商与实现之间的唯一开关，断言的是调用方拿到哪一家、拿不到时是不是 null，
- * 以及两家凭据同时齐备时只会选中一家。
+ * 以及两家凭据同时齐备时只认显式选中的那家。
  */
 class AssessorFactoryTest {
 
     @Test
     fun `Azure 密钥与区域齐备就启用`() {
-        val assessor = assessorOf(AssessorSettings(azureKey = key, azureRegion = region))
+        val assessor = assessorOf(AssessorSettings().withAzure(key, region))
 
         assertTrue(assessor is AzureAssessor)
         assertFalse("Azure 允许无参考文本", assessor!!.requiresReferenceText)
@@ -67,8 +67,8 @@ class AssessorFactoryTest {
 
         assertTrue(assessorOf(both.copy(provider = AssessorProvider.Azure)) is AzureAssessor)
         assertTrue(assessorOf(both.copy(provider = AssessorProvider.Xfyun)) is XfyunAssessor)
-        assertTrue("没显式选过就用 Azure", assessorOf(both) is AzureAssessor)
-        assertEquals(AssessorProvider.Azure, both.resolvedProvider)
+        assertNull("两家都齐备但没选过，谁也不顶上来", assessorOf(both))
+        assertEquals(AssessorProvider.None, both.resolvedProvider)
     }
 
     @Test

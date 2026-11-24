@@ -17,7 +17,7 @@ import org.robolectric.RuntimeEnvironment
 
 /**
  * 存取往返用的是进程内的普通 SharedPreferences，不碰真机上的加密存储。
- * 断言的是界面上填完凭据再进设置页看到的状态：哪家齐备就哪家启用。
+ * 断言的是界面上填完凭据再进设置页看到的状态：只认显式选中的那家，别家齐备也不顶上来。
  */
 @RunWith(RobolectricTestRunner::class)
 class AssessorSettingsStoreTest {
@@ -32,7 +32,7 @@ class AssessorSettingsStoreTest {
 
     @Test
     fun `讯飞三件套存回后启用`() {
-        save(AssessorSettings(xfyunAppId = appId, xfyunApiKey = key, xfyunApiSecret = secret))
+        save(AssessorSettings().withXfyun(appId, key, secret))
 
         val loaded = readAssessor(prefs)
         assertEquals(AssessorProvider.Xfyun, loaded.provider)
@@ -42,35 +42,33 @@ class AssessorSettingsStoreTest {
 
     @Test
     fun `Azure 两项存回后启用，讯飞半套不算`() {
-        save(AssessorSettings(azureKey = key, azureRegion = region))
+        save(AssessorSettings().withAzure(key, region))
         assertEquals(AssessorProvider.Azure, readAssessor(prefs).provider)
         assertTrue(assessorOf(readAssessor(prefs)) is AzureAssessor)
 
-        save(AssessorSettings(xfyunAppId = appId, xfyunApiKey = key))
-        assertEquals(AssessorProvider.None, readAssessor(prefs).provider)
+        save(AssessorSettings().withXfyun(appId, key, ""))
+        assertEquals("三件套缺一件那家不生效", AssessorProvider.None, readAssessor(prefs).provider)
         assertNull(assessorOf(readAssessor(prefs)))
     }
 
     @Test
-    fun `两家都齐备时显式存下的 provider 压过推导`() {
-        val both = AssessorSettings(
-            azureKey = key,
-            azureRegion = region,
-            xfyunAppId = appId,
-            xfyunApiKey = key,
-            xfyunApiSecret = secret,
-        )
+    fun `两家都齐备时只认显式选中的那家`() {
+        val both = AssessorSettings().withAzure(key, region).withXfyun(appId, key, secret)
 
-        save(both.copy(provider = AssessorProvider.Xfyun))
-        assertEquals(AssessorProvider.Xfyun, readAssessor(prefs).provider)
+        save(both)
+        assertEquals("谁存下来的算什么", AssessorProvider.Xfyun, readAssessor(prefs).provider)
 
-        save(both.copy(provider = AssessorProvider.Azure))
+        save(both.select(AssessorProvider.Azure))
         assertEquals(AssessorProvider.Azure, readAssessor(prefs).provider)
+
+        save(both.copy(provider = AssessorProvider.None))
+        assertEquals("两家齐备但没选过就是未选择", AssessorProvider.None, readAssessor(prefs).provider)
+        assertNull(assessorOf(readAssessor(prefs)))
     }
 
     @Test
     fun `凭据清空后回到未选择`() {
-        save(AssessorSettings(azureKey = key, azureRegion = region))
+        save(AssessorSettings().withAzure(key, region))
         save(AssessorSettings())
 
         val loaded = readAssessor(prefs)
