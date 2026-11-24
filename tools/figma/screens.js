@@ -232,87 +232,187 @@ buildVocabScreen('09 · 生词库', 3200, 'normal');
 buildVocabScreen('09b · 生词滑动删除', 3600, 'swipe');
 buildVocabScreen('09c · 生词删除撤销', 4000, 'undo');
 
-/* ---------------- 10 设置 ---------------- */
-/* scrolled 那1 份从打卡统计开始铺，用来给滚动位置另存一屏，上半截配置不进这张图。 */
-function settingsBody(root, open, o) {
-  o = o || {};
-  const body = frame(root, 'body', { w: 360, h: 792 - TOP, dir: 'VERTICAL', pl: 20, pr: 20, pt: 0, pb: 20, gap: 8, clip: true });
-  function sectionTitle(parent, text) {
-    const row = frame(parent, 'section ' + text, { w: 320, h: 18, dir: 'HORIZONTAL', cross: 'CENTER', gap: 8 });
-    t(row, text, { font: F.cn, size: 10, color: C.ink4, lh: 14, ls: 10 });
-    frame(row, 'gap', { w: 1, h: 1, grow: 1 });
-  }
-  function groupCard(parent) {
-    return frame(parent, 'group', { w: 320, dir: 'VERTICAL', fill: C.card, stroke: C.hair, strokeA: 0.5, radius: 16, clip: true });
-  }
-  function cardRule(parent) {
-    const r = frame(parent, 'rule', { w: 292, h: 1, fill: C.hair, fillA: 0.5 });
-    r.layoutAlign = 'CENTER';
-  }
-  let liveRow;
-  let voiceRow;
-  if (!o.scrolled) {
-    sectionTitle(body, '实时对话');
-    const g1 = groupCard(body);
-    liveRow = inst(g1, open.live ? C_['Speaker/Row/Provider/Open'] : C_['Speaker/Row/Provider'], { name: 'Gemini Live', meta: 'gemini-3.8-live', status: '已连通' });
-    cardRule(g1);
-    voiceRow = inst(g1, open.voice ? C_['Speaker/Row/Voice/Open'] : C_['Speaker/Row/Voice'], { value: 'Aoede' });
-    cardRule(g1);
-    inst(g1, C_['Speaker/Row/Provider/Off'], { name: 'OpenAI Realtime', meta: 'gpt-realtime', status: '未配置' });
-    cardRule(g1);
-    inst(g1, C_['Speaker/Row/Provider/Off'], { name: '豆包实时语音', meta: 'volc.speech.dialog', status: '未配置' });
-
-    sectionTitle(body, '发音评测');
-    const g2 = groupCard(body);
-    inst(g2, C_['Speaker/Row/Provider/Off'], { name: '微软 Azure 语音评测', meta: 'F0 · 每月 5 小时', status: '未配置' });
-    cardRule(g2);
-    inst(g2, C_['Speaker/Row/Provider/Off'], { name: '讯飞评测流式版', meta: '每日 500 次', status: '未配置' });
-
-    sectionTitle(body, '文本分析');
-    const g3 = groupCard(body);
-    inst(g3, C_['Speaker/Row/Provider'], { name: 'DeepSeek', meta: 'deepseek-chat', status: '已连通' });
-    cardRule(g3);
-    inst(g3, C_['Speaker/Row/Provider/Off'], { name: 'Gemini Flash', meta: 'gemini-flash-latest', status: '未配置' });
-  }
-
-  sectionTitle(body, '打卡统计');
-  inst(body, C_['Speaker/Heatmap' + (o.scrolled ? '/Selected' : '')]);
-
-  sectionTitle(body, '系统提示词');
-  const prompt = frame(body, 'prompt card', { w: 320, dir: 'VERTICAL', gap: 8, pl: 14, pr: 14, pt: 12, pb: 12, fill: C.paper, stroke: C.hair, strokeA: 0.5, radius: 16 });
-  t(prompt, '你是一位精通二语习得机制与可理解性输入理论的英语口语陪练，对话对象具备大学英语四级基础，排斥死记硬背单词与语法条文，希望通过每日自然交流逐步提升至雅思六点五分以上的流利度。在每次对话中…', { font: F.serifCn, size: 13, lh: 21, color: C.ink2, width: 292 });
-  const pRow = frame(prompt, 'prompt actions', { w: 292, h: 20, dir: 'HORIZONTAL', cross: 'CENTER', gap: 6 });
-  frame(pRow, 'gap', { w: 1, h: 1, grow: 1 });
-  icon(pRow, 'edit', 13, C.clayDeep);
-  t(pRow, '编辑提示词', { font: F.cnMd, size: 11, color: C.clayDeep, lh: 15 });
-
-  const selfCheck = frame(body, 'row self check', { w: 320, h: 54, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 14, gap: 12, fill: C.card, stroke: C.hair, strokeA: 0.5, radius: 16 });
-  icon(selfCheck, 'sync', 16, C.clayDeep);
-  const scTexts = frame(selfCheck, 'texts', { dir: 'VERTICAL', gap: 2, grow: 1 });
-  t(scTexts, '连接自检', { font: F.cnMd, size: 13.5, color: C.ink, lh: 19, name: 'label' });
-  t(scTexts, '上次 3.2 秒前', { font: F.mono, size: 10.5, color: C.ink4, lh: 14, name: 'meta' });
-  icon(selfCheck, 'chevRight', 12, C.ink4);
-  return { body: body, liveRow: liveRow, voiceRow: voiceRow };
-}
-
-function settingsScreen(name, x, open, o) {
-  const s = screen(name, x);
-  const hd = frame(s, 'header', { w: 360, h: TOP, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, gap: 10 });
+/* ---------------- 10 设置：3 组各收 1 行，选完供应商就地填表 ---------------- */
+/* 三组都只有 1 张卡。收起只留生效那 1 行；点开在卡内展开同组全部几家；
+   已配置那家展开后只有音色与行尾清除，没配过的就地铺凭据、音色与保存。
+   已连通这 1 档随连接自检一起退场，状态只剩未配置与已配置。 */
+/* 顶栏加滚动体，设置页的 4 帧与系统提示词那帧弹窗底下的那层共用这一份。 */
+function settingsPageBody(root) {
+  const hd = frame(root, 'header', { w: 360, h: TOP, dir: 'HORIZONTAL', cross: 'CENTER', pl: 20, pr: 20, gap: 10 });
   inst(hd, C_['Speaker/IconButton/32/arrowLeft']);
   t(hd, '设置', { font: F.serifCnMd, size: 20, color: C.ink, lh: 27 });
-  const cfg = settingsBody(s, open || {}, o);
-  return { screen: s, row: cfg.liveRow, voiceRow: cfg.voiceRow, body: cfg.body };
+  return frame(root, 'body', { w: 360, h: 792 - TOP, dir: 'VERTICAL', pl: 20, pr: 20, pb: 20, gap: 8, clip: true });
 }
-const cfg = settingsScreen('10 · 设置', 4400, {});
-const md = settingsScreen('11 · 模型下拉', 4800, { live: true });
-// 设置页往下滚到打卡统计：二十六周的格区在屏内完整露出，上方的三组配置不在这一屏。
-const ci = settingsScreen('16 · 设置 · 打卡统计', 6800, {}, { scrolled: true });
-dropdown(md.screen, md.row, 'Select/Menu', 320, [
-  ['gemini-3.8-live', '手动回合 · 首包 450 毫秒'],
-  ['gemini-3.8-live-extended-thinking', '扩展思考 · 更深推理'],
-  ['gemini-3.1-flash-live-preview', '更快首包 · 预览'],
-  ['gemini-2.5-flash-native-audio-latest', '原生音频 · 长会话']
+
+function settingsShell(name, x) {
+  const s = screen(name, x);
+  return { screen: s, body: settingsPageBody(s) };
+}
+
+function settingsSection(parent, text) {
+  const row = frame(parent, 'section ' + text, { w: 320, h: 18, dir: 'HORIZONTAL', cross: 'CENTER', gap: 8 });
+  t(row, text, { font: F.cn, size: 10, color: C.ink4, lh: 14, ls: 10 });
+}
+
+function settingsGroup(parent) {
+  return frame(parent, 'group', { w: 320, dir: 'VERTICAL', fill: C.card, stroke: C.hair, strokeA: 0.5, radius: 16, clip: true });
+}
+
+function settingsRule(parent) {
+  const r = frame(parent, 'rule', { w: 292, h: 1, fill: C.hair, fillA: 0.5 });
+  r.layoutAlign = 'CENTER';
+}
+
+/* 1 家 1 行：单选点填实是生效中，第二行是这家的模型号；
+   open 有值时带开合箭头，clear 为真时行尾多 1 枚清除。 */
+function settingsProviderRow(parent, o) {
+  const row = frame(parent, 'row ' + o.name, { w: 320, h: 54, dir: 'HORIZONTAL', cross: 'CENTER', pl: 14, pr: 14, gap: 12 });
+  const radio = frame(row, 'radio', { w: 18, h: 18, fill: C.card, stroke: o.on ? C.clay : C.hairStrong, radius: 999, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER' });
+  if (o.on) frame(radio, 'dot', { w: 9, h: 9, fill: C.clay, radius: 999 });
+  const texts = frame(row, 'texts', { dir: 'VERTICAL', gap: 2, grow: 1 });
+  t(texts, o.name, { font: F.cnMd, size: 13.5, color: o.on || o.open ? C.ink : C.ink3, lh: 19, name: 'name' });
+  const metaRow = frame(texts, 'meta row', { dir: 'HORIZONTAL', cross: 'CENTER', gap: 4 });
+  t(metaRow, o.meta, { font: F.mono, size: 10.5, color: o.open ? C.clayDeep : C.ink4, lh: 14, name: 'meta' });
+  if (o.open !== undefined) icon(metaRow, o.open ? 'chevUp' : 'chevDown', 12, o.open ? C.clayDeep : C.ink4);
+  const state = frame(row, 'state', { h: 20, dir: 'HORIZONTAL', cross: 'CENTER', gap: 5 });
+  if (o.dot) frame(state, 'dot', { w: 5, h: 5, fill: C.clay, radius: 9 });
+  t(state, o.status, { font: F.cn, size: 10.5, color: o.dot ? C.ink2 : C.ink4, lh: 14, name: 'status' });
+  if (o.clear) {
+    const btn = frame(row, 'clear', { w: 24, h: 24, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER' });
+    icon(btn, 'dismiss', 13, C.ink4);
+  }
+  return row;
+}
+
+/* 表单里 1 格：标签在上，浅底输入框在下，与弹窗里那套字段同构。 */
+function settingsField(parent, label, value) {
+  const col = frame(parent, 'field ' + label, { w: 292, dir: 'VERTICAL', gap: 6 });
+  t(col, label, { font: F.cn, size: 11, color: C.ink3, lh: 15 });
+  const box = frame(col, 'box', { w: 292, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 12, pr: 12, fill: C.tint, radius: 12 });
+  if (value) t(box, value, { font: F.cn, size: 13, color: C.ink2, lh: 18 });
+  return col;
+}
+
+/* 音色这类只挑不填的项：标签在上，浅底 1 行，右端开合箭头。中文名落等宽字体上会掉字，用中文字体。 */
+function settingsPicker(parent, label, value) {
+  const col = frame(parent, 'picker ' + label, { w: 292, dir: 'VERTICAL', gap: 6 });
+  t(col, label, { font: F.cn, size: 11, color: C.ink3, lh: 15 });
+  const box = frame(col, 'box', { w: 292, h: 44, dir: 'HORIZONTAL', cross: 'CENTER', pl: 12, pr: 12, gap: 8, fill: C.tint, radius: 12 });
+  const texts = frame(box, 'texts', { dir: 'VERTICAL', gap: 2, grow: 1, main: 'CENTER' });
+  t(texts, value, { font: F.cnMd, size: 13, color: C.ink2, lh: 18, name: 'value' });
+  icon(box, 'chevDown', 12, C.ink4);
+  return col;
+}
+
+function settingsSave(parent) {
+  const b = frame(parent, 'save', { w: 292, h: 44, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', fill: C.clay, radius: 22 });
+  t(b, '保存', { font: F.cnMd, size: 13.5, color: C.card, lh: 19 });
+}
+
+function settingsPrompt(parent) {
+  const card = frame(parent, 'prompt card', { w: 320, dir: 'VERTICAL', gap: 8, pl: 14, pr: 14, pt: 12, pb: 12, fill: C.paper, stroke: C.hair, strokeA: 0.5, radius: 16 });
+  t(card, '你是一位精通二语习得机制与可理解性输入理论的英语口语陪练，对话对象具备大学英语四级基础，排斥死记硬背单词与语法条文，希望通过每日自然交流逐步提升至雅思六点五分以上的流利度。在每次对话中…', { font: F.serifCn, size: 13, lh: 21, color: C.ink2, width: 292 });
+  const row = frame(card, 'prompt actions', { w: 292, h: 20, dir: 'HORIZONTAL', cross: 'CENTER', gap: 6 });
+  frame(row, 'gap', { w: 1, h: 1, grow: 1 });
+  icon(row, 'edit', 13, C.clayDeep);
+  t(row, '编辑提示词', { font: F.cnMd, size: 11, color: C.clayDeep, lh: 15 });
+}
+
+/* 三组收起：每张卡只有生效那 1 行，整屏铺到系统提示词，不用滚。 */
+function settingsCollapsed(body) {
+  settingsSection(body, '实时对话');
+  const live = settingsGroup(body);
+  settingsProviderRow(live, { name: 'Gemini Live', meta: 'gemini-3.8-live', on: true, open: false, status: '已配置', dot: true });
+  settingsSection(body, '发音评测');
+  const asr = settingsGroup(body);
+  settingsProviderRow(asr, { name: '微软 Azure 语音评测', meta: 'japaneast', on: true, open: false, status: '已配置', dot: true });
+  settingsSection(body, '文本分析');
+  const txt = settingsGroup(body);
+  settingsProviderRow(txt, { name: 'DeepSeek', meta: 'deepseek-chat', on: true, open: false, status: '已配置', dot: true });
+  settingsSection(body, '打卡统计');
+  inst(body, C_['Speaker/Heatmap']);
+  settingsSection(body, '系统提示词');
+  settingsPrompt(body);
+}
+
+/* 另两组收着，只留生效那 1 行。 */
+function settingsOtherGroups(body) {
+  settingsSection(body, '发音评测');
+  const asr = settingsGroup(body);
+  settingsProviderRow(asr, { name: '微软 Azure 语音评测', meta: 'japaneast', on: true, open: false, status: '已配置', dot: true });
+  settingsSection(body, '文本分析');
+  const txt = settingsGroup(body);
+  settingsProviderRow(txt, { name: 'DeepSeek', meta: 'deepseek-chat', on: true, open: false, status: '已配置', dot: true });
+}
+
+/* 展开已配置那家：音色 1 行接在生效那行下面，另两家仍是未配置；密钥不再出现，换密钥走行尾清除。 */
+function settingsConfigured(body, vendor) {
+  vendor = vendor || { name: 'Gemini Live', meta: 'gemini-3.8-live', voice: 'Aoede', others: [
+    { name: 'OpenAI Realtime', meta: 'gpt-realtime-2.1' },
+    { name: '豆包实时语音', meta: '1.2.6.1' }
+  ] };
+  settingsSection(body, '实时对话');
+  const live = settingsGroup(body);
+  settingsProviderRow(live, { name: vendor.name, meta: vendor.meta, on: true, open: true, status: '已配置', dot: true, clear: true });
+  const voice = inst(live, C_['Speaker/Row/Voice']);
+  const value = voice.findOne(n => n.type === 'TEXT' && n.name === 'value');
+  if (value) {
+    value.characters = vendor.voice;
+    value.fontName = F.cnMd;
+    value.fontSize = 13;
+    value.lineHeight = { unit: 'PIXELS', value: 18 };
+  }
+  vendor.others.forEach(other => {
+    settingsRule(live);
+    settingsProviderRow(live, { name: other.name, meta: other.meta, on: false, open: false, status: '未配置' });
+  });
+  settingsOtherGroups(body);
+  return voice;
+}
+
+/* 展开没配过那家：凭据、音色、保存就地铺在这行下面；存下来才重建连接，不边填边存。 */
+function settingsUnconfigured(body) {
+  settingsSection(body, '实时对话');
+  const live = settingsGroup(body);
+  settingsProviderRow(live, { name: 'Gemini Live', meta: 'gemini-3.8-live', on: true, open: false, status: '已配置', dot: true, clear: true });
+  settingsRule(live);
+  settingsProviderRow(live, { name: '豆包实时语音', meta: '1.2.6.1', on: false, open: true, status: '未配置' });
+  const form = frame(live, 'form 豆包', { w: 320, dir: 'VERTICAL', pl: 14, pr: 14, pb: 14, gap: 12 });
+  settingsField(form, 'API Key', '');
+  settingsPicker(form, '音色', '小何');
+  settingsSave(form);
+  settingsRule(live);
+  settingsProviderRow(live, { name: 'OpenAI Realtime', meta: 'gpt-realtime-2.1', on: false, open: false, status: '未配置' });
+  settingsOtherGroups(body);
+}
+
+const sg1 = settingsShell('10 · 设置', 4400);
+settingsCollapsed(sg1.body);
+const sg2 = settingsShell('10b · 设置 · 展开已配置', 4800);
+settingsConfigured(sg2.body);
+const sg3 = settingsShell('10c · 设置 · 展开未配置', 7600);
+settingsUnconfigured(sg3.body);
+/* 音色下拉：豆包那 4 个 O 系列音色，第 1 行是当前这只，中文名配 1 行风格词。 */
+const sg4 = settingsShell('10d · 设置 · 音色下拉', 8000);
+const sg4Voice = settingsConfigured(sg4.body, {
+  name: '豆包实时语音',
+  meta: '1.2.6.1',
+  voice: '小何',
+  others: [{ name: 'Gemini Live', meta: 'gemini-3.8-live' }, { name: 'OpenAI Realtime', meta: 'gpt-realtime-2.1' }]
+});
+/* 下拉第 1 行是选中那只，与上面那行的读音色对齐，菜单里不再另标勾。 */
+const sg4Menu = dropdown(sg4.screen, sg4Voice, 'Select/Menu/Voice', 320, [
+  ['小何', '中文女声 · 温柔，长对话陪伴'],
+  ['vivi', '中文女声 · 多情感，日常对话'],
+  ['云舟', '中文男声 · 沉稳，讲解与叙事'],
+  ['小天', '中文男声 · 活泼，日常闲聊']
 ]);
+if (sg4Menu) {
+  sg4Menu.children.forEach(row => {
+    const name = row.findOne(n => n.type === 'TEXT' && n.name === 'name');
+    if (name) { name.fontName = F.cnMd; name.fontSize = 13; name.lineHeight = { unit: 'PIXELS', value: 18 }; }
+  });
+}
 
 /* ---------------- 12 侧边抽屉系列（普通、右键浮窗、批量多选） ---------------- */
 function buildDrawerScreen(screenName, screenX, mode) {
@@ -417,7 +517,7 @@ toast.y = TOP + 8;
 /* 全局共享的一段提示词：所有会话建连接时都带上它，编辑入口只有设置页这一张卡。
    弹窗里只放正文与两个动作，全局记忆不进界面，所以这里也没有它的一行。 */
 const pr = screen('15 · 系统提示词', 7200);
-settingsBody(pr, {});
+settingsCollapsed(settingsPageBody(pr));
 frame(pr, 'scrim', { w: 360, h: 792, fill: C.ink, fillA: 0.18, x: 0, y: 0, absolute: true });
 const dlg = frame(pr, 'dialog', { w: 320, dir: 'VERTICAL', fill: C.card, radius: 26, pl: 20, pr: 20, pt: 20, pb: 20, gap: 12, x: 20, y: 130, absolute: true });
 dlg.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#3A2F26'), a: 0.13 }, offset: { x: 0, y: 8 }, radius: 28, spread: 0, blendMode: 'NORMAL', visible: true }];
