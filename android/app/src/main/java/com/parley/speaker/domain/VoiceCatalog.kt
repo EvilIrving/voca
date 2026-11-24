@@ -5,6 +5,7 @@ enum class LiveVendor(val label: String) {
     Gemini("Gemini Live"),
     OpenAi("OpenAI Realtime"),
     Doubao("豆包实时语音"),
+    Qwen("千问实时语音"),
 }
 
 /**
@@ -23,7 +24,7 @@ data class VoiceOption(
 )
 
 /**
- * 实时对话的静态音色目录。三家都没有能枚举会话音色的接口，清单只能内置：
+ * 实时对话的静态音色目录。四家都没有能枚举会话音色的接口，清单只能内置：
  * Gemini 的 GET /v1beta/voices 列的是语音库目录，和 Live 认的三十个只重合十个，拿它当清单会塞进不认的名字；
  * OpenAI 的 Voices 资源只有创建与删除，没有 list；豆包的 voice_type 是从音色表格里抄，表格还随模型版本分族。
  *
@@ -35,6 +36,7 @@ object VoiceCatalog {
         LiveVendor.Gemini -> GEMINI
         LiveVendor.OpenAi -> OPENAI
         LiveVendor.Doubao -> DOUBAO
+        LiveVendor.Qwen -> QWEN
     }
 
     /** 默认音色。目录里每条清单都保证恰好一条标了 default。 */
@@ -129,5 +131,28 @@ object VoiceCatalog {
 
         VoiceOption("saturn_zh_female_keainvsheng_tob", "中文女声 · 甜美人设，角色扮演", name = "甜美女声", group = DOUBAO_SC2),
         VoiceOption("saturn_zh_female_tiaopigongzhu_tob", "中文女声 · 俏皮公主", name = "调皮公主", group = DOUBAO_SC2),
+    )
+
+    private val QWEN_MULTI = "3.1 多语种"
+    private val QWEN_EN = "精品英文"
+
+    /**
+     * 千问 3.1 实时语音的发音人，填进 session.update 的 voice，整场只在第一次下发时生效。
+     * 3.1 Plus/Flash 除自带的 longanqian_v3.1，还认 3.1 语音合成音色表里的全部音色，这里收的是那一表里
+     * 有中文名的那几把：longanqian_v3.1 只在音色表里出现 id、没有名字与描述，不进目录。
+     * 默认取龙安灵心，它与龙安欢、龙安风悦、许南川一起在多语种表里，中英与八种方言都支持，
+     * 练习时允许中英混说，只有这几把不会把插入的中文念成英文。
+     * 精品英文那四把只支持英文，风格词里写明「仅英文」，模型偶尔回中文时它们的发音不作保证。
+     */
+    private val QWEN: List<VoiceOption> = listOf(
+        VoiceOption("longanlingxin_v3.1", "女声 · 中英双语，温柔", name = "龙安灵心", default = true, group = QWEN_MULTI),
+        VoiceOption("longanhuan_v3.1", "女声 · 中英双语，明快", name = "龙安欢", group = QWEN_MULTI),
+        VoiceOption("longanfengyue_v3.1", "女声 · 中英双语，平稳", name = "龙安风悦", group = QWEN_MULTI),
+        VoiceOption("xunanchuan_v3.1", "男声 · 中英双语，低沉", name = "许南川", group = QWEN_MULTI),
+
+        VoiceOption("Abby_v3.1", "美式女声 · 仅英文", group = QWEN_EN),
+        VoiceOption("Brian_v3.1", "美式男声 · 仅英文", group = QWEN_EN),
+        VoiceOption("Emily_v3.1", "英式女声 · 仅英文", group = QWEN_EN),
+        VoiceOption("Eric_v3.1", "英式男声 · 仅英文", group = QWEN_EN),
     )
 }

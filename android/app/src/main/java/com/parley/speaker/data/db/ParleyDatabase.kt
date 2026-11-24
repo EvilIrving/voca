@@ -25,6 +25,8 @@ data class TurnRow(
     val sessionId: String? = null,
     // 这一轮话筒录了多久：打卡按真实录音长度算，老库没有这一列时补零。
     @ColumnInfo(defaultValue = "0") val durationMs: Long = 0,
+    // 会话内的先后：排轮次认这一列，不认写库时刻，老库按 id 里那一截创建时刻补齐。
+    @ColumnInfo(defaultValue = "0") val seq: Long = 0,
 )
 
 @Entity(tableName = "vocab")
@@ -77,13 +79,13 @@ data class TurnPractice(val sessionId: String, val createdAt: Long, val duration
 
 @Dao
 interface TurnDao {
-    @Query("SELECT * FROM turn ORDER BY createdAt ASC")
+    @Query("SELECT * FROM turn ORDER BY seq ASC, createdAt ASC")
     suspend fun all(): List<TurnRow>
 
-    @Query("SELECT * FROM turn WHERE createdAt BETWEEN :since AND :until ORDER BY createdAt ASC")
+    @Query("SELECT * FROM turn WHERE createdAt BETWEEN :since AND :until ORDER BY seq ASC, createdAt ASC")
     suspend fun between(since: Long, until: Long): List<TurnRow>
 
-    @Query("SELECT * FROM turn WHERE sessionId = :sessionId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM turn WHERE sessionId = :sessionId ORDER BY seq ASC, createdAt ASC")
     suspend fun bySession(sessionId: String): List<TurnRow>
 
     // 打卡只认自己说过的那些轮次：助手的下行音频不算，打字的那一轮没有录音，长度记零。
@@ -322,6 +324,17 @@ interface MemoryDao {
     suspend fun put(row: MemoryRow)
 }
 
+/**
+ * 八到九：每一轮记下会话内的先后。老库按 id 尾上那一截创建时刻补齐：
+ * 那一截本来就是造轮次时取的，比写库时刻靠谱，助手在流式期间就落库也不会排到提问前面。
+ */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE turn ADD COLUMN seq INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE turn SET seq = CAST(substr(id, instr(id, '-') + 1) AS INTEGER)")
+    }
+}
+
 /** 七到八：每一轮记下录音长度。老库补零，等于那几轮没有可测的音频，不计进打卡。 */
 val MIGRATION_7_8 = object : Migration(7, 8) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -351,7 +364,7 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
  */
 @Database(
     entities = [TurnRow::class, VocabRow::class, SessionRow::class, ModelCatalogRow::class, MemoryRow::class],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class ParleyDatabase : RoomDatabase() {

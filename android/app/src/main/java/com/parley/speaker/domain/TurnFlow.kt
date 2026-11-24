@@ -33,6 +33,16 @@ data class TurnFlowState(
     val cancelledTurnIds: Set<String> = emptySet(),
 )
 
+/**
+ * 每一轮带上会话内的序号，排序只认它。
+ * 不能拿落库时刻排：助手那一轮在流式期间就写库，用户那一轮要到收尾才写，
+ * 写库早的反而在后，重开这一段时回复就跑到提问前面去了。
+ */
+internal fun List<Turn>.stampArrival(next: () -> Long): List<Turn> {
+    if (none { it.seq == 0L }) return this
+    return map { if (it.seq == 0L) it.copy(seq = next()) else it }
+}
+
 sealed interface TurnEvent {
     data object SessionReady : TurnEvent
     data object SessionLost : TurnEvent
@@ -257,7 +267,13 @@ object TurnFlow {
         val id = nextTurnId("user")
         effects += TurnEffect.StartCapture(id)
         effects += TurnEffect.SendTurnStart
-        return state.copy(phase = TurnPhase.Recording(id), cancelArmed = false)
+        // 这一轮的位置在开录这一刻就占住：识别文本要到松手之后才回来，
+        // 等它到了再插，助手那一轮的转写可能已经先落进列表，回复就排到提问前面。
+        return state.copy(
+            phase = TurnPhase.Recording(id),
+            turns = state.turns + Turn(id = id, speaker = Speaker.User, text = ""),
+            cancelArmed = false,
+        )
     }
 
     /** 文字回合只走一条路：落用户轮、写库、送文本，然后等回复。 */

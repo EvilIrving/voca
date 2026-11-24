@@ -11,8 +11,17 @@ import com.parley.speaker.domain.AssessorSettings
 fun assessorOf(settings: AssessorSettings): SpeechAssessor? = when (settings.resolvedProvider) {
     AssessorProvider.None -> null
     AssessorProvider.Azure -> AzureAssessor(settings.azureKey, settings.azureRegion)
+    AssessorProvider.Tencent -> TencentAssessor(settings.tencentCredentials)
     AssessorProvider.Xfyun -> XfyunAssessor(settings.xfyunCredentials)
 }
+
+/** 腾讯的三件套按字段名原样搬过去，控制台怎么叫这里就怎么存。 */
+val AssessorSettings.tencentCredentials: TencentCredentials
+    get() = TencentCredentials(
+        appId = tencentAppId,
+        secretId = tencentSecretId,
+        secretKey = tencentSecretKey,
+    )
 
 /** 讯飞的握手只吃 apiKey 与 apiSecret，appId 随凭据一起带过去供排查。 */
 val AssessorSettings.xfyunCredentials: XfyunCredentials

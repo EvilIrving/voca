@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,7 +37,6 @@ import com.parley.speaker.ui.component.FloatingPanel
 import com.parley.speaker.ui.component.ParleyIconButton
 import com.parley.speaker.ui.component.Pressable
 import com.parley.speaker.ui.component.SectionLabel
-import com.parley.speaker.ui.component.SheetHandle
 import com.parley.speaker.ui.component.SoftCard
 import com.parley.speaker.ui.component.WordChip
 import com.parley.speaker.ui.icon.FluentIcons
@@ -59,6 +60,8 @@ fun ReviewSheet(
     val review = turn.review ?: return
     var register by remember(turn.id) { mutableStateOf(Register.Idiomatic) }
     val rewrite = review.rewrites.firstOrNull { it.register == register } ?: review.rewrites.firstOrNull()
+    // 高度由内容撑开，短的一轮就矮、按钮贴着底；长到屏高九成就停住，多的部分在抽屉里滚动。
+    val maxSheetHeight = LocalConfiguration.current.screenHeightDp.dp * 0.9f
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         // 遮罩只接住划过纸面外的点击，底色保持不变，也没有按压反馈。
@@ -72,17 +75,15 @@ fun ReviewSheet(
             shape = RoundedCornerShape(topStart = Radius.sheet, topEnd = Radius.sheet),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(602.dp),
+                .heightIn(max = maxSheetHeight),
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = Spacing.screen),
             ) {
-                Spacer(Modifier.height(10.dp))
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { SheetHandle() }
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("本轮评测", style = Type.display, modifier = Modifier.weight(1f))
                     ParleyIconButton(

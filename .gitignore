@@ -19,30 +19,9 @@ __pycache__/
 .venv/
 venv/
 
-# 逆向取证的体积大户：APK、内存转储、反编译产物、第三方二进制
-hiecho-reverse/apk/
-hiecho-reverse/dumps_mem1/
-hiecho-reverse/payload_dex/
-hiecho-reverse/payload_dex_noanno/
-hiecho-reverse/dexout1/
-hiecho-reverse/jadx-out/
-hiecho-reverse/jadx_payload/
-hiecho-reverse/jadx_noanno/
-hiecho-reverse/x/
-hiecho-reverse/h5/
-hiecho-reverse/shots/
-hiecho-reverse/tools/baksmali.jar
-hiecho-reverse/tools/frida-server-*
-hiecho-reverse/logcat.txt
-hiecho-reverse/resources.txt
-hiecho-reverse/strings_raw.txt
-
-# vivo 那一支的取证产物：安装包、拆包目录、dex、jadx 输出
-hiecho-reverse/vivo/*.apk
-hiecho-reverse/vivo/*.dex
-hiecho-reverse/vivo/dbdex/
-hiecho-reverse/vivo/*-ex/
-hiecho-reverse/vivo/jadx*/
+# 只在本机的工作材料，不进版本库也不进任何远端
+/hiecho-reverse/
+/PROJECT_MEMORY.md
 
 # Kotlin 与 Android 构建产物
 .gradle/

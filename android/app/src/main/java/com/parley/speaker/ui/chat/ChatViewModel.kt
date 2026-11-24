@@ -40,6 +40,8 @@ import com.parley.speaker.data.db.MIGRATION_3_4
 import com.parley.speaker.data.db.MIGRATION_4_5
 import com.parley.speaker.data.db.MIGRATION_5_6
 import com.parley.speaker.data.db.MIGRATION_6_7
+import com.parley.speaker.data.db.MIGRATION_7_8
+import com.parley.speaker.data.db.MIGRATION_8_9
 import com.parley.speaker.data.db.ParleyDatabase
 import com.parley.speaker.data.realtime.Capabilities
 import com.parley.speaker.data.realtime.RealtimeEvent
@@ -47,6 +49,7 @@ import com.parley.speaker.data.realtime.RealtimeSession
 import com.parley.speaker.data.realtime.doubao.DoubaoRealtimeSession
 import com.parley.speaker.data.realtime.gemini.GeminiLiveSession
 import com.parley.speaker.data.realtime.openai.OpenAiRealtimeSession
+import com.parley.speaker.data.realtime.qwen.QwenRealtimeSession
 import com.parley.speaker.data.settings.SettingsStore
 import com.parley.speaker.domain.CaptureFailure
 import com.parley.speaker.domain.AnalysisSettings
@@ -63,6 +66,7 @@ import com.parley.speaker.domain.ProviderGroup
 import com.parley.speaker.domain.ProviderLine
 import com.parley.speaker.domain.Review
 import com.parley.speaker.domain.Speaker
+import com.parley.speaker.domain.stampArrival
 import com.parley.speaker.domain.SpeechGate
 import com.parley.speaker.domain.Turn
 import com.parley.speaker.domain.TurnEffect
@@ -114,7 +118,7 @@ data class ChatState(
     /** 正在接着聊的那条历史会话；null 表示屏幕上就是手上新的一段。 */
     val sessionId: String? = null,
 ) {
-    val round: Int get() = turns.count { it.speaker == Speaker.User }
+    val round: Int get() = turns.count { it.speaker == Speaker.User && it.text.isNotBlank() }
 }
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -130,7 +134,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val catalogs by lazy {
         ModelCatalogStore(
             Room.databaseBuilder(application, ParleyDatabase::class.java, "parley.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
+                    MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+                )
                 .build()
                 .modelCatalogs(),
         )
@@ -148,6 +155,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 出厂的系统提示词，设置页那个「恢复默认」要向它回来。 */
     val defaultPrompt: String get() = settingsStore.defaultPrompt
+
+    /** 出厂的那段记忆口吻，同样是设置页「恢复默认」的去处。 */
+    val defaultMemory: String get() = SeedContent.DefaultMemory
 
     private val _state = MutableStateFlow(
         ChatState(
@@ -203,6 +213,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val textProviders: StateFlow<List<TextProvider>> = _textProviders.asStateFlow()
 
     private val events = Channel<TurnEvent>(Channel.UNLIMITED)
+
+    /** 转写的合帧缓冲：连续同属一轮的块并成一条再进状态机。 */
+    private val transcript = TranscriptBuffer()
+    private var transcriptFlush: Job? = null
     private var flow = TurnFlowState()
     private var connection = Connection.Connecting
     private var notice: String? = null
@@ -213,15 +227,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /** 当前这一段的账：起点、上次活动、有没有收过。四种收段时机都从这里过。 */
     private val ledger = SessionLedger()
 
+    /** 会话内的序号：落一页老会话时从它已有的最大序号接着数。 */
+    private var turnSeq = 0L
+
     /** 当前这一段开场时定下的系统提示词。 */
     private var plan = SegmentPlan(settingsStore.settings.value.prompt)
 
     /**
-     * 全局记忆：跨会话保留的那一段，界面看不见也改不了。库里留着上一场写下的那份就接着用，
-     * 库是空的时候才种下 [SeedContent.DefaultMemory] 那段口吻；每轮由改写请求整段重写并写库。
+     * 全局记忆：跨会话保留的那一段，设置页可见可改。库里留着上一场写下的那份就接着用，
+     * 库里没有这一行时才种下 [SeedContent.DefaultMemory] 那段口吻；每轮由改写请求整段重写并写库。
      * 建连接时它接在系统提示词后面进 setup，换连接、断线重连都能把最新的那份带上。
      */
     private val memory = MemoryLedger(persist = { store.saveMemory(it) })
+
+    /** 设置页那张记忆卡照它显示：自动改写留下新的一份，这里跟着换，不用重进设置页。 */
+    val memoryText: StateFlow<String> = memory.text
 
     /** 当前连接自报的能力清单，打字输入与开场问候按它开关。 */
     private var capabilities: Capabilities? = null
@@ -267,8 +287,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch(Dispatchers.Default) { runCatching { vad.warmUp() } }
+        // 转写块先在缓冲里攒 1 拍再进状态机，其余回合事件一律先把它放掉，顺序不乱。
         viewModelScope.launch {
-            for (event in events) handle(event)
+            for (event in events) {
+                if (event is TurnEvent.AssistantText) {
+                    transcript.hold(event.text, event.turnId)?.let { handle(it) }
+                    paceTranscript()
+                } else {
+                    transcript.drain()?.let { handle(it) }
+                    handle(event)
+                }
+            }
         }
         // 录音文件按到达顺序追加，单消费者保证块序，播放时才不会把同一轮的话打乱。
         // 过闸才写：删掉的那一轮排着的分片比删除动作晚到，不拦下来会重写出一份残段。
@@ -284,7 +313,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             publishCachedModels()
             // 记忆先于连接到位，第一条连接就带着上一次留下来的事。
             memory.seedWith(
-                runCatching { store.globalMemory() }.getOrDefault("").ifBlank { SeedContent.DefaultMemory },
+                runCatching { store.globalMemory() }.getOrNull() ?: SeedContent.DefaultMemory,
             )
             connect()
         }
@@ -328,6 +357,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         events.trySend(event)
     }
 
+    /** 已经排着一次放行就不再排：连续推来的块全都搭这趟车交出去。 */
+    private fun paceTranscript() {
+        if (transcriptFlush?.isActive == true) return
+        transcriptFlush = viewModelScope.launch {
+            delay(TranscriptWindowMs)
+            transcript.drain()?.let { handle(it) }
+        }
+    }
+
     private suspend fun handle(event: TurnEvent) {
         when (event) {
             TurnEvent.SessionReady -> {
@@ -352,7 +390,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val reduction = TurnFlow.reduce(flow, event, ::newTurnId)
-        flow = reduction.state
+        flow = reduction.state.copy(turns = reduction.state.turns.stampArrival(::nextTurnSeq))
         applyEffects(reduction.effects)
         if (event in AttachAudioEvents) attachAudioPaths()
         project()
@@ -405,7 +443,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 TurnEffect.StopPlayback -> player.flush()
 
                 is TurnEffect.Persist -> {
-                    val turn = effect.turn
+                    // 落库的这份从状态里取：状态里那一份带着本轮落地的先后，效果里这份只是当时的快照。
+                    val turn = flow.turns.firstOrNull { it.id == effect.turn.id } ?: effect.turn
                     val path = if (turn.audioPath == null && turn.id in recordedTurns) {
                         turnAudio.path(turn.id)
                     } else {
@@ -504,9 +543,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * 按供应商分发到各自的适配器。未配置判定按当前供应商的凭据，构造参数与各家真实签名对齐：
-     * Gemini 吃密钥、模型、音色与系统提示，OpenAI 叫 instructions，豆包吃一把密钥且模型号写在协议里。
+     * Gemini 吃密钥、模型、音色与系统提示，OpenAI 与千问叫 instructions，豆包吃一把密钥且模型号写在协议里。
      * [history] 是接着一条历史会话聊时要先交代的那段流水，新开的一段为 null。
-     * 豆包不吃这段文字，它从当前轮次抽出成对上下文走 dialog_context。
+     * 豆包与千问不吃这段整串文字，它们从当前轮次抽出成对上下文分别走 dialog_context 与 conversation.item.create。
      */
     private fun connect(history: String? = historyOf) {
         val current = settingsStore.settings.value
@@ -522,7 +561,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val seq = connectSeq
         // 记忆每一轮都在变，连接却只在开场、换连接与重连时建，系统提示与全局记忆在这里一起进 setup。
         // 正在进行的那条连接上下文里本来就有这段对话，中途再灌一份只会把上下文撑大。
-        val instructions = systemPromptOf(plan.prompt, memory.text)
+        val instructions = systemPromptOf(plan.prompt, memory.text.value)
         val created = when (vendor) {
             LiveVendor.Gemini -> GeminiLiveSession(
                 apiKey = live.geminiKey,
@@ -546,6 +585,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 apiKey = live.doubaoApiKey,
                 voice = live.tuningOf(vendor).voice,
                 systemPrompt = instructions,
+                onEvent = { event -> onEvent(seq, event) },
+                context = dialogContextOf(flow.turns),
+            )
+
+            LiveVendor.Qwen -> QwenRealtimeSession(
+                apiKey = live.qwenApiKey,
+                model = live.tuningOf(vendor).model,
+                voice = live.tuningOf(vendor).voice,
+                instructions = instructions,
                 onEvent = { event -> onEvent(seq, event) },
                 context = dialogContextOf(flow.turns),
             )
@@ -1152,6 +1200,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { syncCatalog(before.analysis, after.analysis) }
     }
 
+    /**
+     * 设置页手写的全局记忆：当场落库，下一轮改写从这一段接着写，下一次建连接整段进系统提示。
+     * 手上的连接系统提示已经发过了，所以只说一句等新会话生效。
+     */
+    fun updateMemory(text: String) {
+        viewModelScope.launch {
+            memory.replace(text)
+            showNotice("记忆将在新会话生效")
+        }
+    }
+
     private fun refreshProviders() {
         _providers.value = providerLines(settingsStore.settings.value)
     }
@@ -1350,6 +1409,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun newTurnId(prefix: String) = "$prefix-${SystemClock.elapsedRealtimeNanos()}"
 
     /**
+     * 一轮落地那一刻定下它的先后，只增不减；接一段老会话时先对齐到它已有的最大序号，
+     * 新轮才不会排到旧轮前面。
+     */
+    private fun nextTurnSeq(): Long {
+        turnSeq = maxOf(turnSeq, flow.turns.maxOfOrNull { it.seq } ?: 0L)
+        turnSeq = maxOf(turnSeq + 1, System.currentTimeMillis())
+        return turnSeq
+    }
+
+    /**
      * 静默三十分钟收段：判定是纯函数 [IdleCut]，走表只在这一处，界面不自己起表。
      * 收完接着开新的一段但不让助手先开口，一段还没开口就没有轮，下一轮静默也就不会再切它。
      */
@@ -1403,6 +1472,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         /** 预览进度八十毫秒读一次，跟得上耳朵又不至于每帧问一次播放器。 */
         private const val PreviewTickMs = 80L
+
+        /** 转写攒这么久再放行：两帧一拍，既比每块都重组省下一大截，又看不出落后。 */
+        private const val TranscriptWindowMs = 32L
         private const val Tag = "ChatViewModel"
         private const val CopyLabel = "Parley"
         private const val AssessorLocale = "en-US"
@@ -1475,7 +1547,7 @@ internal fun providerLines(settings: AppSettings): List<ProviderLine> {
         )
     }
     val assessor = settings.assessor
-    val assessors = listOf(AssessorProvider.Azure, AssessorProvider.Xfyun).map { vendor ->
+    val assessors = AssessorProvider.entries.filter { it != AssessorProvider.None }.map { vendor ->
         ProviderLine(
             group = ProviderGroup.Assessor,
             key = vendor.key,
@@ -1552,9 +1624,10 @@ internal fun pickedAnalysis(
     return analysis.amend(providerId) { it.copy(model = picked) }
 }
 
-/** 行内第二行写这一家自己的东西：Azure 写区域，讯飞写它认的三件套。 */
+/** 行内第二行写这一家自己的东西：Azure 写区域，腾讯与讯飞写各自认的三件套。 */
 private fun assessorDetail(assessor: AssessorSettings, vendor: AssessorProvider): String = when (vendor) {
     AssessorProvider.Azure -> assessor.azureRegion.ifBlank { "密钥与区域" }
+    AssessorProvider.Tencent -> "AppID、SecretID、SecretKey"
     AssessorProvider.Xfyun -> "AppID、APIKey、APISecret"
     AssessorProvider.None -> ""
 }

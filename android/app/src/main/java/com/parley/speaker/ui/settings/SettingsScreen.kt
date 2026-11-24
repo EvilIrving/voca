@@ -113,7 +113,7 @@ private data class OpenLine(val group: ProviderGroup, val key: String)
 /**
  * 设置页。三组各一张卡：收着只留生效那 1 行，点开在卡内铺开同组全部几家，
  * 谁被选中谁生效。已配置那家摊开只剩可挑的那一项与行尾清除，没配过的就地铺凭据与保存，
- * 边填边算草稿，按下保存才落盘。底下是打卡热力图与系统提示词。
+ * 边填边算草稿，按下保存才落盘。底下是打卡热力图、系统提示词与全局记忆。
  */
 @Composable
 fun SettingsScreen(
@@ -121,13 +121,17 @@ fun SettingsScreen(
     providers: List<ProviderLine>,
     textProviders: List<TextProvider>,
     checkIn: CheckInWeeks,
+    memory: String,
     defaultPrompt: String,
+    defaultMemory: String,
     onDismiss: () -> Unit,
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+    onUpdateMemory: (String) -> Unit,
     onLoadModels: (String) -> Unit,
 ) {
     var open by remember { mutableStateOf<OpenLine?>(null) }
     var editingPrompt by remember { mutableStateOf(false) }
+    var editingMemory by remember { mutableStateOf(false) }
 
     fun select(line: ProviderLine) {
         when (line.group) {
@@ -228,14 +232,33 @@ fun SettingsScreen(
             }
             Group("打卡统计") { CheckInCard(checkIn) }
             Group("系统提示词") {
-                PromptCard(prompt = settings.prompt, onEdit = { editingPrompt = true })
+                ProseCard(text = settings.prompt, action = "编辑提示词", onEdit = { editingPrompt = true })
+            }
+            Group("全局记忆") {
+                ProseCard(text = memory, action = "编辑记忆", onEdit = { editingMemory = true })
             }
             Spacer(Modifier.height(Spacing.sheet))
         }
     }
 
     if (editingPrompt) {
-        PromptDialog(settings.prompt, defaultPrompt, onUpdate) { editingPrompt = false }
+        ProseDialog(
+            title = "系统提示词",
+            initial = settings.prompt,
+            resetTo = defaultPrompt,
+            onSave = { text -> onUpdate { it.copy(prompt = text) } },
+            onDismiss = { editingPrompt = false },
+        )
+    }
+
+    if (editingMemory) {
+        ProseDialog(
+            title = "全局记忆",
+            initial = memory,
+            resetTo = defaultMemory,
+            onSave = onUpdateMemory,
+            onDismiss = { editingMemory = false },
+        )
     }
 }
 
@@ -443,6 +466,34 @@ private fun AssessorDetail(
                 SaveButton {
                     onUpdate {
                         it.copy(assessor = it.assessor.withAzure(drafts.getValue("key"), drafts.getValue("region")))
+                    }
+                }
+            }
+        }
+
+        AssessorProvider.Tencent -> {
+            val drafts = rememberDrafts(
+                remember(assessor) {
+                    mapOf(
+                        "appId" to assessor.tencentAppId,
+                        "secretId" to assessor.tencentSecretId,
+                        "secretKey" to assessor.tencentSecretKey,
+                    )
+                },
+            )
+            FormBody {
+                EditField("AppID", drafts.getValue("appId")) { drafts["appId"] = it }
+                EditField("SecretID", drafts.getValue("secretId"), secret = true) { drafts["secretId"] = it }
+                EditField("SecretKey", drafts.getValue("secretKey"), secret = true) { drafts["secretKey"] = it }
+                SaveButton {
+                    onUpdate {
+                        it.copy(
+                            assessor = it.assessor.withTencent(
+                                appId = drafts.getValue("appId"),
+                                secretId = drafts.getValue("secretId"),
+                                secretKey = drafts.getValue("secretKey"),
+                            ),
+                        )
                     }
                 }
             }
@@ -768,14 +819,15 @@ private fun AuthKindChips(selected: AuthKind, onPick: (AuthKind) -> Unit) {
     }
 }
 
+/** 一段整块交出去的中文叙述：角色提示词与全局记忆共用这张卡，点一下进编辑台。 */
 @Composable
-private fun PromptCard(prompt: String, onEdit: () -> Unit) {
+private fun ProseCard(text: String, action: String, onEdit: () -> Unit) {
     SettingsCard(fill = Palette.paper) {
         Pressable(modifier = Modifier.fillMaxWidth(), onClick = onEdit) {
             Column(Modifier.padding(horizontal = CardInset, vertical = 12.dp)) {
-                // 系统提示词是全局共享的一段中文叙述，所有会话建连接时都带上它。
+                // 提示词是所有会话共享的那一段，记忆是跨会话留下来的那一段，都是建连接时整段带走。
                 Text(
-                    text = prompt,
+                    text = text,
                     style = Type.promptProse,
                     maxLines = 5,
                     overflow = TextOverflow.Ellipsis,
@@ -793,21 +845,25 @@ private fun PromptCard(prompt: String, onEdit: () -> Unit) {
                         modifier = Modifier.size(13.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(text = "编辑提示词", style = Type.captionClay)
+                    Text(text = action, style = Type.captionClay)
                 }
             }
         }
     }
 }
 
+/**
+ * 编辑台。草稿不在参数上重建：记忆每一轮都在变，卡背后的那份换了也不能把正在写的这段填掉。
+ */
 @Composable
-private fun PromptDialog(
-    prompt: String,
-    defaultPrompt: String,
-    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+private fun ProseDialog(
+    title: String,
+    initial: String,
+    resetTo: String,
+    onSave: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var text by remember(prompt) { mutableStateOf(prompt) }
+    var text by remember { mutableStateOf(initial) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
             modifier = Modifier
@@ -828,7 +884,7 @@ private fun PromptDialog(
                         .verticalScroll(rememberScrollState())
                         .padding(Spacing.screen),
                 ) {
-                    Text("系统提示词", style = Type.display)
+                    Text(title, style = Type.display)
                     Spacer(Modifier.height(16.dp))
                     Surface(
                         color = Palette.tint,
@@ -846,7 +902,7 @@ private fun PromptDialog(
                         )
                     }
                     Spacer(Modifier.height(12.dp))
-                    Pressable(modifier = Modifier.fillMaxWidth(), onClick = { text = defaultPrompt }) {
+                    Pressable(modifier = Modifier.fillMaxWidth(), onClick = { text = resetTo }) {
                         Box(Modifier.height(32.dp), contentAlignment = Alignment.CenterStart) {
                             Text(text = "恢复默认", style = Type.uiStrongClay)
                         }
@@ -857,7 +913,7 @@ private fun PromptDialog(
                         shape = RoundedCornerShape(Radius.pill),
                         resting = Palette.clay,
                         onClick = {
-                            onUpdate { it.copy(prompt = text) }
+                            onSave(text)
                             onDismiss()
                         },
                     ) {

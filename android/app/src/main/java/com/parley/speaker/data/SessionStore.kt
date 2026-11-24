@@ -8,6 +8,7 @@ import com.parley.speaker.data.db.MIGRATION_4_5
 import com.parley.speaker.data.db.MIGRATION_5_6
 import com.parley.speaker.data.db.MIGRATION_6_7
 import com.parley.speaker.data.db.MIGRATION_7_8
+import com.parley.speaker.data.db.MIGRATION_8_9
 import com.parley.speaker.data.db.MemoryRow
 import com.parley.speaker.data.db.ParleyDatabase
 import com.parley.speaker.data.db.SessionRow
@@ -32,21 +33,24 @@ import kotlinx.serialization.json.Json
 class SessionStore(context: Context) {
 
     private val db = Room.databaseBuilder(context, ParleyDatabase::class.java, "parley.db")
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+        .addMigrations(
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
+            MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+        )
         .build()
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun loadTurns(): List<Turn> = db.turns().all().mapNotNull { it.toTurn() }
 
-    /** 全局记忆：跨会话保留的那一段。库里没有时返回空，由调用方拿默认起点顶上。 */
-    suspend fun globalMemory(): String = db.memory().byId(GlobalMemoryId)?.text.orEmpty()
+    /** 全局记忆：跨会话保留的那一段。库里没有这一行时返回 null，由调用方拿默认起点顶上。 */
+    suspend fun globalMemory(): String? = db.memory().byId(GlobalMemoryId)?.text
 
-    /** 改写完的记忆整段盖掉，时间戳只作记录，读的时候不参与判定。 */
+    /** 改写完的记忆整段盖掉，时间戳只作记录，读的时候不参与判定。设置页改的也是这条路。 */
     suspend fun saveMemory(text: String) {
         db.memory().put(MemoryRow(id = GlobalMemoryId, text = text, updatedAt = System.currentTimeMillis()))
     }
 
-    /** 只写这一轮：新轮插入时写时间戳，已有轮保留原 createdAt；收藏位只走 [setSaved]。 */
+    /** 只写这一轮：新轮插入时写时间戳与先后，已有轮保留原值；收藏位只走 [setSaved]。 */
     suspend fun saveTurn(turn: Turn) {
         val row = TurnRow(
             id = turn.id,
@@ -58,6 +62,7 @@ class SessionStore(context: Context) {
             translation = turn.translation,
             sessionId = turn.sessionId,
             durationMs = turn.durationMs,
+            seq = turn.seq,
         )
         db.turns().insertIfAbsent(row)
         db.turns().update(
@@ -247,6 +252,7 @@ class SessionStore(context: Context) {
             translation = translation,
             sessionId = sessionId,
             durationMs = durationMs,
+            seq = seq,
         )
     }
 

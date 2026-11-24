@@ -4,7 +4,7 @@ import com.parley.speaker.data.realtime.ProviderFault
 import com.parley.speaker.domain.PhonemeIssue
 
 /**
- * 发音评测适配层。微软 Azure 与讯飞都落在这个接口后面，界面与 ViewModel 只认它。
+ * 发音评测适配层。微软 Azure、腾讯智聆与讯飞都落在这个接口后面，界面与 ViewModel 只认它。
  * 分数一律可空：不同供应商给的维度不一样，缺的那项留 null，界面据此少画一格，不做零分顶替。
  * 拿不到分也走这个接口回来，带着归类好的原因，界面据此说一句话，不用再从 null 里猜。
  */
@@ -91,4 +91,13 @@ data class XfyunCredentials(
     val apiSecret: String = "",
 ) {
     val isComplete: Boolean get() = appId.isNotBlank() && apiKey.isNotBlank() && apiSecret.isNotBlank()
+}
+
+/** 腾讯的三个字段在控制台各叫一个名字：appid 走路径段，secretid 与 secretkey 参与签名。 */
+data class TencentCredentials(
+    val appId: String = "",
+    val secretId: String = "",
+    val secretKey: String = "",
+) {
+    val isComplete: Boolean get() = appId.isNotBlank() && secretId.isNotBlank() && secretKey.isNotBlank()
 }

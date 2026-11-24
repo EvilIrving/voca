@@ -179,6 +179,9 @@ object InputBarSpec {
 
 /** 圆钮四十八与八十二之间用一百毫秒，其余进出收在一百八十毫秒。 */
 private const val GrowMs = 100
+
+/** 光晕半径在圆钮半径的一倍到一点六倍之间走，这六成由电平推。 */
+private const val HaloGrowth = 0.6f
 private const val SettleMs = 180
 
 /** 锁定后隔这么久浮出暂停键，留出抬手的时间。 */
@@ -221,6 +224,9 @@ private val ClockStyle = TextStyle(
     fontWeight = FontWeight.SemiBold,
     color = Palette.ink,
 )
+/** 空胶囊上那一句就是画板上的占位：点一下进草稿，按住开录，两件事都写在这行字里。 */
+private const val Placeholder = "点击输入或长按说点什么"
+
 private val PlaceholderStyle = TextStyle(
     fontFamily = InterFamily,
     fontSize = 15.sp,
@@ -504,12 +510,14 @@ fun VoiceInputBar(
                 }
 
                 // 光晕压在胶囊之上：按住时那一圈呼吸要从输入框上面淌过去，不能被纸白胶囊切掉。
+                // 半径封顶在圆钮半径的一点六倍，同一个圆心：圆钮半径十，光晕就到十六为止。
                 Blobs(
                     visible = dragging && frozen == null,
                     progress = progress,
                     levels = levels,
                     levelFrame = levelFrame,
                     centerX = centerX,
+                    buttonRadius = diameter / 2 * scale,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -604,8 +612,9 @@ fun VoiceInputBar(
 }
 
 /**
- * 双层 blob 光晕。顶点数、半径抖动与缩放都照 BlobDrawable：半径在四十七附近抖，
- * 缩放是 0.926 / 0.878 再加一点四倍电平，左滑时整体按进度收回去。
+ * 双层 blob 光晕。顶点数、相位与抖动照 BlobDrawable，半径改成跟着圆钮算：
+ * 同一个圆心上，光晕半径在圆钮半径的一倍到一点六倍之间，静下来贴住圆钮，说话时往外涨六成，
+ * 左滑整体按进度收回去。顶点各自在自己的比例上抖，最外那颗正好落在包络上，越不过一点六倍。
  */
 @Suppress("UNUSED_EXPRESSION")
 @Composable
@@ -615,10 +624,12 @@ private fun Blobs(
     levels: FloatArray,
     levelFrame: Long,
     centerX: Dp,
+    buttonRadius: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val tiny = remember { BlobRing(vertices = 11, minRadius = 47f, maxRadius = 56f, scaleBase = 0.926f) }
-    val big = remember { BlobRing(vertices = 12, minRadius = 50f, maxRadius = 57.2f, scaleBase = 0.878f) }
+    // 内层抖得深一点、外层浅一点，两层错开就成了那圈晕；比例对着圆钮量，不写死尺寸。
+    val tiny = remember { BlobRing(vertices = 11, minRatio = 0.839f) }
+    val big = remember { BlobRing(vertices = 12, minRatio = 0.874f) }
     Canvas(modifier = modifier) {
         // 读一次帧计数，电平每换一帧就重绘一次；数组在采集侧原地复用，没有别的信号可用。
         levelFrame
@@ -631,24 +642,24 @@ private fun Blobs(
             centerX.toPx(),
             size.height - InputBarSpec.BaseBottom.toPx() - InputBarSpec.PillHeight.toPx() / 2f,
         )
-        big.draw(this, center, levelFrame, amplitude, reveal, Palette.clay.copy(alpha = 0.18f), density)
-        tiny.draw(this, center, levelFrame, amplitude, reveal, Palette.clay.copy(alpha = 0.28f), density)
+        // 圆钮正在长大、左滑时在缩，包络按它每一帧的半径算，不取 82 那个终值。
+        big.draw(this, center, levelFrame, amplitude, reveal, Palette.clay.copy(alpha = 0.18f), density, buttonRadius)
+        tiny.draw(this, center, levelFrame, amplitude, reveal, Palette.clay.copy(alpha = 0.28f), density, buttonRadius)
     }
 }
 
 /**
- * 一团 blob 的顶点与相位。每个顶点各自独立地在两个半径、两个角度之间插值，
+ * 一团 blob 的顶点与相位。每个顶点各自独立地在两个比例、两个角度之间插值，
  * 相邻顶点用三次贝塞尔接起来，控制柄按两半径的均值算，轮廓因此一直闭合顺滑。
+ * 比例量的是圆钮半径的倍数：一表示贴住圆钮，一点六是电平拉满时的外沿。
  */
 private class BlobRing(
     private val vertices: Int,
-    private val minRadius: Float,
-    private val maxRadius: Float,
-    private val scaleBase: Float,
+    private val minRatio: Float,
 ) {
-    private val radius = FloatArray(vertices)
+    private val ratio = FloatArray(vertices)
     private val angle = FloatArray(vertices)
-    private val nextRadius = FloatArray(vertices)
+    private val nextRatio = FloatArray(vertices)
     private val nextAngle = FloatArray(vertices)
     private val progress = FloatArray(vertices)
     private val speed = FloatArray(vertices)
@@ -660,14 +671,14 @@ private class BlobRing(
 
     init {
         for (i in 0 until vertices) {
-            seed(radius, angle, i)
-            seed(nextRadius, nextAngle, i)
+            seed(ratio, angle, i)
+            seed(nextRatio, nextAngle, i)
         }
     }
 
-    private fun seed(intoRadius: FloatArray, intoAngle: FloatArray, index: Int) {
+    private fun seed(intoRatio: FloatArray, intoAngle: FloatArray, index: Int) {
         val wobble = 360f / vertices * 0.05f
-        intoRadius[index] = minRadius + random.nextFloat() * (maxRadius - minRadius)
+        intoRatio[index] = minRatio + random.nextFloat() * (1f - minRatio)
         intoAngle[index] = 360f / vertices * index + (random.nextFloat() - 0.5f) * wobble
         speed[index] = 0.017f + 0.003f * random.nextFloat()
     }
@@ -680,6 +691,7 @@ private class BlobRing(
         reveal: Float,
         color: Color,
         density: Float,
+        buttonRadius: Dp,
     ) {
         // 电平每帧只吃进新值的 0.1，二十毫秒一帧的分贝被压成呼吸。
         smoothed = smoothed * 0.9f + amplitude * 0.1f
@@ -689,19 +701,20 @@ private class BlobRing(
                 progress[i] += speed[i] * 0.8f + smoothed * speed[i] * 8.2f * 1.01f
                 if (progress[i] >= 1f) {
                     progress[i] = 0f
-                    radius[i] = nextRadius[i]
+                    ratio[i] = nextRatio[i]
                     angle[i] = nextAngle[i]
-                    seed(nextRadius, nextAngle, i)
+                    seed(nextRatio, nextAngle, i)
                 }
             }
         }
-        val expand = (scaleBase + 1.4f * smoothed) * reveal
+        // 包络：圆钮半径乘一加六成电平，再乘进度。顶点比例本身不超过一，最外沿就封在一点六倍。
+        val envelope = buttonRadius.value * (1f + HaloGrowth * smoothed) * reveal
         // 路径每帧复用同一条，五十一帧每秒不再给垃圾回收添活。
         path.reset()
         for (i in 0 until vertices) {
             val next = if (i + 1 < vertices) i + 1 else 0
-            val r1 = lerp(radius[i], nextRadius[i], progress[i]) * expand * density
-            val r2 = lerp(radius[next], nextRadius[next], progress[next]) * expand * density
+            val r1 = lerp(ratio[i], nextRatio[i], progress[i]) * envelope * density
+            val r2 = lerp(ratio[next], nextRatio[next], progress[next]) * envelope * density
             val a1 = lerp(angle[i], nextAngle[i], progress[i])
             val a2 = lerp(angle[next], nextAngle[next], progress[next])
             val handle = control * (minOf(r1, r2) + (maxOf(r1, r2) - minOf(r1, r2)) / 2f)
@@ -754,7 +767,9 @@ private fun DraftRow(
                     // 输入框一挂上去，占位那句就得由它自己画：空草稿只留一条光秃秃的纸白胶囊，
                     // 看不出这一行是干什么的。
                     Box(contentAlignment = Alignment.CenterStart) {
-                        if (draft.isEmpty()) Text(text = "说点什么...", style = PlaceholderStyle, maxLines = 1)
+                        if (draft.isEmpty()) {
+                            Text(text = Placeholder, style = PlaceholderStyle, maxLines = 1)
+                        }
                         field()
                     }
                 },
@@ -775,7 +790,7 @@ private fun DraftRow(
         } else {
             val text: @Composable () -> Unit = {
                 Text(
-                    text = draft.ifEmpty { "说点什么..." },
+                    text = draft.ifEmpty { Placeholder },
                     style = if (draft.isEmpty()) PlaceholderStyle else DraftStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

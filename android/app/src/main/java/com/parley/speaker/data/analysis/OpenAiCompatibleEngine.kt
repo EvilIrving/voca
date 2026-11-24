@@ -286,7 +286,7 @@ internal fun sessionNamePrompt(transcript: String): String = """
 
 /**
  * 记忆维护的提示词。这一段是产品机制的一部分，不跟角色提示词走、不进设置页：
- * 记忆怎么合并、什么该留、留多长都由这里定，用户能改的只是角色与场景。
+ * 记忆怎么合并、什么该留、留多长都由这里定；设置页能改的是角色提示词与记忆正文本身。
  */
 internal fun memoryPrompt(memory: String, material: String): String = """
     你在维护一场英语口语练习的记忆。下面是现在的记忆与刚刚发生的一轮对话。

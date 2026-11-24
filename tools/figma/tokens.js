@@ -64,6 +64,25 @@ frame(root, 'sp', { w: 1, h: 10 });
 t(root, '热力图铺二十六周乘七天，格 8.3 圆角 2 间距 3，行首为周一，卡片 320 宽内缩 14、格区 292；末列没到的日子留空。', { font: F.cn, size: 11, color: C.ink4, lh: 16, width: 820 });
 frame(root, 'sp', { w: 1, h: 32 });
 
+/* 综合分色阶：角标数字按分数分三档，阈值与客户端同一套 */
+t(root, '综合分色阶', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
+frame(root, 'sp', { w: 1, h: 12 });
+const scoreSteps = [
+  ['85 以上', C.olive],
+  ['70–84', C.clayDeep],
+  ['70 以下', C.danger]
+];
+const scoreRow = frame(root, 'score steps', { dir: 'HORIZONTAL', w: 820, gap: 10, main: 'MIN' });
+for (const [label, hex] of scoreSteps) {
+  const card = frame(scoreRow, 'spec score ' + label, { w: 154, dir: 'VERTICAL', gap: 6, pt: 8, pb: 10, pl: 8, pr: 8, fill: C.card, stroke: C.hair, radius: 12 });
+  frame(card, 'chip', { w: 138, h: 40, fill: hex, radius: 8, stroke: C.hair });
+  t(card, label, { font: F.cnMd, size: 10.5, color: C.ink2, lh: 14 });
+  t(card, hex.toUpperCase(), { font: F.mono, size: 9.5, color: C.ink4, lh: 13 });
+}
+frame(root, 'sp', { w: 1, h: 10 });
+t(root, '角标只写数字，35×21，骑在用户气泡右下角的底边线上，右沿内缩 2、下半 8 落在气泡外，命中区 44 见方；数字取发音与语法两项的平均四舍五入，只有一项出分就直接显示那一项。', { font: F.cn, size: 11, color: C.ink4, lh: 16, width: 820 });
+frame(root, 'sp', { w: 1, h: 32 });
+
 /* type scale */
 t(root, '字体', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
 frame(root, 'sp', { w: 1, h: 12 });
@@ -168,7 +187,7 @@ const groups = [
     'Select/Option/On', 'Select/Option/Off', 'Toast'
   ]],
   ['复合层 molecules', [
-    'Bubble/Echo', 'Bubble/Echo/Translated', 'Bubble/User', 'ScorePill', 'HintCard',
+    'Bubble/Echo', 'Bubble/Echo/Translated', 'Bubble/User', 'Score/Badge', 'HintCard',
     'SectionLabel', 'SectionLabel/Mic', 'Field/Search',
     'Row/Provider', 'Row/Provider/Open', 'Row/Provider/Off', 'Row/Voice', 'Row/Voice/Open',
     'Row/DrawerSession', 'Row/DrawerSession/Current', 'Button/NewSession',

@@ -60,22 +60,32 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import com.parley.speaker.data.SessionGroup
 import com.parley.speaker.data.SessionRecord
 import com.parley.speaker.data.groupedByDay
+import com.parley.speaker.ui.component.FloatingPanel
+import com.parley.speaker.ui.component.FloatingShadowInset
 import com.parley.speaker.ui.component.ParleyIconButton
 import com.parley.speaker.ui.component.Pressable
 import com.parley.speaker.ui.icon.FluentIcons
@@ -89,7 +99,20 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+/** 会话没写过名字时界面上那句占位。 */
 private const val UntitledSession = "本次会话"
+
+/** 菜单里那行字：十三号中等字重的墨色，删除那行换危险色。 */
+private val MenuLabel = Type.uiStrong.copy(fontSize = 13.sp, lineHeight = 19.sp)
+private val MenuLabelDanger = MenuLabel.copy(color = Palette.danger)
+
+/** 会话行菜单的三项去向与退场；退场走浮层外的点击与返回键。 */
+private class SessionMenuActions(
+    val onRename: () -> Unit,
+    val onBatchSelect: () -> Unit,
+    val onDelete: () -> Unit,
+    val onDismiss: () -> Unit,
+)
 
 /**
  * 抽屉照「侧边抽屉交互原型」取：右侧一枚检索，下面一条新建会话的白胶囊，
@@ -109,6 +132,15 @@ object SessionDrawerSpec {
     val NewGlyph = 24.dp
 
     val RowHeight = 44.dp
+
+    /** 行尾那枚更多图标：十六的图形，离行尾十像素，只出现在正在看的那一行。 */
+    val MoreGlyph = 16.dp
+
+    /** 会话行菜单的宽度与行高，取自画板 12b。 */
+    val MenuWidth = 232.dp
+    val MenuRowHeight = 44.dp
+    val MenuGlyph = 16.dp
+    val MenuRuleWidth = 200.dp
 
     /** 选择态的勾选框与批量条，尺寸取自画板 12c。 */
     val CheckBox = 18.dp
@@ -519,6 +551,26 @@ fun SessionDrawer(
                             current = model.isCurrent(record),
                             selecting = selecting,
                             checked = record.id in selected,
+                            menu = if (activeRecord?.id == record.id) {
+                                SessionMenuActions(
+                                    onRename = {
+                                        activeRecord = null
+                                        renamingRecord = record
+                                    },
+                                    onBatchSelect = {
+                                        activeRecord = null
+                                        selecting = true
+                                        selected = setOf(record.id)
+                                    },
+                                    onDelete = {
+                                        activeRecord = null
+                                        onDelete(record.id)
+                                    },
+                                    onDismiss = { activeRecord = null },
+                                )
+                            } else {
+                                null
+                            },
                             onClick = {
                                 if (selecting) {
                                     selected = if (record.id in selected) selected - record.id else selected + record.id
@@ -527,6 +579,7 @@ fun SessionDrawer(
                                 }
                             },
                             onLongClick = { if (!selecting) activeRecord = record },
+                            onMore = { if (!selecting) activeRecord = record },
                         )
                     }
                 }
@@ -552,26 +605,6 @@ fun SessionDrawer(
         } else {
             DrawerDock(onSettings)
         }
-    }
-
-    activeRecord?.let { record ->
-        SessionActionDialog(
-            record = record,
-            onRename = {
-                activeRecord = null
-                renamingRecord = record
-            },
-            onBatchSelect = {
-                activeRecord = null
-                selecting = true
-                selected = setOf(record.id)
-            },
-            onDelete = {
-                activeRecord = null
-                onDelete(record.id)
-            },
-            onDismiss = { activeRecord = null },
-        )
     }
 
     renamingRecord?.let { record ->
@@ -705,37 +738,148 @@ private fun SessionRow(
     current: Boolean,
     selecting: Boolean,
     checked: Boolean,
+    menu: SessionMenuActions?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onMore: () -> Unit,
+) {
+    // 浮层挂在行自己身上：锚点就是这一行的窗口坐标，翻上翻下与左右收边交给位置提供器。
+    val inset = FloatingShadowInset
+    val gap = with(LocalDensity.current) { (4.dp - inset).roundToPx() }
+    Box {
+        Pressable(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(SessionDrawerSpec.RowHeight)
+                .padding(vertical = 2.dp),
+            shape = RoundedCornerShape(Radius.drawerRow),
+            resting = if (current && !selecting) Palette.clayTint else Color.Transparent,
+            onClick = onClick,
+            onLongClick = onLongClick,
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = if (selecting) 6.dp else 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (selecting) {
+                    CheckBox(checked = checked)
+                    Spacer(Modifier.width(10.dp))
+                }
+                Text(
+                    text = record.name.ifBlank { UntitledSession },
+                    style = if (current && !selecting) Type.uiStrong else Type.uiStrongInk2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                // 正在看的那条行尾多一枚更多：长按能开的那份菜单，点这里也开。
+                if (current && !selecting) {
+                    Pressable(
+                        modifier = Modifier.size(SessionDrawerSpec.MoreGlyph),
+                        contentDescription = "会话操作",
+                        onClick = onMore,
+                    ) {
+                        Icon(
+                            imageVector = FluentIcons.MoreHorizontal,
+                            contentDescription = null,
+                            modifier = Modifier.size(SessionDrawerSpec.MoreGlyph),
+                            tint = Palette.ink2,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (menu != null) {
+            Popup(
+                popupPositionProvider = remember(gap) { UnderRow(gap) },
+                onDismissRequest = menu.onDismiss,
+                properties = PopupProperties(focusable = true),
+            ) {
+                Box(Modifier.padding(inset)) {
+                    FloatingPanel(
+                        shape = RoundedCornerShape(Radius.card),
+                        modifier = Modifier.width(SessionDrawerSpec.MenuWidth),
+                    ) {
+                        SessionMenu(menu)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 会话行菜单：232 宽的纸白浮层，三行图标配文字，删除前隔 1 条细线。 */
+@Composable
+private fun SessionMenu(menu: SessionMenuActions) {
+    Column(
+        modifier = Modifier.padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        SessionMenuRow("重命名", FluentIcons.Edit, Palette.ink3, MenuLabel, menu.onRename)
+        SessionMenuRow("批量选择", FluentIcons.CheckMark, Palette.ink3, MenuLabel, menu.onBatchSelect)
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .width(SessionDrawerSpec.MenuRuleWidth)
+                .height(1.dp)
+                .background(Palette.hair),
+        )
+        SessionMenuRow("删除", FluentIcons.Delete, Palette.danger, MenuLabelDanger, menu.onDelete)
+    }
+}
+
+@Composable
+private fun SessionMenuRow(
+    label: String,
+    glyph: ImageVector,
+    iconTint: Color,
+    style: TextStyle,
+    onClick: () -> Unit,
 ) {
     Pressable(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(SessionDrawerSpec.RowHeight)
-            .padding(vertical = 2.dp),
-        shape = RoundedCornerShape(Radius.drawerRow),
-        resting = if (current && !selecting) Palette.clayTint else Color.Transparent,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(Radius.chip),
         onClick = onClick,
-        onLongClick = onLongClick,
-        contentAlignment = Alignment.CenterStart,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (selecting) 6.dp else 12.dp),
+                .height(SessionDrawerSpec.MenuRowHeight)
+                .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (selecting) {
-                CheckBox(checked = checked)
-                Spacer(Modifier.width(10.dp))
-            }
-            Text(
-                text = record.name.ifBlank { UntitledSession },
-                style = if (current && !selecting) Type.uiStrong else Type.uiStrongInk2,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Icon(
+                imageVector = glyph,
+                contentDescription = null,
+                modifier = Modifier.size(SessionDrawerSpec.MenuGlyph),
+                tint = iconTint,
             )
+            Spacer(Modifier.width(12.dp))
+            Text(text = label, style = style)
         }
+    }
+}
+
+/** 菜单从那一行的左下角探出来，放不下就把浮层翻到行上方，左右按屏幕收进可视区。 */
+private class UnderRow(private val gap: Int) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val x = anchorBounds.left.coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+        val below = anchorBounds.bottom + gap
+        val y = if (below + popupContentSize.height > windowSize.height) {
+            (anchorBounds.top - gap - popupContentSize.height).coerceAtLeast(0)
+        } else {
+            below
+        }
+        return IntOffset(x, y)
     }
 }
 
@@ -808,100 +952,6 @@ private fun DrawerBatchBar(
                     text = "删除 $count 项",
                     style = Type.uiStrongOnDark.copy(fontSize = 13.sp),
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SessionActionDialog(
-    record: SessionRecord,
-    onRename: () -> Unit,
-    onBatchSelect: () -> Unit,
-    onDelete: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Spacing.screen),
-            contentAlignment = Alignment.Center,
-        ) {
-            Surface(
-                color = Palette.card,
-                shape = RoundedCornerShape(Radius.sheet),
-                modifier = Modifier
-                    .widthIn(max = 280.dp)
-                    .fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(
-                        text = record.name.ifBlank { UntitledSession },
-                        style = Type.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Pressable(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(Radius.chip),
-                        resting = Palette.tint,
-                        onClick = onRename,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("重命名", style = Type.uiStrong)
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Pressable(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(Radius.chip),
-                        resting = Palette.tint,
-                        onClick = onBatchSelect,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("批量选择", style = Type.uiStrong)
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp)
-                            .height(1.dp)
-                            .background(Palette.hair.copy(alpha = 0.5f)),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Pressable(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(Radius.chip),
-                        resting = Palette.tint,
-                        onClick = onDelete,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("删除", style = Type.uiStrong.copy(color = Palette.danger))
-                        }
-                    }
-                }
             }
         }
     }

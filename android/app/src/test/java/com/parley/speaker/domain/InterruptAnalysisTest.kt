@@ -81,7 +81,7 @@ class InterruptAnalysisTest {
         drive.send(TurnEvent.SessionReady, TurnEvent.PressStart, TurnEvent.Commit, TurnEvent.Audio(ByteArray(4)))
         val interrupted = drive.send(TurnEvent.PressStart)
 
-        assertEquals("半句都没识别出来就什么都不留", emptyList<Turn>(), drive.state.turns)
+        assertEquals("半句都没识别出来就什么都不留", listOf(""), drive.state.turns.map { it.text })
         assertFalse("打断时用户正在说下一句，不弹提示", interrupted.any { it is TurnEffect.Notify })
         assertFalse("没有文字就没有分析", interrupted.any { it is TurnEffect.Analyze })
         assertTrue("被打断的助手回复也要清掉", drive.state.phase is TurnPhase.Recording)

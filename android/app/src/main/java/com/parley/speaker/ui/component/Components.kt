@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,7 +27,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -42,6 +48,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.parley.speaker.domain.AnalysisStatus
 import com.parley.speaker.domain.Speaker
+import com.parley.speaker.domain.overallScore
 import com.parley.speaker.domain.Turn
 import com.parley.speaker.ui.icon.FluentIcons
 import com.parley.speaker.ui.theme.Palette
@@ -173,6 +181,64 @@ fun ParleyIconButton(
     }
 }
 
+/** 转写一块块推来，三帧上下放一批：一批的字数跟着还差多少走，欠得多步子大、欠得少步子小。 */
+private const val StreamTickNanos = 48_000_000L
+
+/** 放出来的尾巴这一段做淡入，字看着是长出来的，不是一块贴上去的。 */
+private const val StreamFadeChars = 10
+
+/**
+ * 气泡正文。只画已经放出来的那一截，剩下的按欠账往前赶，永远追得上又不会一下跳出一大块；
+ * 尾巴那几个字从四成淡到实色。放完就换成整段纯文本，不留任何附加样式。
+ * 历史消息进组合时文本早就齐了，第一次就按全量画，不倒回去重放。
+ */
+@Composable
+fun StreamingProse(
+    text: String,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+) {
+    var shown by remember { mutableIntStateOf(text.length) }
+    LaunchedEffect(text) {
+        if (shown >= text.length) return@LaunchedEffect
+        var last = 0L
+        while (shown < text.length) {
+            val now = withFrameNanos { it }
+            if (now - last < StreamTickNanos) continue
+            last = now
+            shown = nextShown(shown, text.length)
+        }
+    }
+    if (shown >= text.length) {
+        Text(text, style = style, modifier = modifier)
+    } else {
+        Text(fadingTail(text, shown), style = style, modifier = modifier)
+    }
+}
+
+/** 下一拍画到第几个字：按还差多少的三分之一往前赶，至少往前走 1 个，不会越过全量。 */
+internal fun nextShown(shown: Int, total: Int): Int {
+    if (shown >= total) return total
+    val backlog = total - shown
+    return (shown + (backlog / 3).coerceAtLeast(1)).coerceAtMost(total)
+}
+
+/** 已经放出来的那截加一道尾巴：末几个字从四成淡上来，最后一个字就是实色。 */
+internal fun fadingTail(text: String, shown: Int): AnnotatedString {
+    val tailStart = (shown - StreamFadeChars).coerceAtLeast(0)
+    val span = (shown - tailStart).coerceAtLeast(1)
+    val base = Palette.ink
+    return buildAnnotatedString {
+        append(text.substring(0, tailStart))
+        for (index in tailStart until shown) {
+            val share = (index - tailStart + 1).toFloat() / span
+            withStyle(SpanStyle(color = base.copy(alpha = 0.4f + 0.6f * share))) {
+                append(text[index])
+            }
+        }
+    }
+}
+
 val BubbleWidth = 258.dp
 
 /**
@@ -197,8 +263,8 @@ fun EchoTurn(
             color = Palette.card,
             border = BorderStroke(1.dp, Palette.hair),
         ) {
-            Text(
-                turn.text,
+            StreamingProse(
+                text = turn.text,
                 style = Type.prose,
                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 13.dp, bottom = 12.dp),
             )
@@ -226,65 +292,87 @@ fun UserBubble(turn: Turn, onOpenReview: () -> Unit, onRetryAnalysis: () -> Unit
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.End,
     ) {
-        Surface(
-            color = Palette.tint,
-            shape = RoundedCornerShape(
-                topStart = Radius.bubble,
-                topEnd = Radius.bubbleTail,
-                bottomEnd = Radius.bubble,
-                bottomStart = Radius.bubble,
-            ),
-            modifier = Modifier.widthIn(max = 268.dp),
-        ) {
-            Text(
-                turn.text,
-                style = Type.prose,
-                modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 13.dp, bottom = 12.dp),
+        Box {
+            Surface(
+                color = Palette.tint,
+                shape = RoundedCornerShape(
+                    topStart = Radius.bubble,
+                    topEnd = Radius.bubbleTail,
+                    bottomEnd = Radius.bubble,
+                    bottomStart = Radius.bubble,
+                ),
+                modifier = Modifier.widthIn(max = 268.dp),
+            ) {
+                Text(
+                    turn.text,
+                    style = Type.prose,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 13.dp, bottom = 12.dp),
+                )
+            }
+            ScoreBadge(
+                turn = turn,
+                onOpenReview = onOpenReview,
+                onRetryAnalysis = onRetryAnalysis,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = BadgeTouchOut, y = BadgeTouchDrop),
             )
         }
-        ScoreLine(turn = turn, onOpenReview = onOpenReview, onRetryAnalysis = onRetryAnalysis)
     }
 }
 
-/** 分值胶囊：二十七高、白底描边，发音用陶土深色、语法用鼠尾草。 */
+/**
+ * 综合分角标：白纸小片骑在气泡右下角的底边上，右沿内缩 2、下半 8 落在气泡外，
+ * 用绝对定位的偏移画在气泡轮廓之外，因此不参与测量、不把气泡或列表撑高。
+ * 数字按分数换色：85 以上鼠尾草、70 到 84 陶土深、70 以下危险色；分析失败时改写成「重试」。
+ * 视觉框 35×21，外面那圈 11 的透明内缩把命中区撑到 57×43。
+ */
+private val BadgeShape = RoundedCornerShape(Radius.pill)
+private val BadgeTouch = 11.dp
+private val BadgeTouchOut = BadgeTouch - 2.dp
+private val BadgeTouchDrop = BadgeTouch + 8.dp
+private val BadgeShadow = Shadow(
+    radius = 4.dp,
+    color = Palette.shade,
+    offset = DpOffset(0.dp, 1.dp),
+)
+
 @Composable
-private fun ScoreLine(turn: Turn, onOpenReview: () -> Unit, onRetryAnalysis: () -> Unit) {
+private fun ScoreBadge(
+    turn: Turn,
+    onOpenReview: () -> Unit,
+    onRetryAnalysis: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val failed = turn.analysis == AnalysisStatus.Failed
-    val review = turn.review
-    if (review == null && !failed) return
-    Row(
-        modifier = Modifier.padding(top = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val score = turn.review?.overallScore
+    if (score == null && !failed) return
+    val ink = when {
+        failed -> Palette.danger
+        score!! >= 85 -> Palette.olive
+        score >= 70 -> Palette.clayDeep
+        else -> Palette.danger
+    }
+    Pressable(
+        modifier = modifier,
+        contentDescription = if (failed) "重新分析" else "本轮评测",
+        onClick = { if (failed) onRetryAnalysis() else onOpenReview() },
     ) {
-        Pressable(
-            modifier = Modifier.height(27.dp),
-            shape = RoundedCornerShape(Radius.pill),
-            resting = Palette.card,
-            border = BorderStroke(1.dp, Palette.hair),
-            onClick = { if (failed && review == null) onRetryAnalysis() else onOpenReview() },
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 11.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        Box(Modifier.padding(BadgeTouch)) {
+            Box(
+                modifier = Modifier
+                    .dropShadow(BadgeShape, BadgeShadow)
+                    .clip(BadgeShape)
+                    .background(Palette.card)
+                    .border(1.dp, Palette.hair, BadgeShape)
+                    .height(21.dp)
+                    .padding(horizontal = 9.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                if (review == null) {
-                    Text(
-                        "分析失败 · 重试",
-                        style = Type.caption.copy(color = Palette.danger),
-                    )
-                } else {
-                    review.pronunciation?.let { score ->
-                        Text(
-                            "发音 ${score.score}",
-                            style = Type.captionClay,
-                        )
-                        Spacer(Modifier.width(10.dp))
-                    }
-                    Text(
-                        "语法 ${review.grammar.score}",
-                        style = Type.caption.copy(color = Palette.olive),
-                    )
-                }
+                Text(
+                    text = if (failed) "重试" else score.toString(),
+                    style = Type.mono.copy(fontSize = 12.5.sp, lineHeight = 17.sp, color = ink),
+                )
             }
         }
     }
@@ -381,17 +469,6 @@ fun FlagChip(label: String, selected: Boolean, onClick: () -> Unit) {
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
         )
     }
-}
-
-@Composable
-fun SheetHandle(modifier: Modifier = Modifier, width: Dp = 36.dp) {
-    Box(
-        modifier = modifier
-            .width(width)
-            .height(4.dp)
-            .clip(RoundedCornerShape(Radius.pill))
-            .background(Palette.hairStrong),
-    )
 }
 
 fun highlighted(text: String, highlight: String): AnnotatedString = buildAnnotatedString {

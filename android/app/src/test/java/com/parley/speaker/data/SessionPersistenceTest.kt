@@ -45,6 +45,18 @@ class SessionPersistenceTest {
     }
 
     @Test
+    fun `助手那一轮先写库也排在提问后面`() = runBlocking {
+        // 流式期间助手那一轮先落库，用户那一轮要到收尾才写：顺序认轮次自己的先后，不认写库时刻。
+        val first = SessionStore(app)
+        first.saveTurn(Turn(id = "echo-3", speaker = Speaker.Echo, text = "Yes, I can hear you.", seq = 3))
+        first.saveTurn(Turn(id = "user-2", speaker = Speaker.User, text = "Can you hear me?", seq = 2))
+
+        val afterRestart = SessionStore(app).loadTurns()
+
+        assertEquals(listOf("user-2", "echo-3"), afterRestart.map { it.id })
+    }
+
+    @Test
     fun `冷启动捡回上一次的对话`() = runBlocking {
         val first = SessionStore(app)
         first.saveTurn(Turn(id = "u1", speaker = Speaker.User, text = "I went to the coffee shop"))
@@ -113,7 +125,7 @@ class SessionPersistenceTest {
         val stored = runBlocking { SessionStore(app).loadTurns() }
 
         assertEquals(listOf("上一版的对话"), stored.map { it.text })
-        assertEquals("新库从头空着，等第一轮改写写进来", "", runBlocking { SessionStore(app).globalMemory() })
+        assertEquals("新库没有记忆这一行，等第一轮改写写进来", null, runBlocking { SessionStore(app).globalMemory() })
     }
 
     @Test

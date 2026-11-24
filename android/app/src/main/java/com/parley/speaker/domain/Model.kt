@@ -2,6 +2,7 @@ package com.parley.speaker.domain
 
 import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
+import kotlin.math.roundToInt
 
 @Serializable
 enum class Speaker { Echo, User }
@@ -52,6 +53,13 @@ data class Review(
     val rewrites: List<Rewrite>,
 )
 
+/**
+ * 综合分给气泡角上那枚角标用：发音与语法取算术平均再四舍五入，没有发音分就退回语法分。
+ * 历史轮次没有单独存过这一项，读的时候现算，不往存档里补字段。
+ */
+val Review.overallScore: Int
+    get() = pronunciation?.let { ((it.score + grammar.score) / 2.0).roundToInt() } ?: grammar.score
+
 @Serializable
 enum class AnalysisStatus { None, Pending, Ready, Failed }
 
@@ -70,6 +78,11 @@ data class Turn(
     val sessionId: String? = null,
     /** 这一轮话筒录了多久。打卡按录音本身算，3 秒的录音就是 3 秒，通关文案不参与。 */
     val durationMs: Long = 0,
+    /**
+     * 会话内的先后。排轮次只认它，不认落库时刻：助手那一轮在流式期间就写库，
+     * 用户那一轮要到收尾才写，拿写库时间排序会把回复排到提问前面。
+     */
+    val seq: Long = 0,
 )
 
 @Immutable

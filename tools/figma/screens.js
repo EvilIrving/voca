@@ -11,7 +11,7 @@ await figma.setCurrentPageAsync(lib);
 const C_ = {};
 for (const n of lib.children) { if (n.type === 'COMPONENT' || n.type === 'COMPONENT_SET') C_[String(n.name)] = n; }
 await figma.setCurrentPageAsync(page);
-const need = ['Speaker/TopBar', 'Speaker/TopBar/Chat', 'Speaker/TopBar/Review', 'Speaker/Indicator/DoubleChevronDown', 'Speaker/InputBar', 'Speaker/InputBar/Text', 'Speaker/InputBar/Recording', 'Speaker/InputBar/Cancel', 'Speaker/InputBar/Locked', 'Speaker/InputBar/Preview', 'Speaker/LockChip', 'Speaker/Actions/Message', 'Speaker/Menu/Message', 'Speaker/Bubble/Echo', 'Speaker/Bubble/Echo/Translated', 'Speaker/Bubble/User', 'Speaker/ScorePill', 'Speaker/HintCard', 'Speaker/Heatmap', 'Speaker/Heatmap/Selected', 'Speaker/Field/Search', 'Speaker/Chip/Filter/On', 'Speaker/Chip/Filter/Off', 'Speaker/VocabCard/Collocation', 'Speaker/VocabCard/Word', 'Speaker/VocabCard/New', 'Speaker/VocabCard/SwipeOpen', 'Speaker/Score/Value', 'Speaker/SectionLabel', 'Speaker/SectionLabel/Mic', 'Speaker/Chip/Word', 'Speaker/Panel/Original', 'Speaker/Panel/Rewrite', 'Speaker/Tab/On', 'Speaker/Tab/Off', 'Speaker/Button/Ghost', 'Speaker/Button/Primary/Label', 'Speaker/IconButton/30/dismiss', 'Speaker/IconButton/30/edit', 'Speaker/IconButton/32/arrowLeft', 'Speaker/IconButton/32/chatAdd', 'Speaker/IconButton/30/checkMark', 'Speaker/Select/Menu', 'Speaker/Select/Menu/Voice', 'Speaker/Row/Voice', 'Speaker/Row/Voice/Open', 'Speaker/Row/Provider', 'Speaker/Row/Provider/Off', 'Speaker/Row/Provider/Open', 'Speaker/Toast', 'Speaker/Toast/Undo', 'Speaker/Row/DrawerSession', 'Speaker/Row/DrawerSession/Current', 'Speaker/Button/NewSession', 'Speaker/IconButton/36/search', 'Speaker/IconButton/44/settings'];
+const need = ['Speaker/TopBar', 'Speaker/TopBar/Chat', 'Speaker/TopBar/Review', 'Speaker/Indicator/DoubleChevronDown', 'Speaker/InputBar', 'Speaker/InputBar/Text', 'Speaker/InputBar/Recording', 'Speaker/InputBar/Cancel', 'Speaker/InputBar/Locked', 'Speaker/InputBar/Preview', 'Speaker/LockChip', 'Speaker/Actions/Message', 'Speaker/Menu/Message', 'Speaker/Bubble/Echo', 'Speaker/Bubble/Echo/Translated', 'Speaker/Bubble/User', 'Speaker/Score/Badge', 'Speaker/HintCard', 'Speaker/Heatmap', 'Speaker/Heatmap/Selected', 'Speaker/Field/Search', 'Speaker/Chip/Filter/On', 'Speaker/Chip/Filter/Off', 'Speaker/VocabCard/Collocation', 'Speaker/VocabCard/Word', 'Speaker/VocabCard/New', 'Speaker/VocabCard/SwipeOpen', 'Speaker/Score/Value', 'Speaker/SectionLabel', 'Speaker/SectionLabel/Mic', 'Speaker/Chip/Word', 'Speaker/Panel/Original', 'Speaker/Panel/Rewrite', 'Speaker/Tab/On', 'Speaker/Tab/Off', 'Speaker/Button/Ghost', 'Speaker/Button/Primary/Label', 'Speaker/IconButton/30/dismiss', 'Speaker/IconButton/30/edit', 'Speaker/IconButton/32/arrowLeft', 'Speaker/IconButton/32/chatAdd', 'Speaker/IconButton/30/checkMark', 'Speaker/Select/Menu', 'Speaker/Select/Menu/Voice', 'Speaker/Row/Voice', 'Speaker/Row/Voice/Open', 'Speaker/Row/Provider', 'Speaker/Row/Provider/Off', 'Speaker/Row/Provider/Open', 'Speaker/Toast', 'Speaker/Toast/Undo', 'Speaker/Row/DrawerSession', 'Speaker/Row/DrawerSession/Current', 'Speaker/Button/NewSession', 'Speaker/IconButton/36/search', 'Speaker/IconButton/44/settings'];
 const missing = need.filter(n => !C_[n]);
 if (missing.length) return { error: 'missing components', missing };
 
@@ -36,15 +36,15 @@ function echoRow(parent, text, translated, gloss, showActions) {
   }
   return col;
 }
-function userRow(parent, text, pron, gram) {
+function userRow(parent, text, overall) {
   const col = frame(parent, 'msg user', { w: 320, dir: 'VERTICAL', cross: 'MAX', gap: 9 });
-  if (text) inst(col, C_['Speaker/Bubble/User'], { text: text });
-  const p = inst(col, C_['Speaker/ScorePill']);
-  if (pron !== undefined) {
-    const a = p.findOne(n => n.type === 'TEXT' && n.name === 'pron');
-    const b = p.findOne(n => n.type === 'TEXT' && n.name === 'gram');
-    if (a) a.characters = String(pron);
-    if (b) b.characters = String(gram);
+  const bubble = text ? inst(col, C_['Speaker/Bubble/User'], { text: text }) : null;
+  if (bubble) {
+    const badge = scoreBadge(col, C_['Speaker/Score/Badge'], overall);
+    badge.name = 'score badge';
+    badge.layoutPositioning = 'ABSOLUTE';
+    badge.x = bubble.x + bubble.width - badge.width - 2;
+    badge.y = bubble.height - 13;
   }
   return col;
 }
@@ -72,7 +72,7 @@ function chatStack(root, o) {
   inst(root, C_[o.top || 'Speaker/TopBar/Chat']);
   const list = frame(root, 'transcript', { w: 360, h: o.listH || LIST_H, dir: 'VERTICAL', main: 'MAX', pl: 20, pr: 20, pt: 6, pb: 10, gap: 16, clip: true });
   echoRow(list, 'Good morning! How did you start your day? Are you craving an Americano or something else?');
-  userRow(list, 'I get up early today. Actually I… 嗯… 没睡好，feeling a bit tired, so I want a cup of hot Americano.', 86, 82);
+  userRow(list, 'I get up early today. Actually I… 嗯… 没睡好，feeling a bit tired, so I want a cup of hot Americano.', 84);
   echoRow(list, 'An Americano on a tired morning — that is a very honest choice. Do you usually brew it at home, or is there a café you keep going back to?');
   if (o.hint !== false) inst(list, C_['Speaker/HintCard'], { text: 'Actually, I didn’t sleep a wink last night, so a hot Americano is exactly what I need.' });
   return list;
@@ -148,9 +148,8 @@ echoRow(list8, 'Good morning! How did you start your day? Are you craving an Ame
 frame(ev, 'scrim', { w: 360, h: 792, fill: C.ink, fillA: 0.18, x: 0, y: 0, absolute: true });
 const sheet = frame(ev, 'eval sheet', { w: 360, dir: 'VERTICAL', pl: 20, pr: 20, pt: 12, pb: 24, x: 0, y: 0, absolute: true, fill: C.card, corners: [26, 26, 0, 0], clip: true });
 sheet.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: 0.07 }, offset: { x: 0, y: -4 }, radius: 20, spread: 0, blendMode: 'NORMAL', visible: true }];
-const handle = frame(sheet, 'handle', { w: 38, h: 4, fill: C.hairStrong, radius: 2 });
-handle.layoutAlign = 'CENTER';
-frame(sheet, 'sp 1', { w: 1, h: 16 });
+/* 抽屉顶部不放拖拽把手：安卓的评测抽屉固定 602 高，没有下拉手势，横条只会承诺一个不存在的动作。 */
+frame(sheet, 'sp 1', { w: 1, h: 8 });
 const head = frame(sheet, 'head', { w: 320, dir: 'HORIZONTAL', cross: 'CENTER', gap: 8 });
 t(head, '本轮评测', { font: F.serifCnMd, size: 18, color: C.ink, lh: 26 });
 frame(head, 'gap', { w: 1, h: 1, grow: 1 });
@@ -501,7 +500,7 @@ const tr = screen('13 · 译文展开', 6400);
 inst(tr, C_['Speaker/TopBar/Chat']);
 const trList = frame(tr, 'transcript', { w: 360, h: LIST_H, dir: 'VERTICAL', main: 'MAX', pl: 20, pr: 20, pt: 6, pb: 10, gap: 16, clip: true });
 echoRow(trList, 'Was there a moment today when you completely lost track of time?', true, '今天有没有哪一刻，你完全忘了时间？');
-userRow(trList, 'Yeah, when I was reading by the window. 嗯… time just flew by.', 88, 84);
+userRow(trList, 'Yeah, when I was reading by the window. 嗯… time just flew by.', 86);
 bar(tr);
 
 /* ---------------- 14 轻提示 ---------------- */

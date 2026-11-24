@@ -3,6 +3,7 @@ package com.parley.speaker.domain
 enum class AssessorProvider(val label: String) {
     None("未选择"),
     Azure("微软 Azure 语音评测"),
+    Tencent("腾讯智聆口语评测"),
     Xfyun("讯飞评测流式版"),
 }
 
@@ -20,21 +21,23 @@ data class LiveTuning(val model: String, val voice: String) {
 }
 
 /**
- * 实时对话设置按供应商分档：三家的凭据各自一格，模型与音色也按家各存一格。
+ * 实时对话设置按供应商分档：四家的凭据各自一格，模型与音色也按家各存一格。
  * provider 是生效的那家，为空表示还没选过；谁被选中谁生效，不再按凭据齐备推导。
- * 齐备条件三家一致，各认一把密钥：豆包 3.0 全双工版与另外两家一样，只吃一个 X-Api-Key。
+ * 齐备条件四家一致，各认一把密钥：豆包 3.0 全双工版与千问实时语音都只吃一个 API Key。
  */
 data class LiveSettings(
     val provider: LiveVendor? = null,
     val geminiKey: String = "",
     val openAiKey: String = "",
     val doubaoApiKey: String = "",
+    val qwenApiKey: String = "",
     val tuning: Map<LiveVendor, LiveTuning> = emptyMap(),
 ) {
     fun keyOf(vendor: LiveVendor): String = when (vendor) {
         LiveVendor.Gemini -> geminiKey
         LiveVendor.OpenAi -> openAiKey
         LiveVendor.Doubao -> doubaoApiKey
+        LiveVendor.Qwen -> qwenApiKey
     }
 
     fun ready(vendor: LiveVendor): Boolean = keyOf(vendor).isNotBlank()
@@ -54,6 +57,7 @@ data class LiveSettings(
         LiveVendor.Gemini -> copy(geminiKey = key.trim())
         LiveVendor.OpenAi -> copy(openAiKey = key.trim())
         LiveVendor.Doubao -> copy(doubaoApiKey = key.trim())
+        LiveVendor.Qwen -> copy(qwenApiKey = key.trim())
     }
 
     fun withTuning(
@@ -84,14 +88,16 @@ data class LiveSettings(
 }
 
 /**
- * 三家的默认模型与默认音色。音色统一取 [VoiceCatalog] 的默认项，模型在这里定：
- * 豆包 3.0 的模型号只有一个取值，协议里必传，所以设置页那一行显示的就是它。
+ * 四家的默认模型与默认音色。音色统一取 [VoiceCatalog] 的默认项，模型在这里定：
+ * 豆包 3.0 的模型号只有一个取值，协议里必传，所以设置页那一行显示的就是它；
+ * 千问选 flash 档，同一价位里多语种够用，plus 档贵六到十二倍，等语音自然度不够再换。
  */
 object LiveDefaults {
     fun model(vendor: LiveVendor): String = when (vendor) {
         LiveVendor.Gemini -> "gemini-3.8-live"
         LiveVendor.OpenAi -> "gpt-realtime-2.1"
         LiveVendor.Doubao -> "1.2.6.1"
+        LiveVendor.Qwen -> "qwen-audio-3.1-realtime-flash"
     }
 
     fun voice(vendor: LiveVendor): String = VoiceCatalog.defaultId(vendor)
@@ -114,7 +120,7 @@ fun liveChange(before: AppSettings, after: AppSettings): LiveChange = when {
 
 /** 建连接真正吃的那几格，逐格比一次。 */
 private fun LiveSettings.credentials(): List<String> =
-    listOf(geminiKey, openAiKey, doubaoApiKey)
+    listOf(geminiKey, openAiKey, doubaoApiKey, qwenApiKey)
 
 /**
  * 一家供应商自己的一份配置：密钥、挑好的模型、自定义端点与鉴权落点。
@@ -170,20 +176,26 @@ data class AnalysisSettings(
 }
 
 /**
- * 两家的凭据各占一组。Azure 认密钥与区域两项，讯飞认 AppID、APIKey、APISecret 三件套。
+ * 三家的凭据各占一组。Azure 认密钥与区域两项，腾讯与讯飞同是 AppID 加一对密钥的三件套，字段各存各的。
  * resolvedProvider 只认显式选择：选中的那家参数齐备才生效，别家齐备也不再顶上来，
- * 因此两家都填好时到底用哪家由单选点说了算。
+ * 因此三家都填好时到底用哪家由单选点说了算。
  */
 data class AssessorSettings(
     val provider: AssessorProvider = AssessorProvider.None,
     val azureKey: String = "",
     val azureRegion: String = "",
+    val tencentAppId: String = "",
+    val tencentSecretId: String = "",
+    val tencentSecretKey: String = "",
     val xfyunAppId: String = "",
     val xfyunApiKey: String = "",
     val xfyunApiSecret: String = "",
 ) {
     fun ready(vendor: AssessorProvider): Boolean = when (vendor) {
         AssessorProvider.Azure -> azureKey.isNotBlank() && azureRegion.isNotBlank()
+        AssessorProvider.Tencent ->
+            tencentAppId.isNotBlank() && tencentSecretId.isNotBlank() && tencentSecretKey.isNotBlank()
+
         AssessorProvider.Xfyun ->
             xfyunAppId.isNotBlank() && xfyunApiKey.isNotBlank() && xfyunApiSecret.isNotBlank()
 
@@ -199,6 +211,14 @@ data class AssessorSettings(
     fun withAzure(key: String, region: String): AssessorSettings =
         copy(azureKey = key.trim(), azureRegion = region.trim()).select(AssessorProvider.Azure)
 
+    /** 腾讯认 AppID、SecretID、SecretKey 三件套，填完齐备就切到它。 */
+    fun withTencent(appId: String, secretId: String, secretKey: String): AssessorSettings =
+        copy(
+            tencentAppId = appId.trim(),
+            tencentSecretId = secretId.trim(),
+            tencentSecretKey = secretKey.trim(),
+        ).select(AssessorProvider.Tencent)
+
     /** 讯飞认 AppID、APIKey、APISecret 三件套，填完齐备就切到它。 */
     fun withXfyun(appId: String, apiKey: String, apiSecret: String): AssessorSettings =
         copy(
@@ -211,6 +231,7 @@ data class AssessorSettings(
     fun cleared(vendor: AssessorProvider): AssessorSettings {
         val rest = when (vendor) {
             AssessorProvider.Azure -> copy(azureKey = "", azureRegion = "")
+            AssessorProvider.Tencent -> copy(tencentAppId = "", tencentSecretId = "", tencentSecretKey = "")
             AssessorProvider.Xfyun -> copy(xfyunAppId = "", xfyunApiKey = "", xfyunApiSecret = "")
             AssessorProvider.None -> this
         }

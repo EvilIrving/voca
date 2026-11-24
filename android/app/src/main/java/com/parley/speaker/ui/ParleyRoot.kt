@@ -85,6 +85,7 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val providers by vm.providers.collectAsStateWithLifecycle()
     val textProviders by vm.textProviders.collectAsStateWithLifecycle()
+    val memory by vm.memoryText.collectAsStateWithLifecycle()
     var panel by remember { mutableStateOf(Panel.None) }
     var reviewTurn by remember { mutableStateOf<Turn?>(null) }
     val drawer = rememberDrawerState()
@@ -235,9 +236,12 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
                 providers = providers,
                 textProviders = textProviders,
                 checkIn = checkIn,
+                memory = memory,
                 defaultPrompt = vm.defaultPrompt,
+                defaultMemory = vm.defaultMemory,
                 onDismiss = { panel = Panel.None },
                 onUpdate = vm::updateSettings,
+                onUpdateMemory = vm::updateMemory,
                 onLoadModels = vm::loadModels,
             )
         }

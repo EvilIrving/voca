@@ -191,6 +191,9 @@ internal fun SharedPreferences.Editor.putAnalysis(analysis: AnalysisSettings): S
 private const val KEY_ASSESSOR_PROVIDER = "assessor_provider"
 private const val KEY_AZURE_KEY = "azure_key"
 private const val KEY_AZURE_REGION = "azure_region"
+private const val KEY_TENCENT_APP_ID = "tencent_app_id"
+private const val KEY_TENCENT_SECRET_ID = "tencent_secret_id"
+private const val KEY_TENCENT_SECRET_KEY = "tencent_secret_key"
 private const val KEY_XFYUN_APP_ID = "xfyun_app_id"
 private const val KEY_XFYUN_API_KEY = "xfyun_api_key"
 private const val KEY_XFYUN_API_SECRET = "xfyun_api_secret"
@@ -203,6 +206,9 @@ internal fun readAssessor(prefs: SharedPreferences): AssessorSettings {
         provider = stored ?: AssessorProvider.None,
         azureKey = prefs.getString(KEY_AZURE_KEY, "").orEmpty(),
         azureRegion = prefs.getString(KEY_AZURE_REGION, "").orEmpty(),
+        tencentAppId = prefs.getString(KEY_TENCENT_APP_ID, "").orEmpty(),
+        tencentSecretId = prefs.getString(KEY_TENCENT_SECRET_ID, "").orEmpty(),
+        tencentSecretKey = prefs.getString(KEY_TENCENT_SECRET_KEY, "").orEmpty(),
         xfyunAppId = prefs.getString(KEY_XFYUN_APP_ID, "").orEmpty(),
         xfyunApiKey = prefs.getString(KEY_XFYUN_API_KEY, "").orEmpty(),
         xfyunApiSecret = prefs.getString(KEY_XFYUN_API_SECRET, "").orEmpty(),
@@ -214,6 +220,9 @@ internal fun SharedPreferences.Editor.putAssessor(settings: AssessorSettings): S
     putString(KEY_ASSESSOR_PROVIDER, settings.resolvedProvider.name)
         .putString(KEY_AZURE_KEY, settings.azureKey)
         .putString(KEY_AZURE_REGION, settings.azureRegion)
+        .putString(KEY_TENCENT_APP_ID, settings.tencentAppId)
+        .putString(KEY_TENCENT_SECRET_ID, settings.tencentSecretId)
+        .putString(KEY_TENCENT_SECRET_KEY, settings.tencentSecretKey)
         .putString(KEY_XFYUN_APP_ID, settings.xfyunAppId)
         .putString(KEY_XFYUN_API_KEY, settings.xfyunApiKey)
         .putString(KEY_XFYUN_API_SECRET, settings.xfyunApiSecret)
@@ -235,6 +244,7 @@ private const val KEY_LIVE_PROVIDER = "live_provider"
 private const val KEY_LIVE_GEMINI_KEY = "live_api_key"
 private const val KEY_LIVE_OPENAI_KEY = "live_openai_key"
 private const val KEY_LIVE_DOUBAO_API_KEY = "live_doubao_api_key"
+private const val KEY_LIVE_QWEN_API_KEY = "live_qwen_api_key"
 
 /** 模型与音色按家各存一格：live.<家>.<字段>，换走再换回来还是原先那一对。 */
 private fun tuningKey(vendor: LiveVendor, field: String): String =
@@ -246,6 +256,7 @@ internal fun readLive(prefs: SharedPreferences): LiveSettings = LiveSettings(
     geminiKey = prefs.getString(KEY_LIVE_GEMINI_KEY, "").orEmpty(),
     openAiKey = prefs.getString(KEY_LIVE_OPENAI_KEY, "").orEmpty(),
     doubaoApiKey = prefs.getString(KEY_LIVE_DOUBAO_API_KEY, "").orEmpty(),
+    qwenApiKey = prefs.getString(KEY_LIVE_QWEN_API_KEY, "").orEmpty(),
     tuning = LiveVendor.entries.associateWith { vendor ->
         LiveTuning(
             model = prefs.getString(tuningKey(vendor, "model"), "").orEmpty(),
@@ -259,6 +270,7 @@ internal fun SharedPreferences.Editor.putLive(live: LiveSettings): SharedPrefere
     putString(KEY_LIVE_GEMINI_KEY, live.geminiKey)
     putString(KEY_LIVE_OPENAI_KEY, live.openAiKey)
     putString(KEY_LIVE_DOUBAO_API_KEY, live.doubaoApiKey)
+    putString(KEY_LIVE_QWEN_API_KEY, live.qwenApiKey)
     LiveVendor.entries.forEach { vendor ->
         val tuning = live.tuningOf(vendor)
         putString(tuningKey(vendor, "model"), tuning.model)

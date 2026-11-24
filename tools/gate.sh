@@ -2,7 +2,9 @@
 # 本地验收闸门：编译 debug 变体并跑单元测试。多个子代理同时调用时靠目录锁排队，
 # 避免 Gradle 缓存锁互相打架。
 set -euo pipefail
-cd "$(dirname "$0")/../android"
+root=$(cd "$(dirname "$0")/.." && pwd)
+"$root/tools/repo-hygiene.sh"
+cd "$root/android"
 export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@17}"
 
 lock=".gradle/gate.lock"

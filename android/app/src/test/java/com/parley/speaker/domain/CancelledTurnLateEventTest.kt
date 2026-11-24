@@ -66,7 +66,11 @@ class CancelledTurnLateEventTest {
         drive.send(TurnEvent.PressStart)
 
         drive.send(TurnEvent.UserText("迟到的识别", "user-1"))
-        assertEquals("新一轮草稿里不能有旧轮的文字，实际 ${drive.state.turns}", emptyList<Turn>(), drive.state.turns)
+        assertEquals(
+            "新一轮草稿里不能有旧轮的文字，实际 ${drive.state.turns}",
+            listOf(""),
+            drive.state.turns.map { it.text },
+        )
 
         drive.send(TurnEvent.UserText("这一轮真说的话"))
         assertEquals(listOf("这一轮真说的话"), drive.state.turns.map { it.text })

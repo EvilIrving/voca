@@ -52,6 +52,22 @@ class AssessorSettingsStoreTest {
     }
 
     @Test
+    fun `腾讯三件套存回后启用`() {
+        save(AssessorSettings().withTencent("125922", "sid-000", "skey-000"))
+
+        val loaded = readAssessor(prefs)
+        assertEquals(AssessorProvider.Tencent, loaded.provider)
+        assertEquals(
+            TencentCredentials(appId = "125922", secretId = "sid-000", secretKey = "skey-000"),
+            loaded.tencentCredentials,
+        )
+        assertTrue(assessorOf(loaded) is TencentAssessor)
+
+        save(AssessorSettings().withTencent("125922", "sid-000", ""))
+        assertEquals("三件套缺一件那家不生效", AssessorProvider.None, readAssessor(prefs).provider)
+    }
+
+    @Test
     fun `两家都齐备时只认显式选中的那家`() {
         val both = AssessorSettings().withAzure(key, region).withXfyun(appId, key, secret)
 

@@ -56,6 +56,39 @@ class AssessorFactoryTest {
     }
 
     @Test
+    fun `腾讯三件套齐备走 TencentAssessor`() {
+        val settings = AssessorSettings(
+            provider = AssessorProvider.Tencent,
+            tencentAppId = "125922",
+            tencentSecretId = secretId,
+            tencentSecretKey = secret,
+        )
+
+        val assessor = assessorOf(settings)
+        assertTrue(assessor is TencentAssessor)
+        assertFalse("腾讯的自由说模式不需要原文本", assessor!!.requiresReferenceText)
+        assertEquals("录音模式单连接只收六十秒", 60_000, assessor.maxAudioMillis)
+        assertEquals(
+            TencentCredentials(appId = "125922", secretId = secretId, secretKey = secret),
+            settings.tencentCredentials,
+        )
+    }
+
+    @Test
+    fun `腾讯缺一件就不启用`() {
+        assertNull(
+            assessorOf(
+                AssessorSettings(
+                    provider = AssessorProvider.Tencent,
+                    tencentAppId = "125922",
+                    tencentSecretId = secretId,
+                ),
+            ),
+        )
+        assertNull(assessorOf(AssessorSettings(tencentSecretId = secretId, tencentSecretKey = secret)))
+    }
+
+    @Test
     fun `两家同时齐备时按显式 provider 互斥`() {
         val both = AssessorSettings(
             azureKey = key,
@@ -67,6 +100,13 @@ class AssessorFactoryTest {
 
         assertTrue(assessorOf(both.copy(provider = AssessorProvider.Azure)) is AzureAssessor)
         assertTrue(assessorOf(both.copy(provider = AssessorProvider.Xfyun)) is XfyunAssessor)
+        val withTencent = both.copy(
+            provider = AssessorProvider.Tencent,
+            tencentAppId = "125922",
+            tencentSecretId = secretId,
+            tencentSecretKey = secret,
+        )
+        assertTrue(assessorOf(withTencent) is TencentAssessor)
         assertNull("两家都齐备但没选过，谁也不顶上来", assessorOf(both))
         assertEquals(AssessorProvider.None, both.resolvedProvider)
     }
@@ -81,6 +121,7 @@ class AssessorFactoryTest {
         const val key = "k-000"
         const val region = "eastasia"
         const val appId = "app-000"
+        const val secretId = "sid-000"
         const val secret = "s-000"
     }
 }

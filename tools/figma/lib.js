@@ -149,6 +149,16 @@ function inst(parent, component, overrides) {
   }
   return i;
 }
+/* 综合分角标：85 以上取 High，70 到 84 取 Mid，70 以下取 Low。 */
+function scoreBadge(parent, set, value) {
+  const state = value >= 85 ? 'High' : value >= 70 ? 'Mid' : 'Low';
+  const variant = set.children.find(n => n.type === 'COMPONENT' && n.name === 'State=' + state) || set.defaultVariant;
+  const i = variant.createInstance();
+  parent.appendChild(i);
+  const sc = i.findOne(n => n.type === 'TEXT' && n.name === 'score');
+  if (sc) sc.characters = String(value);
+  return i;
+}
 function cap(page, text, x, y) {
   const n = t(page, text, { font: F.mono, size: 10, color: C.ink4, lh: 14 });
   n.x = x; n.y = y;

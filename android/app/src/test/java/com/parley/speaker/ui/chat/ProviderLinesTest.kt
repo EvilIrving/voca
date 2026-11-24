@@ -24,19 +24,25 @@ import org.junit.Test
 class ProviderLinesTest {
 
     @Test
-    fun `实时对话三行，第二行是这一家的模型号`() {
+    fun `实时对话四行，第二行是这一家的模型号`() {
         val lines = group(AppSettings(), ProviderGroup.Realtime)
 
-        assertEquals(listOf("gemini", "openai", "doubao"), lines.map { it.key })
-        assertEquals(listOf("Gemini Live", "OpenAI Realtime", "豆包实时语音"), lines.map { it.name })
-        assertEquals(listOf("gemini-3.8-live", "gpt-realtime-2.1", "1.2.6.1"), lines.map { it.detail })
+        assertEquals(listOf("gemini", "openai", "doubao", "qwen"), lines.map { it.key })
+        assertEquals(
+            listOf("Gemini Live", "OpenAI Realtime", "豆包实时语音", "千问实时语音"),
+            lines.map { it.name },
+        )
+        assertEquals(
+            listOf("gemini-3.8-live", "gpt-realtime-2.1", "1.2.6.1", "qwen-audio-3.1-realtime-flash"),
+            lines.map { it.detail },
+        )
         assertTrue(lines.none { it.configured })
         assertTrue("谁都没选中时单选点不填", lines.none { it.active })
     }
 
     @Test
-    fun `三家都配齐就三行都已配置，单选点只落在一家`() {
-        val live = LiveSettings(geminiKey = "AIza", openAiKey = "sk", doubaoApiKey = "key")
+    fun `四家都配齐就四行都已配置，单选点只落在一家`() {
+        val live = LiveSettings(geminiKey = "AIza", openAiKey = "sk", doubaoApiKey = "key", qwenApiKey = "sk-qwen")
             .select(LiveVendor.Doubao)
 
         val lines = group(AppSettings(live = live), ProviderGroup.Realtime)
@@ -57,9 +63,9 @@ class ProviderLinesTest {
     }
 
     @Test
-    fun `评测两行各看自己的凭据，生效只认显式选中的那家`() {
+    fun `评测三行各看自己的凭据，生效只认显式选中的那家`() {
         val bare = group(AppSettings(), ProviderGroup.Assessor)
-        assertEquals(listOf("azure", "xfyun"), bare.map { it.key })
+        assertEquals(listOf("azure", "tencent", "xfyun"), bare.map { it.key })
         assertTrue(bare.none { it.configured })
         assertTrue(bare.none { it.active })
 
@@ -72,9 +78,15 @@ class ProviderLinesTest {
 
         val both = azure.withXfyun("app", "key", "secret")
         val bothRows = group(AppSettings(assessor = both), ProviderGroup.Assessor)
-        assertTrue("两家齐备就都算已配置", bothRows.all { it.configured })
+        assertTrue("两家齐备就算已配置", bothRows.filter { it.key != "tencent" }.all { it.configured })
+        assertFalse("没填的那家不算", bothRows.first { it.key == "tencent" }.configured)
         assertEquals("填完讯飞就切到讯飞", listOf("xfyun"), bothRows.filter { it.active }.map { it.key })
         assertEquals(AssessorProvider.Xfyun, both.resolvedProvider)
+
+        val tencent = both.withTencent("125922", "sid", "skey")
+        val allRows = group(AppSettings(assessor = tencent), ProviderGroup.Assessor)
+        assertEquals("AppID、SecretID、SecretKey", allRows.first { it.key == "tencent" }.detail)
+        assertEquals(listOf("tencent"), allRows.filter { it.active }.map { it.key })
     }
 
     @Test

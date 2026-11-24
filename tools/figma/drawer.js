@@ -11,9 +11,9 @@ for (const f of fonts) { try { await figma.loadFontAsync(f); } catch (e) {} }
 const lib = figma.root.children.find(x => x.name === '01 · 组件');
 await figma.setCurrentPageAsync(lib);
 const C_ = {};
-for (const n of lib.children) { if (n.type === 'COMPONENT') C_[String(n.name)] = n; }
+for (const n of lib.children) { if (n.type === 'COMPONENT' || n.type === 'COMPONENT_SET') C_[String(n.name)] = n; }
 await figma.setCurrentPageAsync(page);
-const need = ['Speaker/TopBar/Chat', 'Speaker/InputBar', 'Speaker/Bubble/Echo', 'Speaker/Bubble/User', 'Speaker/ScorePill', 'Speaker/HintCard', 'Speaker/Button/NewSession', 'Speaker/Row/DrawerSession', 'Speaker/Row/DrawerSession/Current', 'Speaker/IconButton/36/search', 'Speaker/IconButton/44/settings'];
+const need = ['Speaker/TopBar/Chat', 'Speaker/InputBar', 'Speaker/Bubble/Echo', 'Speaker/Bubble/User', 'Speaker/Score/Badge', 'Speaker/HintCard', 'Speaker/Button/NewSession', 'Speaker/Row/DrawerSession', 'Speaker/Row/DrawerSession/Current', 'Speaker/IconButton/36/search', 'Speaker/IconButton/44/settings'];
 const missing = need.filter(n => !C_[n]);
 if (missing.length) return { error: 'missing components', missing };
 
@@ -82,8 +82,11 @@ function card(root, p) {
   const list = frame(view, 'transcript', { w: W, h: LIST_H, dir: 'VERTICAL', main: 'MAX', pl: 20, pr: 20, pt: 6, pb: 10, gap: 16, clip: true });
   inst(list, C_['Speaker/Bubble/Echo'], { text: 'Good morning! How did you start your day? Are you craving an Americano or something else?' });
   const u = frame(list, 'msg user', { w: 320, dir: 'VERTICAL', cross: 'MAX', gap: 9 });
-  inst(u, C_['Speaker/Bubble/User'], { text: 'I get up early today. Actually I… 嗯… 没睡好，feeling a bit tired.' });
-  const pill = inst(u, C_['Speaker/ScorePill']);
+  const ub = inst(u, C_['Speaker/Bubble/User'], { text: 'I get up early today. Actually I… 嗯… 没睡好，feeling a bit tired.' });
+  const badge = scoreBadge(u, C_['Speaker/Score/Badge'], 84);
+  badge.layoutPositioning = 'ABSOLUTE';
+  badge.x = ub.x + ub.width - badge.width - 2;
+  badge.y = ub.height - 13;
   inst(list, C_['Speaker/Bubble/Echo'], { text: 'An Americano on a tired morning — that is a very honest choice. Do you brew it at home?' });
   const bar = inst(view, C_['Speaker/InputBar']);
   bar.layoutPositioning = 'ABSOLUTE';

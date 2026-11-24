@@ -181,14 +181,24 @@ put(comp(page, 'Speaker/Bubble/User', { dir: 'VERTICAL', pl: 14, pr: 14, pt: 12,
   t(c, 'I get up early today. Actually I… 嗯… 没睡好，feeling a bit tired, so I want a cup of hot Americano.', { font: F.cn, size: 14, lh: 22, color: C.ink2, width: 232, name: 'text' });
 }), 'Speaker/Bubble/User', 'B');
 
-put(comp(page, 'Speaker/ScorePill', { h: 27, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', pl: 11, pr: 9, gap: 5, fill: C.card, stroke: C.hair, radius: 999 }, c => {
-  t(c, '发音', { font: F.cn, size: 11, color: C.ink4, lh: 15 });
-  t(c, '86', { font: F.monoMd, size: 11, color: C.clayDeep, lh: 15, name: 'pron' });
-  t(c, '·', { font: F.sans, size: 11, color: C.hairStrong, lh: 15 });
-  t(c, '语法', { font: F.cn, size: 11, color: C.ink4, lh: 15 });
-  t(c, '82', { font: F.monoMd, size: 11, color: C.olive, lh: 15, name: 'gram' });
-  icon(c, 'chevRight', 11, C.ink4);
-}), 'Speaker/ScorePill', 'B');
+/* 综合分角标：只放数字，不写「综合」「分」，也不带箭头。
+   白纸底加一圈细边与极轻暖影，压在自己气泡右下角的底边线上，下半 8 像素落在气泡外。
+   它绝对定位，不进纵向流，气泡内文字的印刷位置不动。
+   数字按分数分三档着色，阈值与色值同 00 规范页的「综合分色阶」。 */
+function scoreBadgeVariant(state, ink) {
+  return comp(page, 'State=' + state, { h: 21, dir: 'HORIZONTAL', main: 'CENTER', cross: 'CENTER', pl: 9, pr: 9, fill: C.card, stroke: C.hair, radius: 999 }, c => {
+    c.effects = [{ type: 'DROP_SHADOW', color: { ...hx('#141413'), a: 0.1 }, offset: { x: 0, y: 1 }, radius: 4, spread: 0, blendMode: 'NORMAL', visible: true }];
+    t(c, '84', { font: F.monoMd, size: 12.5, color: ink, lh: 17, name: 'score' });
+  });
+}
+const badgeHigh = scoreBadgeVariant('High', C.olive);
+const badgeMid = scoreBadgeVariant('Mid', C.clayDeep);
+const badgeLow = scoreBadgeVariant('Low', C.danger);
+const badgeSet = figma.combineAsVariants([badgeHigh, badgeMid, badgeLow], page);
+badgeSet.name = 'Speaker/Score/Badge';
+badgeSet.children.forEach((v, i) => { v.x = 0; v.y = i * 45; });
+badgeSet.resizeWithoutConstraints(35, 111);
+put(badgeSet, 'Speaker/Score/Badge', 'B');
 
 put(comp(page, 'Speaker/HintCard', { w: 320, dir: 'HORIZONTAL', cross: 'CENTER', gap: 10, pl: 14, pr: 12, pt: 12, pb: 12, fill: C.oliveTint, stroke: '#DEE4CF', radius: 14 }, c => {
   icon(c, 'bulb', 14, C.olive);

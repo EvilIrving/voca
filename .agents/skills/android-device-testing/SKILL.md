@@ -31,7 +31,7 @@ adb mdns services                  # 检索局域网内广播的 ADB 服务
 在 `adb mdns services` 输出中，仅提取带有 `_adb-tls-connect._tcp` 标识的那一行末尾地址：
 
 ```
-adb-ANDROID_SERIAL-xxxxx  _adb-tls-connect._tcp  192.168.x.x:5xxxx
+adb-<序列号>-xxxxx  _adb-tls-connect._tcp  192.168.x.x:5xxxx
                                      ↑ 取此行末尾的真实 ip:port
 ```
 

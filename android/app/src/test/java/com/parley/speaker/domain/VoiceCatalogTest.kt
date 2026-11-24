@@ -12,7 +12,7 @@ import org.junit.Test
 class VoiceCatalogTest {
 
     @Test
-    fun `三家都有清单且恰好一个默认项`() {
+    fun `四家都有清单且恰好一个默认项`() {
         LiveVendor.entries.forEach { vendor ->
             val voices = VoiceCatalog.voices(vendor)
             assertTrue("${vendor.label} 的清单是空的", voices.isNotEmpty())
@@ -87,5 +87,28 @@ class VoiceCatalogTest {
             groups.getValue("SC 2.0 系列").all { it.id.startsWith("saturn_") },
         )
         assertEquals("zh_female_vv_jupiter_bigtts", VoiceCatalog.defaultId(LiveVendor.Doubao))
+    }
+
+    @Test
+    fun `千问默认龙安灵心，多语种与仅英文分族`() {
+        val groups = VoiceCatalog.groups(LiveVendor.Qwen).toMap()
+        val names = VoiceCatalog.voices(LiveVendor.Qwen).associate { it.id to it.name }
+
+        assertEquals(listOf("3.1 多语种", "精品英文"), groups.keys.toList())
+        assertEquals("longanlingxin_v3.1", VoiceCatalog.defaultId(LiveVendor.Qwen))
+        assertEquals("龙安灵心", names["longanlingxin_v3.1"])
+        assertEquals("许南川", names["xunanchuan_v3.1"])
+        assertTrue(
+            "多语种那档能中英混说，默认必须在里面",
+            groups.getValue("3.1 多语种").any { it.id == VoiceCatalog.defaultId(LiveVendor.Qwen) },
+        )
+        assertTrue(
+            "英文专用的四把要在风格词里写明只支持英文",
+            groups.getValue("精品英文").all { it.style.contains("仅英文") },
+        )
+        assertFalse(
+            "longanqian_v3.1 在音色表里没有名字，不收进目录",
+            VoiceCatalog.isKnown(LiveVendor.Qwen, "longanqian_v3.1"),
+        )
     }
 }
