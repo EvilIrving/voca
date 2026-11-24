@@ -35,6 +35,7 @@ import com.parley.speaker.data.assessor.AzureAssessor
 import com.parley.speaker.data.assessor.SpeechAssessor
 import com.parley.speaker.data.assessor.XfyunAssessor
 import com.parley.speaker.data.assessor.assessorOf
+import com.parley.speaker.data.assessor.scorableText
 import com.parley.speaker.data.db.MIGRATION_1_2
 import com.parley.speaker.data.db.MIGRATION_2_3
 import com.parley.speaker.data.db.MIGRATION_3_4
@@ -660,6 +661,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * 发音评测只在评测引擎配置齐、这一轮有参考文本、本地也确实录到音频时才发起；
      * 三项缺一项就一个请求都不发，review 原样留着，界面按 pronunciation 是否为空决定画不画发音格。
+     * 参考文本不是英语时也一个请求都不发：两家引擎只认英语，发过去只会被服务端撂掉，
+     * 换回来一句指向服务故障的提示，把「这轮说的是中文」说成了服务的锅。
      * 送出去没拿回分时，失败原因已经在适配器那层归好类，这里只负责把那一句话浮出来，原文不进界面。
      */
     private suspend fun withPronunciation(
@@ -668,7 +671,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         assessor: SpeechAssessor?,
         pcm: ByteArray,
     ): Review {
-        if (assessor == null || text.isBlank() || pcm.isEmpty()) return review
+        if (assessor == null || !scorableText(text) || pcm.isEmpty()) return review
         val outcome = try {
             assessor.assess(pcm, text, AssessorLocale)
         } catch (e: CancellationException) {

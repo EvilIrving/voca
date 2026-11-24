@@ -53,6 +53,20 @@ enum class AssessFailure(val notice: String) {
     Service("评测服务异常，请稍后重试"),
 }
 
+/**
+ * 这一轮的参考文本能不能送去评测。两家引擎都只认英语：
+ * 讯飞的英文题型收到带汉字的文本时整段音频被服务端拒掉（回 48195 与 iSEInputAppend error，句柄随即作废），
+ * Azure 那条按 en-US 也评不出东西。用户在英语练习里说了一句中文，给它评出来的分数与练习目标无关，
+ * 所以按语言路由只走英语这半边：命中文就一个请求都不发，也不弹失败，评测抽屉这一轮少一格而已。
+ */
+internal fun scorableText(text: String): Boolean = text.isNotBlank() && text.none(::isHan)
+
+/** 汉字的基本区、扩展 A 与兼容区；假名、谚文不在此列，日常中文落在这三段里。 */
+private fun isHan(character: Char): Boolean =
+    character.code in 0x4E00..0x9FFF ||
+        character.code in 0x3400..0x4DBF ||
+        character.code in 0xF900..0xFAFF
+
 /** 16 kHz 单声道 16 位，一毫秒 32 字节。 */
 internal const val PCM_BYTES_PER_MILLI = 32
 
