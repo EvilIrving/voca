@@ -1,15 +1,25 @@
-# 凭证与系统垃圾
+# 凭证
 .env
 .env.*
 !.env.example
+local.properties
+*.keystore
+*.jks
+
+# 系统垃圾
 .DS_Store
-node_modules
+Thumbs.db
 
 # gesture-guide 是从 GitHub 克隆的独立仓库，保留自己的 remote
 /gesture-guide/
 
+# Python 脚本的运行残留
+__pycache__/
+*.pyc
+.venv/
+venv/
+
 # 逆向取证的体积大户：APK、内存转储、反编译产物、第三方二进制
-hiecho-reverse/.venv/
 hiecho-reverse/apk/
 hiecho-reverse/dumps_mem1/
 hiecho-reverse/payload_dex/
@@ -27,18 +37,26 @@ hiecho-reverse/logcat.txt
 hiecho-reverse/resources.txt
 hiecho-reverse/strings_raw.txt
 
-# Kotlin 跨平台与 Android 构建产物
+# vivo 那一支的取证产物：安装包、拆包目录、dex、jadx 输出
+hiecho-reverse/vivo/*.apk
+hiecho-reverse/vivo/*.dex
+hiecho-reverse/vivo/dbdex/
+hiecho-reverse/vivo/*-ex/
+hiecho-reverse/vivo/jadx*/
+
+# Kotlin 与 Android 构建产物
 .gradle/
 build/
-*/build/
 .kotlin/
-local.properties
 captures/
 *.hprof
 *.apk
 *.aab
-*.keystore
-*.jks
+
+# 工具脚本的产物
+node_modules/
+*.log
+*.mp4
 
 # 本地审计日志
 .audit/
@@ -48,12 +66,3 @@ captures/
 *.iml
 .vscode/
 .fleet/
-
-# 其他
-*.log
-.DS_Store
-hiecho-reverse/vivo/*.apk
-hiecho-reverse/vivo/browser-ex/
-hiecho-reverse/vivo/jadx*/
-hiecho-reverse/vivo/ime-ex/
-hiecho-reverse/vivo/wt-ex/
