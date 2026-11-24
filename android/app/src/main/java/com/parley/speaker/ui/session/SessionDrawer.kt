@@ -1,5 +1,6 @@
 package com.parley.speaker.ui.session
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
@@ -34,6 +35,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -107,6 +109,12 @@ object SessionDrawerSpec {
     val NewGlyph = 24.dp
 
     val RowHeight = 44.dp
+
+    /** 选择态的勾选框与批量条，尺寸取自画板 12c。 */
+    val CheckBox = 18.dp
+    val CheckBoxRadius = 5.dp
+    val CheckGlyph = 12.dp
+    val BatchButtonHeight = 32.dp
 
     val SettingsButton = 44.dp
     val SettingsIcon = 22.dp
@@ -396,12 +404,21 @@ fun SessionDrawer(
     onSettings: () -> Unit,
     onDelete: (String) -> Unit = {},
     onRename: (String, String) -> Unit = { _, _ -> },
+    onDeleteMany: (List<String>) -> Unit = {},
 ) {
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var activeRecord by remember { mutableStateOf<SessionRecord?>(null) }
     var renamingRecord by remember { mutableStateOf<SessionRecord?>(null) }
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(emptySet<String>()) }
     val focus = remember { FocusRequester() }
+
+    // 选择态先于抽屉收：返回键与取消都只退选择，抽屉还停在原处。
+    BackHandler(enabled = selecting) {
+        selecting = false
+        selected = emptySet()
+    }
 
     // 抽屉收起时检索跟着退场，下次拉开不会带着上一条关键字。
     LaunchedEffect(open) {
@@ -410,6 +427,8 @@ fun SessionDrawer(
             query = ""
             activeRecord = null
             renamingRecord = null
+            selecting = false
+            selected = emptySet()
         }
     }
     LaunchedEffect(searching) { if (searching) focus.requestFocus() }
@@ -424,7 +443,27 @@ fun SessionDrawer(
             .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
             .padding(horizontal = Spacing.drawer),
     ) {
-        if (searching) {
+        if (selecting) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(SessionDrawerSpec.HeaderHeight),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("选择会话", style = Type.display, modifier = Modifier.weight(1f))
+                Text(
+                    text = "取消",
+                    style = Type.uiStrongInk2,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Radius.chip))
+                        .clickable {
+                            selecting = false
+                            selected = emptySet()
+                        }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+            }
+        } else if (searching) {
             SearchField(
                 query = query,
                 focus = focus,
@@ -453,8 +492,10 @@ fun SessionDrawer(
             }
         }
 
-        Spacer(Modifier.height(SessionDrawerSpec.HeaderGap))
-        NewSessionPill(onNewSession)
+        if (!selecting) {
+            Spacer(Modifier.height(SessionDrawerSpec.HeaderGap))
+            NewSessionPill(onNewSession)
+        }
         Spacer(Modifier.height(SessionDrawerSpec.ListGap))
 
         if (model.groups.isEmpty()) {
@@ -476,15 +517,41 @@ fun SessionDrawer(
                         SessionRow(
                             record = record,
                             current = model.isCurrent(record),
-                            onClick = { onPick(record.id) },
-                            onLongClick = { activeRecord = record },
+                            selecting = selecting,
+                            checked = record.id in selected,
+                            onClick = {
+                                if (selecting) {
+                                    selected = if (record.id in selected) selected - record.id else selected + record.id
+                                } else {
+                                    onPick(record.id)
+                                }
+                            },
+                            onLongClick = { if (!selecting) activeRecord = record },
                         )
                     }
                 }
             }
         }
 
-        DrawerDock(onSettings)
+        if (selecting) {
+            DrawerBatchBar(
+                allSelected = model.groups.sumOf { it.sessions.size } > 0 &&
+                    selected.size == model.groups.sumOf { it.sessions.size },
+                count = selected.size,
+                onSelectAll = {
+                    val everything = model.groups.flatMap { group -> group.sessions.map { it.id } }.toSet()
+                    selected = if (selected.size == everything.size) emptySet() else everything
+                },
+                onDelete = {
+                    val ids = selected.toList()
+                    selecting = false
+                    selected = emptySet()
+                    onDeleteMany(ids)
+                },
+            )
+        } else {
+            DrawerDock(onSettings)
+        }
     }
 
     activeRecord?.let { record ->
@@ -493,6 +560,11 @@ fun SessionDrawer(
             onRename = {
                 activeRecord = null
                 renamingRecord = record
+            },
+            onBatchSelect = {
+                activeRecord = null
+                selecting = true
+                selected = setOf(record.id)
             },
             onDelete = {
                 activeRecord = null
@@ -631,6 +703,8 @@ private fun GroupLabel(group: SessionGroup) {
 private fun SessionRow(
     record: SessionRecord,
     current: Boolean,
+    selecting: Boolean,
+    checked: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -640,18 +714,102 @@ private fun SessionRow(
             .height(SessionDrawerSpec.RowHeight)
             .padding(vertical = 2.dp),
         shape = RoundedCornerShape(Radius.drawerRow),
-        resting = if (current) Palette.clayTint else Color.Transparent,
+        resting = if (current && !selecting) Palette.clayTint else Color.Transparent,
         onClick = onClick,
         onLongClick = onLongClick,
         contentAlignment = Alignment.CenterStart,
     ) {
-        Text(
-            text = record.name.ifBlank { UntitledSession },
-            style = if (current) Type.uiStrong else Type.uiStrongInk2,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = if (selecting) 6.dp else 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (selecting) {
+                CheckBox(checked = checked)
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                text = record.name.ifBlank { UntitledSession },
+                style = if (current && !selecting) Type.uiStrong else Type.uiStrongInk2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 勾选框：未选是细边空心，选中垫陶土色并把对勾压成纸白。 */
+@Composable
+private fun CheckBox(checked: Boolean) {
+    Box(
+        modifier = Modifier
+            .size(SessionDrawerSpec.CheckBox)
+            .clip(RoundedCornerShape(SessionDrawerSpec.CheckBoxRadius))
+            .background(if (checked) Palette.clay else Color.Transparent)
+            .border(
+                width = if (checked) 0.dp else 1.dp,
+                color = if (checked) Palette.clay else Palette.hairStrong,
+                shape = RoundedCornerShape(SessionDrawerSpec.CheckBoxRadius),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (checked) {
+            Icon(
+                imageVector = FluentIcons.CheckMark,
+                contentDescription = null,
+                tint = Palette.card,
+                modifier = Modifier.size(SessionDrawerSpec.CheckGlyph),
+            )
+        }
+    }
+}
+
+/** 选择态的底栏：左边全选，右边那颗红药丸只在有条目被选中时才可点。 */
+@Composable
+private fun DrawerBatchBar(
+    allSelected: Boolean,
+    count: Int,
+    onSelectAll: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(SessionDrawerSpec.RowHeight)
+            .padding(top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(Radius.chip))
+                .clickable(onClick = onSelectAll)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CheckBox(checked = allSelected)
+            Spacer(Modifier.width(8.dp))
+            Text("全选", style = Type.uiStrong)
+        }
+        Spacer(Modifier.weight(1f))
+        Pressable(
+            enabled = count > 0,
+            shape = RoundedCornerShape(Radius.pill),
+            resting = Palette.danger,
+            onClick = onDelete,
+        ) {
+            Box(
+                modifier = Modifier
+                    .height(SessionDrawerSpec.BatchButtonHeight)
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "删除 $count 项",
+                    style = Type.uiStrongOnDark.copy(fontSize = 13.sp),
+                )
+            }
+        }
     }
 }
 
@@ -659,6 +817,7 @@ private fun SessionRow(
 private fun SessionActionDialog(
     record: SessionRecord,
     onRename: () -> Unit,
+    onBatchSelect: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -702,6 +861,30 @@ private fun SessionActionDialog(
                             Text("重命名", style = Type.uiStrong)
                         }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Pressable(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(Radius.chip),
+                        resting = Palette.tint,
+                        onClick = onBatchSelect,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("批量选择", style = Type.uiStrong)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .height(1.dp)
+                            .background(Palette.hair.copy(alpha = 0.5f)),
+                    )
                     Spacer(Modifier.height(8.dp))
                     Pressable(
                         modifier = Modifier.fillMaxWidth(),

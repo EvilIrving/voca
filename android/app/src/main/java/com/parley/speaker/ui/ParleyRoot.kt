@@ -150,6 +150,7 @@ fun ParleyRoot(vm: ChatViewModel = viewModel()) {
                     },
                     onDelete = vm::deleteSession,
                     onRename = vm::renameSession,
+                    onDeleteMany = vm::deleteSessions,
                 )
             },
         ) {

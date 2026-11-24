@@ -1125,6 +1125,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** 批量删除走同一条级联，正在看的那段在名单里就只开一次新段。 */
+    fun deleteSessions(sessionIds: List<String>) {
+        if (sessionIds.isEmpty()) return
+        viewModelScope.launch {
+            sessionIds.forEach { store.deleteSession(it) }
+            loadSessions()
+            if (continuing?.id in sessionIds || ledger.current.id in sessionIds) {
+                startNewSession()
+            }
+        }
+    }
+
     /** 手动改名是真名字：接回来那条的 manualName 跟着置真，自动补名不能再盖掉它。 */
     fun renameSession(sessionId: String, name: String) {
         viewModelScope.launch {
