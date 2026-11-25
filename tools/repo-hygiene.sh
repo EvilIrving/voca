@@ -18,9 +18,9 @@ for path in hiecho-reverse PROJECT_MEMORY.md; do
   fi
 done
 
-serial="${PARLEY_DEV:-${QOD_DEV:-}}"
+serial="${VOCA_DEV:-${QOD_DEV:-}}"
 if [ -z "$serial" ]; then
-  pass "没给 PARLEY_DEV，序列号这一项跳过"
+  pass "没给 VOCA_DEV，序列号这一项跳过"
 else
   hits=$(git grep -I -l -F "$serial" -- . 2>/dev/null || true)
   if [ -n "$hits" ]; then

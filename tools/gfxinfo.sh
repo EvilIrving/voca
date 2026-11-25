@@ -4,12 +4,12 @@
 # 一条命令读出来，就不必靠读框架源码去推断。
 # 用法：tools/gfxinfo.sh [reset] [包名]
 #   reset  先清零再看这一段，看清即将发生的那一段而不是开机以来的累计。
-# 一帧超过 PARLEY_FRAME_MS（默认 16.7）算卡顿，120 赫兹的屏把它设成 8.3。
+# 一帧超过 VOCA_FRAME_MS（默认 16.7）算卡顿，120 赫兹的屏把它设成 8.3。
 set -uo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 2
 
-pkg=com.parley.speaker
+pkg=com.voca.speaker
 reset=0
 for arg in "$@"; do
   case "$arg" in
@@ -37,7 +37,7 @@ frames() {
 }
 
 summary() {
-  awk -v budget="${PARLEY_FRAME_MS:-16.7}" '
+  awk -v budget="${VOCA_FRAME_MS:-16.7}" '
     NF {
       n += 1
       value[n] = $1
@@ -98,7 +98,7 @@ data=$(adb shell dumpsys gfxinfo "$pkg" framestats) || exit 1
 # 数据夹在两条 PROFILEDATA 之间，别的段落里也有逗号分隔的数字，只看这一段。
 block=$(printf '%s\n' "$data" | awk '/PROFILEDATA/{n++; next} n == 1')
 if [ -z "$block" ]; then
-  printf '这个包里没有 framestats：先确认前台是不是 Parley\n'
+  printf '这个包里没有 framestats：先确认前台是不是 Voca\n'
   exit 1
 fi
 

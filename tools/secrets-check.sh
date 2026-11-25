@@ -7,7 +7,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 python3 - "$root" <<'PY'
 import pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
-source = root / "android/app/build/generated/source/buildConfig/release/com/parley/speaker/BuildConfig.java"
+source = root / "android/app/build/generated/source/buildConfig/release/com/voca/speaker/BuildConfig.java"
 text = source.read_text()
 secret_names = re.compile(r"(KEY|SECRET|TOKEN|PASSWORD)")
 violations = []

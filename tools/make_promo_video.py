@@ -5,8 +5,8 @@ import sys
 
 ADB = "adb"
 FONT = "/System/Library/Fonts/STHeiti Medium.ttc"
-OUT_DIR = "/tmp/parley_video_build"
-FINAL_OUT = "/Users/actor/Documents/code/kotlin-parley/promo_parley_demo.mp4"
+OUT_DIR = "/tmp/voca_video_build"
+FINAL_OUT = "/Users/actor/Documents/code/__KEEP_KOTLIN_VOCA_DIR__/promo_voca_demo.mp4"
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -122,7 +122,7 @@ vf = (
     f"drawbox=y=0:color=black@0.9:width=iw:height=140:t=fill,"
     f"drawtext=fontfile='{FONT}':text='告别社恐 · 随时随地的 AI 口语搭子':fontcolor=white:fontsize=46:x=(w-text_w)/2:y=48,"
     f"drawbox=y=ih-140:color=black@0.9:width=iw:height=140:t=fill,"
-    f"drawtext=fontfile='{FONT}':text='Parley · 自由开口 自然习得':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=ih-95"
+    f"drawtext=fontfile='{FONT}':text='Voca · 自由开口 自然习得':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=ih-95"
 )
 
 cmd_final = (

@@ -12,8 +12,8 @@ fail() { printf 'FAIL  %s\n' "$*"; failed=1; }
 pass() { printf 'ok    %s\n' "$*"; }
 
 probe_names='CaptureProbeReceiver|PlayProbeReceiver|FocusProbeReceiver'
-probe_actions='com\.parley\.speaker\.(CAPTURE|PLAY|FOCUS)_PROBE'
-probe_pattern="$probe_names|$probe_actions|com\.parley\.speaker\.debug"
+probe_actions='com\.voca\.speaker\.(CAPTURE|PLAY|FOCUS)_PROBE'
+probe_pattern="$probe_names|$probe_actions|com\.voca\.speaker\.debug"
 
 for dir in "$app/src/main" "$app/src/release"; do
   [ -d "$dir" ] || continue
@@ -66,8 +66,8 @@ else
   fail "找不到 aapt2，清单未查；用 AAPT2=/path/to/aapt2 指定"
 fi
 
-if unzip -p "$apk" 'classes*.dex' 2>/dev/null | strings | grep -q 'Lcom/parley/speaker/debug/'; then
-  fail "dex 里有 com/parley/speaker/debug 的类"
+if unzip -p "$apk" 'classes*.dex' 2>/dev/null | strings | grep -q 'Lcom/voca/speaker/debug/'; then
+  fail "dex 里有 com/voca/speaker/debug 的类"
 else
   pass "dex 里没有探针类"
 fi

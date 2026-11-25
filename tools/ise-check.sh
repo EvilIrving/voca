@@ -22,7 +22,7 @@ for key in XFYUN_APP_ID XFYUN_API_KEY XFYUN_API_SECRET; do
   fi
 done
 ISE_PCM="$1" ISE_TEXT="$2" ISE_BAD_KEY=1 "$root/tools/gate.sh" :app:testDebugUnitTest \
-  --tests 'com.parley.speaker.data.assessor.XfyunLiveProbeTest' --rerun-tasks >/dev/null
+  --tests 'com.voca.speaker.data.assessor.XfyunLiveProbeTest' --rerun-tasks >/dev/null
 report=$(ls "$root"/android/app/build/test-results/testDebugUnitTest/*XfyunLiveProbeTest.xml)
 python3 - "$report" <<'PY'
 import re, sys
