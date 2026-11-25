@@ -5,7 +5,7 @@
             android:name=".debug.CaptureProbeReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.parley.speaker.CAPTURE_PROBE" />
+                <action android:name="com.voca.speaker.CAPTURE_PROBE" />
             </intent-filter>
         </receiver>
 
@@ -13,7 +13,7 @@
             android:name=".debug.PlayProbeReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.parley.speaker.PLAY_PROBE" />
+                <action android:name="com.voca.speaker.PLAY_PROBE" />
             </intent-filter>
         </receiver>
 
@@ -21,7 +21,7 @@
             android:name=".debug.FocusProbeReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.parley.speaker.FOCUS_PROBE" />
+                <action android:name="com.voca.speaker.FOCUS_PROBE" />
             </intent-filter>
         </receiver>
     </application>

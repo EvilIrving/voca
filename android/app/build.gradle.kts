@@ -15,12 +15,12 @@ val devEnv: Properties = Properties().apply {
 fun secret(key: String): String = devEnv.getProperty(key).orEmpty()
 
 android {
-    namespace = "com.parley.speaker"
+    namespace = "com.voca.speaker"
     compileSdk = 37
     compileSdkMinor = 2
 
     defaultConfig {
-        applicationId = "com.parley.speaker"
+        applicationId = "com.voca.speaker"
         minSdk = 26
         targetSdk = 37
         versionCode = 1

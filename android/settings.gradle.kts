@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "parley"
+rootProject.name = "voca"
 include(":app")
