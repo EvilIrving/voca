@@ -1,6 +1,6 @@
 # 已知注意事项与排查经验
 
-本篇记录在 vivo `V2454DA` 真机测试及 Parley 客户端自动化调试过程中总结的技术特征与应对方案。
+本篇记录在 vivo `V2454DA` 真机测试及 Voca 客户端自动化调试过程中总结的技术特征与应对方案。
 
 ---
 
@@ -24,7 +24,7 @@
 
 - **现象描述**：首次长按「按住说话」时，系统弹出录音权限授予弹窗（`permissioncontroller`），测试流程卡住。
 - **原因机理**：Android 系统对 `Manifest.permission.RECORD_AUDIO` 实施运行时权限管控。
-- **应对方案**：驱动脚本状态判定能够识别 `系统:权限框`；开发阶段可通过 `adb shell pm grant com.parley.speaker android.permission.RECORD_AUDIO` 预先授予权限，确保自动化流程平稳推进。
+- **应对方案**：驱动脚本状态判定能够识别 `系统:权限框`；开发阶段可通过 `adb shell pm grant com.voca.speaker android.permission.RECORD_AUDIO` 预先授予权限，确保自动化流程平稳推进。
 
 ---
 
@@ -32,7 +32,7 @@
 
 - **现象描述**：执行覆盖安装（`pm install -r -d`）时，系统可能会在后台唤起 `com.android.packageinstaller/.PackageInterceptActivity` 拦截界面（提示「继续安装」），导致控制台阻塞。
 - **原因机理**：厂商定制系统会对命令行触发的静默安装执行二次防劫持校验。在拦截状态下 `uiautomator dump` 会因窗口焦点锁定而报错。
-- **应对方案**：驱动脚本安装流程采用后台进程监控结合前台顶层 Activity 轮询（`dumpsys activity activities | grep topResumedActivity`），一旦探测到 `packageinstaller` 就按一组实测坐标逐个点，「继续安装」按钮在 1080×2376 上实测中心是 `(541, 2217)`，同组还有 `(540, 2210)`、`(302, 2267)`、`(720, 2200)`，按钮随系统版本与弹窗高度挪位，落空就换下一个；每点一次回读前台，离开拦截页就停手。整套最多等 `PARLEY_INSTALL_TIMEOUT`（默认 150 秒），到点直接退出并提示去开「USB 安装」权限。
+- **应对方案**：驱动脚本安装流程采用后台进程监控结合前台顶层 Activity 轮询（`dumpsys activity activities | grep topResumedActivity`），一旦探测到 `packageinstaller` 就按一组实测坐标逐个点，「继续安装」按钮在 1080×2376 上实测中心是 `(541, 2217)`，同组还有 `(540, 2210)`、`(302, 2267)`、`(720, 2200)`，按钮随系统版本与弹窗高度挪位，落空就换下一个；每点一次回读前台，离开拦截页就停手。整套最多等 `VOCA_INSTALL_TIMEOUT`（默认 150 秒），到点直接退出并提示去开「USB 安装」权限。
 
 ---
 
@@ -86,9 +86,9 @@
 
 ## 11. 隐式广播到不了清单接收器
 
-- **现象描述**：`am broadcast -a com.parley.speaker.CAPTURE_PROBE` 返回 `Broadcast completed: result=0`，但接收器没有执行，探针文件仍是旧内容。
+- **现象描述**：`am broadcast -a com.voca.speaker.CAPTURE_PROBE` 返回 `Broadcast completed: result=0`，但接收器没有执行，探针文件仍是旧内容。
 - **原因机理**：这台 vivo 的 Android 16 上，自定义 action 的隐式广播不会投递给清单里注册的接收器。
-- **应对方案**：广播必须显式指定组件，例如 `am broadcast -n com.parley.speaker/.debug.CaptureProbeReceiver -a com.parley.speaker.CAPTURE_PROBE`。
+- **应对方案**：广播必须显式指定组件，例如 `am broadcast -n com.voca.speaker/.debug.CaptureProbeReceiver -a com.voca.speaker.CAPTURE_PROBE`。
 
 ---
 

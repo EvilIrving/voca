@@ -1,6 +1,6 @@
-# 元素表（Parley 真机实测）
+# 元素表（Voca 真机实测）
 
-取样环境：vivo `V2454DA`（`PD2454`），序列号见 `$PARLEY_DEV`（WLAN 调试广播名同样带序列号，脚本按它匹配），屏幕分辨率 `1080×2376`，像素密度 `density 480`（1dp ≈ 3px）。
+取样环境：vivo `V2454DA`（`PD2454`），序列号见 `$VOCA_DEV`（WLAN 调试广播名同样带序列号，脚本按它匹配），屏幕分辨率 `1080×2376`，像素密度 `density 480`（1dp ≈ 3px）。
 
 Compose 声明式界面中的坐标（bounds）会因系统字体缩放、动态状态和列表滚动而发生位移，下表提供真机实测定位参考与标准命名标识。执行操作时建议通过 `.agents/skills/android-device-testing/scripts/android-drive.sh el` 获取当前实时坐标，依靠 `text` 或 `content-desc` 进行稳定识别。
 

@@ -1,11 +1,11 @@
 ---
 name: android-device-testing
-description: "Parley 口语客户端 Android 真机自动化测试驱动。用于在这台 vivo 手机上启动 App、在主对话、长按收音、评测抽屉、生词库与设置之间按名字精准交互、校验页面流转与元素特征，以及执行免打扰的静默装机与屏幕状态判别。"
+description: "Voca 口语客户端 Android 真机自动化测试驱动。用于在这台 vivo 手机上启动 App、在主对话、长按收音、评测抽屉、生词库与设置之间按名字精准交互、校验页面流转与元素特征，以及执行免打扰的静默装机与屏幕状态判别。"
 ---
 
-# Parley Android 真机自动化测试规范
+# Voca Android 真机自动化测试规范
 
-以仓库根目录 `AGENTS.md` 确立的产品规约为基础，本测试驱动专门保障 Parley 客户端在 Android 真机环境下的可观测性、交互可靠性与验证闭环。
+以仓库根目录 `AGENTS.md` 确立的产品规约为基础，本测试驱动专门保障 Voca 客户端在 Android 真机环境下的可观测性、交互可靠性与验证闭环。
 
 ## 驱动与资源组件
 
@@ -43,7 +43,7 @@ adb devices -l                     # 确认状态变更为 device
 **连接规则**：
 - 仅认准 `_adb-tls-connect._tcp`，请勿连接 `_adb._tcp` 或 `_adb-tls-pairing._tcp` 配对通道。
 - 若提示连接拒绝或超时，优先执行 `adb kill-server && adb start-server` 并重查 mDNS，或使用 USB 数据线直连。
-- 多设备并存时，可通过环境变量 `PARLEY_DEV` 指定目标序列号，脚本默认自动选取唯一的有效设备。
+- 多设备并存时，可通过环境变量 `VOCA_DEV` 指定目标序列号，脚本默认自动选取唯一的有效设备。
 
 ---
 
@@ -56,7 +56,7 @@ adb devices -l                     # 确认状态变更为 device
 ```
 
 该指令输出包含三项核心上下文信息：
-1. **当前前台应用**：本应用（`com.parley.speaker`）、系统桌面（`com.bbk.launcher2`）或系统权限弹框。
+1. **当前前台应用**：本应用（`com.voca.speaker`）、系统桌面（`com.bbk.launcher2`）或系统权限弹框。
 2. **所在页面特征**：`app:主对话`、`app:收音中`、`app:评测抽屉`、`app:生词库`、`app:设置`。
 3. **关键操作项与文本**：对话轮次以及屏幕上出现的交互控件。
 
@@ -93,7 +93,7 @@ Compose 声明式界面采用全屏覆盖浮层呈现，层叠组件在底层语
 | `settings` | 快速打开设置 |
 | `review` | 快速打开本轮评测分析抽屉 |
 | `selfcheck` | 在设置内触发模型连接自检测试 |
-| `shot [名称]` | 截取当前设备屏幕并保存至 `/tmp/parley-<名称>.png` |
+| `shot [名称]` | 截取当前设备屏幕并保存至 `/tmp/voca-<名称>.png` |
 | `build` | 调用 `android/gradlew assembleDebug` 执行构建（内置 Java 17 环境支持） |
 | `install [apk]` | 推送安装包并调用系统安装服务，内置 vivo 拦截弹窗自动点按处理 |
 | `launch` | 冷启动或唤醒应用主界面 |
@@ -120,7 +120,7 @@ $DRV shot install-verify        # 保存界面截图备查
 流程技术要点：
 - 安装进程在后台跑，脚本每秒读一次 `dumpsys activity activities` 的前台 Activity；拦截期间 `uiautomator dump` 会被锁死，只能走这条。
 - 「继续安装」按钮在这台 vivo PD2454（1080×2376）上实测中心是 `(541, 2217)`；脚本按 `(541, 2217)`、`(540, 2210)`、`(302, 2267)`、`(720, 2200)` 逐个试，每点一次回读前台，离开拦截页就停手。
-- 整套最多等 `PARLEY_INSTALL_TIMEOUT`（默认 150 秒），到点直接退出并提示去开发者选项打开「USB 安装」权限。
+- 整套最多等 `VOCA_INSTALL_TIMEOUT`（默认 150 秒），到点直接退出并提示去开发者选项打开「USB 安装」权限。
 - 安装成功后 vivo 可能再推一页「安全守护 / 超级守护」（`InstallSwitchActivity`），那不是安装确认，脚本连按两次返回把它收掉。
 - 构建与装机分成两条命令：`gradlew installDebug` 把安装混在 Gradle 任务里同步等待，遇到拦截框时整条命令停在安装阶段、不输出任何进展。
 - 装机完毕后应用进程会自动重置，必须先调用 `state` 确认当前所处页面后再开展后续验证。

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#  Parley 口语客户端 Android 真机自动化测试驱动。
+#  Voca 口语客户端 Android 真机自动化测试驱动。
 #  配对文档：.agents/skills/android-device-testing/SKILL.md
 #
 #  用法（只在仓库根目录执行，脚本自动校验）：
@@ -15,7 +15,7 @@
 #    .agents/skills/android-device-testing/scripts/android-drive.sh launch / home / back / devices / el
 #    .agents/skills/android-device-testing/scripts/android-drive.sh raw <adb 参数...>   透传一次 adb 调用
 #
-#  环境变量：PARLEY_DEV 或 QOD_DEV 指定目标序列号（默认自动探测唯一处于 device 状态的机器）。
+#  环境变量：VOCA_DEV 或 QOD_DEV 指定目标序列号（默认自动探测唯一处于 device 状态的机器）。
 
 set -uo pipefail
 
@@ -36,17 +36,17 @@ if [ -z "${JAVA_HOME:-}" ] || [ ! -x "${JAVA_HOME}/bin/java" ]; then
   fi
 fi
 
-PKG="com.parley.speaker"
-MAIN_ACT="com.parley.speaker/.MainActivity"
-XML="/tmp/parley-ui.xml"
-NODES_TSV="/tmp/parley-nodes.tsv"
+PKG="com.voca.speaker"
+MAIN_ACT="com.voca.speaker/.MainActivity"
+XML="/tmp/voca-ui.xml"
+NODES_TSV="/tmp/voca-nodes.tsv"
 SHOTDIR=${SHOTDIR:-/tmp}
 ADB=${ADB:-adb}
 
-if [ -z "${PARLEY_DEV:-}" ]; then
-  PARLEY_DEV=${QOD_DEV:-$($ADB devices | awk '/\tdevice$/{print $1; exit}')}
+if [ -z "${VOCA_DEV:-}" ]; then
+  VOCA_DEV=${QOD_DEV:-$($ADB devices | awk '/\tdevice$/{print $1; exit}')}
 fi
-DEV=${PARLEY_DEV:-}
+DEV=${VOCA_DEV:-}
 [ -n "$DEV" ] || {
   echo "未检测到可用 Android 设备。无线调试端口动态分配，请通过如下方式连接："
   echo "  adb devices          # 检查当前设备列表"
@@ -59,8 +59,8 @@ DEV=${PARLEY_DEV:-}
 A() { $ADB -s "$DEV" "$@"; }
 
 dump() {
-  A shell uiautomator dump /sdcard/parley-ui.xml >/dev/null 2>&1
-  A exec-out cat /sdcard/parley-ui.xml > "$XML" 2>/dev/null
+  A shell uiautomator dump /sdcard/voca-ui.xml >/dev/null 2>&1
+  A exec-out cat /sdcard/voca-ui.xml > "$XML" 2>/dev/null
   [ -s "$XML" ] || { echo "UI 转储失败：界面可能正处于动画过渡阶段，请稍后重试" >&2; return 1; }
 }
 
@@ -117,10 +117,10 @@ if 'packageinstaller' in low:
     kind = '系统:安装确认框'
 elif 'permissioncontroller' in low:
     kind = '系统:权限框'
-elif 'settings' in low and 'com.parley' not in low:
+elif 'settings' in low and 'com.voca' not in low:
     kind = '系统:设置页'
 
-if not kind and 'com.parley.speaker' in pks:
+if not kind and 'com.voca.speaker' in pks:
     if anyof('松手发送', '上滑取消'):
         kind = 'app:收音中'
     elif anyof('本轮评测'):
@@ -206,9 +206,9 @@ mic_cancel() { A shell input swipe 987 2226 987 1900 "${1:-400}" >/dev/null; }
 # 探针：读应用自己写的采集状态，绕开被 ROM 屏蔽的 logcat
 capture_state() {
   # vivo 的 Android 16 上隐式广播不会送到清单里的接收器，必须显式指定组件
-  A shell am broadcast -n com.parley.speaker/.debug.CaptureProbeReceiver -a com.parley.speaker.CAPTURE_PROBE >/dev/null 2>&1
+  A shell am broadcast -n com.voca.speaker/.debug.CaptureProbeReceiver -a com.voca.speaker.CAPTURE_PROBE >/dev/null 2>&1
   sleep 0.3
-  A exec-out run-as com.parley.speaker cat files/capture_state.txt 2>/dev/null | tr -d '\r'
+  A exec-out run-as com.voca.speaker cat files/capture_state.txt 2>/dev/null | tr -d '\r'
 }
 
 tap_name() {
@@ -293,22 +293,22 @@ install_app() {
 
   if [ "$dry" = 1 ]; then
     echo "即将执行的静默安装命令："
-    echo "  adb -s $DEV push $apk /data/local/tmp/parley.apk"
-    echo "  adb -s $DEV shell pm install -r -d /data/local/tmp/parley.apk"
+    echo "  adb -s $DEV push $apk /data/local/tmp/voca.apk"
+    echo "  adb -s $DEV shell pm install -r -d /data/local/tmp/voca.apk"
     return 0
   fi
 
   echo "推送 APK 文件至设备临时目录..."
-  A push "$apk" /data/local/tmp/parley.apk >/dev/null || { echo "文件推送失败"; return 1; }
+  A push "$apk" /data/local/tmp/voca.apk >/dev/null || { echo "文件推送失败"; return 1; }
 
   echo "启动静默安装流程..."
-  A shell pm install -r -d /data/local/tmp/parley.apk >/tmp/parley-install.log 2>&1 &
+  A shell pm install -r -d /data/local/tmp/voca.apk >/tmp/voca-install.log 2>&1 &
   local install_pid=$!
 
   # 拦截框在不同系统版本与弹窗高度上会挪位，「继续安装」按一组实测坐标逐个试，
   # 每点一次回读前台确认是否已经离开拦截页；没有进展就停手报错，绝不无限等。
   local candidates=("541 2217" "540 2210" "302 2267" "720 2200")
-  local deadline=$(( $(date +%s) + ${PARLEY_INSTALL_TIMEOUT:-150} ))
+  local deadline=$(( $(date +%s) + ${VOCA_INSTALL_TIMEOUT:-150} ))
   while kill -0 "$install_pid" 2>/dev/null; do
     if [ "$(date +%s)" -ge "$deadline" ]; then
       kill "$install_pid" 2>/dev/null
@@ -330,7 +330,7 @@ install_app() {
   done
   wait "$install_pid"
 
-  out=$(cat /tmp/parley-install.log)
+  out=$(cat /tmp/voca-install.log)
   echo "$out"
 
   # 装完之后 vivo 还会推一页「安全守护 / 超级守护」的 InstallSwitchActivity 盖在应用上，
@@ -371,7 +371,7 @@ case "${1:-state}" in
   settings)       tap_name "设置" ;;
   review)         tap_name "查看评测" || tap_name "本轮评测" ;;
   selfcheck)      tap_name "连接自检" ;;
-  shot)           A exec-out screencap -p > "$SHOTDIR/parley-${2:-shot}.png" && echo "截图保存路径: $SHOTDIR/parley-${2:-shot}.png" ;;
+  shot)           A exec-out screencap -p > "$SHOTDIR/voca-${2:-shot}.png" && echo "截图保存路径: $SHOTDIR/voca-${2:-shot}.png" ;;
   build)          build_app ;;
   install)        install_app "${2:-}" ;;
   launch)         A shell am start -n "$MAIN_ACT" >/dev/null; wait_ready 2.0; state ;;
