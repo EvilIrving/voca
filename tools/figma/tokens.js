@@ -9,7 +9,7 @@ for (const f of fonts) { try { await figma.loadFontAsync(f); } catch (e) {} }
 const root = frame(page, 'SPK 00 · 设计规范', { w: 900, dir: 'VERTICAL', pl: 40, pr: 40, pt: 40, pb: 40, gap: 0, fill: C.paper, x: 0, y: 0, clip: false });
 
 /* title */
-t(root, 'Parley · 口语训练客户端', { font: F.serifCnMd, size: 30, color: C.ink, lh: 40 });
+t(root, 'Voca · 口语训练客户端', { font: F.serifCnMd, size: 30, color: C.ink, lh: 40 });
 frame(root, 'sp', { w: 1, h: 28 });
 
 /* color tokens */
@@ -214,6 +214,6 @@ for (const [title, lines] of groups) {
 }
 frame(root, 'sp', { w: 1, h: 24 });
 t(root, '所有界面只由组件实例拼装，文字靠实例覆盖，不复制组件内部结构。改一处样式，全部界面同步。', { font: F.cn, size: 11.5, color: C.ink3, lh: 19 });
-t(root, 'Compose 结构：ui/theme/ParleyTheme.kt（颜色·字体·圆角·间距）→ ui/components/{atoms,molecules,organisms} → ui/screens。组件名与画板名一一对应。下拉菜单、顶部胶囊与状态行各带开合两态，界面只切实例不画新样式。', { font: F.cn, size: 11.5, color: C.ink3, lh: 19 });
+t(root, 'Compose 结构：ui/theme/VocaTheme.kt（颜色·字体·圆角·间距）→ ui/components/{atoms,molecules,organisms} → ui/screens。组件名与画板名一一对应。下拉菜单、顶部胶囊与状态行各带开合两态，界面只切实例不画新样式。', { font: F.cn, size: 11.5, color: C.ink3, lh: 19 });
 
 return { frame: root.id, w: Math.round(root.width), h: Math.round(root.height) };

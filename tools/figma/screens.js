@@ -55,7 +55,7 @@ function newSessionStack(root) {
   const list = frame(root, 'transcript', { w: 360, h: LIST_H, dir: 'VERTICAL', main: 'MIN', cross: 'CENTER', pl: 24, pr: 24, pt: 130, pb: 0, clip: true });
 
   const hero = frame(list, 'hero', { dir: 'VERTICAL', cross: 'CENTER', gap: 8 });
-  t(hero, 'Parley', { font: F.serifMd, size: 28, color: C.ink, lh: 34 });
+  t(hero, 'Voca', { font: F.serifMd, size: 28, color: C.ink, lh: 34 });
   t(hero, 'Speak freely, learn naturally.', { font: F.serifIt, size: 16, color: C.ink2, lh: 22 });
   t(hero, '自由开口，自然习得', { font: F.serifCn, size: 13, color: C.ink4, lh: 18 });
 

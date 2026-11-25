@@ -32,7 +32,7 @@ const body = entries
   )
   .join("\n\n");
 
-const out = `package com.parley.speaker.ui.icon
+const out = `package com.voca.speaker.ui.icon
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -64,7 +64,7 @@ ${body}
 }
 `;
 
-const target = resolve(root, "android/app/src/main/java/com/parley/speaker/ui/icon/FluentIcons.kt");
+const target = resolve(root, "android/app/src/main/java/com/voca/speaker/ui/icon/FluentIcons.kt");
 mkdirSync(dirname(target), { recursive: true });
 writeFileSync(target, out);
 console.log(`wrote ${target} with ${entries.length} icons`);
