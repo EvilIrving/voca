@@ -39,11 +39,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +79,8 @@ import com.voca.speaker.ui.theme.Palette
 import com.voca.speaker.ui.theme.Radius
 import com.voca.speaker.ui.theme.Spacing
 import com.voca.speaker.ui.theme.Type
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 // 列表底只留这一道 18 加胶囊行的高度：输入条浮在列表之上，只占底下 56，条上方那段留给列表看。
@@ -97,6 +102,7 @@ fun ChatScreen(
     onRecordPressStart: () -> Boolean,
     onRecordArmed: (Boolean) -> Unit,
     onRecordPressEnd: (cancelled: Boolean) -> Unit,
+    streamingText: StateFlow<String> = remember { MutableStateFlow("") },
     sessionName: String = "",
     continuing: Boolean = false,
     onExitSession: () -> Unit = {},
@@ -117,7 +123,19 @@ fun ChatScreen(
 
     // 还没出字的草稿轮占的是轮次的位置，不是界面上的一格。
     // 识别文本回来得比回复晚时，它已经带着自己的位置站在那一轮前面了。
-    val shown = remember(turns) { turns.filter { it.text.isNotBlank() } }
+    val shown = remember(turns, state.streamingTurnId) {
+        turns.filter { it.text.isNotBlank() || it.id == state.streamingTurnId }
+    }
+    val reversed = remember(shown) { shown.asReversed() }
+    val retryTargets = remember(turns) {
+        buildMap {
+            for (turn in turns) {
+                if (turn.speaker == Speaker.Echo) {
+                    retryTargetOf(turns, turn.id)?.let { put(turn.id, it) }
+                }
+            }
+        }
+    }
 
     val translate: (Turn) -> Unit = { turn ->
         when {
@@ -171,13 +189,20 @@ fun ChatScreen(
                 // 列表反序铺：末尾那一轮由结构钉在底部，回复一段段长出来时新字往上走。
                 // 正的铺法每长出一块都要拿滚动去追，追的那一下总比内容晚一帧，那一帧就是闪。
                 val listState = rememberLazyListState()
-                val slide = remember { ContentSlide() }
+                // 反序列表插入新一轮时，LazyColumn 按 key 把原来那条留在原处，新轮次会落到视口下面。
+                // 新轮次出现的那一帧把位置钉回 0（贴底）：用户刚说完，回复就该露在输入条上方。
+                val newestId = shown.lastOrNull()?.id
+                var pinnedNewest by remember { mutableStateOf<String?>(null) }
+                SideEffect {
+                    if (newestId != null && newestId != pinnedNewest) {
+                        listState.requestScrollToItem(0)
+                        pinnedNewest = newestId
+                    }
+                }
                 LazyColumn(
                     state = listState,
                     reverseLayout = true,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .rowSlide(listState, slide),
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
                         start = Spacing.screen,
                         end = Spacing.screen,
@@ -193,24 +218,30 @@ fun ChatScreen(
                         item(key = "hint", contentType = "hint") { HintCard(hint) }
                     }
                     items(
-                        items = shown.asReversed(),
+                        items = reversed,
                         key = { it.id },
                         contentType = { it.speaker },
                     ) { turn ->
                         when (turn.speaker) {
-                            Speaker.Echo -> EchoRow(
-                                turn = turn,
-                                translation = translations[turn.id] ?: turn.translation,
-                                expanded = expanded[turn.id] == true,
-                                translating = turn.id in asking,
-                                retryable = retryTargetOf(turns, turn.id) != null,
-                                onPlay = { onPlayTurn(turn.id) },
-                                onTranslate = { translate(turn) },
-                                onSave = { onSaveTurn(turn.id, !turn.saved) },
-                                onCopy = { onCopyTurn(turn.id) },
-                                onRetry = { retryTargetOf(turns, turn.id)?.let(onRetryAnalysis) },
-                                onDelete = { onDeleteTurn(turn.id) },
-                            )
+                            Speaker.Echo -> {
+                                val isStreaming = turn.id == state.streamingTurnId
+                                val retryTarget = retryTargets[turn.id]
+                                EchoRow(
+                                    turn = turn,
+                                    streaming = isStreaming,
+                                    streamingText = if (isStreaming) streamingText else null,
+                                    translation = translations[turn.id] ?: turn.translation,
+                                    expanded = expanded[turn.id] == true,
+                                    translating = turn.id in asking,
+                                    retryable = retryTarget != null,
+                                    onPlay = { onPlayTurn(turn.id) },
+                                    onTranslate = { translate(turn) },
+                                    onSave = { onSaveTurn(turn.id, !turn.saved) },
+                                    onCopy = { onCopyTurn(turn.id) },
+                                    onRetry = { retryTarget?.let(onRetryAnalysis) },
+                                    onDelete = { onDeleteTurn(turn.id) },
+                                )
+                            }
 
                             Speaker.User -> UserBubble(
                                 turn = turn,
@@ -317,6 +348,8 @@ private fun DoubleChevronDownIndicator(modifier: Modifier = Modifier) {
 @Composable
 private fun EchoRow(
     turn: Turn,
+    streaming: Boolean,
+    streamingText: StateFlow<String>?,
     translation: String?,
     expanded: Boolean,
     translating: Boolean,
@@ -333,6 +366,8 @@ private fun EchoRow(
             turn = turn,
             translation = translation,
             expanded = expanded,
+            streaming = streaming,
+            streamingText = streamingText,
         )
         Spacer(Modifier.height(MessageActionsSpec.BubbleGap))
         MessageActionBar(

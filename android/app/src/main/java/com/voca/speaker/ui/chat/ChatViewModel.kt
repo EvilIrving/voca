@@ -114,6 +114,8 @@ data class ChatState(
     val sessionName: String? = null,
     /** 正在接着聊的那条历史会话；null 表示屏幕上就是手上新的一段。 */
     val sessionId: String? = null,
+    /** 正在流式吐字的那一轮助手消息，界面只对它从头起播文字动画。 */
+    val streamingTurnId: String? = null,
 ) {
     val round: Int get() = turns.count { it.speaker == Speaker.User && it.text.isNotBlank() }
 }
@@ -164,6 +166,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         ),
     )
     val state: StateFlow<ChatState> = _state.asStateFlow()
+
+    /**
+     * 正在流式吐字那一轮的独立文本流。与 [ChatState.turns] 隔离后，
+     * 32 毫秒一批的转写增量只由末尾气泡自己收集，不再拉动整份列表重组与比对。
+     */
+    private val _streamingText = MutableStateFlow("")
+    val streamingText: StateFlow<String> = _streamingText.asStateFlow()
 
     /** 最近收掉的那条会话记录：自动命名写好之后会被替换一次。 */
     private val _lastSession = MutableStateFlow<SessionRecord?>(null)
@@ -526,14 +535,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun project() {
         val phase = flow.phase
+        val activeId = (phase as? TurnPhase.Awaiting)?.echoTurnId
+        val activeText = activeId?.let { id -> flow.turns.firstOrNull { it.id == id }?.text }.orEmpty()
+        val streamingId = if (activeId != null && activeText.isNotEmpty()) activeId else null
+        _streamingText.value = if (streamingId != null) activeText else ""
+        val projectedTurns = if (streamingId != null) {
+            flow.turns.map { if (it.id == streamingId) it.copy(text = "") else it }
+        } else {
+            flow.turns
+        }
         _state.update {
             it.copy(
-                turns = flow.turns,
+                turns = projectedTurns,
                 recording = phase is TurnPhase.Recording,
                 connection = connection,
                 notice = notice,
                 sessionName = continuing?.name?.ifBlank { null },
                 sessionId = continuing?.id,
+                streamingTurnId = streamingId,
             )
         }
     }

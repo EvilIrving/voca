@@ -157,6 +157,7 @@ fun VocaRoot(vm: ChatViewModel = viewModel()) {
             ChatScreen(
                 state = state,
                 turns = state.turns,
+                streamingText = vm.streamingText,
                 sessionName = state.sessionName.orEmpty(),
                 elapsedMs = elapsedMs,
                 levels = levels,

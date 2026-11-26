@@ -33,16 +33,18 @@ class StreamingProseTest {
     }
 
     @Test
-    fun `一次推来两百个字十来拍就放完，不会拖成慢动作`() {
+    fun `单拍步长有封顶，一次推来两百个字也不会整块砸出来`() {
         var shown = 0
         var ticks = 0
         while (shown < 200) {
-            shown = nextShown(shown, 200)
+            val next = nextShown(shown, 200)
+            assertTrue("单拍最多走 3 个字，实际走了 ${next - shown}", next - shown <= 3)
+            shown = next
             ticks += 1
-            if (ticks > 100) break
+            if (ticks > 200) break
         }
         assertEquals(200, shown)
-        assertTrue("用了 $ticks 拍", ticks <= 15)
+        assertTrue("用了 $ticks 拍", ticks in 60..100)
     }
 
     @Test

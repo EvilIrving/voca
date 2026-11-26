@@ -1,5 +1,9 @@
 package com.voca.speaker.ui.component
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,6 +13,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -28,36 +33,53 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import com.voca.speaker.domain.AnalysisStatus
 import com.voca.speaker.domain.Speaker
 import com.voca.speaker.domain.overallScore
@@ -181,46 +203,128 @@ fun VocaIconButton(
     }
 }
 
-/** 转写一块块推来，三帧上下放一批：一批的字数跟着还差多少走，欠得多步子大、欠得少步子小。 */
-private const val StreamTickNanos = 48_000_000L
+/** 转写按帧柔和放出，每拍最多三个字，让正文顺着气泡平滑长出来，不整块砸出。 */
+private const val StreamTickNanos = 16_000_000L
+
+/** 单拍最多放出三个字，配合气泡容器的平滑高度插值，消除一行一跳的顿挫感。 */
+private const val MaxStepPerTick = 3
 
 /** 放出来的尾巴这一段做淡入，字看着是长出来的，不是一块贴上去的。 */
 private const val StreamFadeChars = 10
 
 /**
- * 气泡正文。只画已经放出来的那一截，剩下的按欠账往前赶，永远追得上又不会一下跳出一大块；
+ * 气泡正文。只画已经放出来的那一截，剩下的按封顶步长往前赶，永远追得上又不会一下跳出一大块；
  * 尾巴那几个字从四成淡到实色。放完就换成整段纯文本，不留任何附加样式。
- * 历史消息进组合时文本早就齐了，第一次就按全量画，不倒回去重放。
+ * 历史消息进组合时文本早就齐了，第一次就按全量画，不倒回去重放；正在流式输出的那一轮从零起播。
  */
 @Composable
 fun StreamingProse(
     text: String,
     style: TextStyle,
     modifier: Modifier = Modifier,
+    streaming: Boolean = false,
+    streamingText: StateFlow<String>? = null,
 ) {
-    var shown by remember { mutableIntStateOf(text.length) }
-    LaunchedEffect(text) {
-        if (shown >= text.length) return@LaunchedEffect
+    val liveText by (streamingText?.collectAsState() ?: remember { androidx.compose.runtime.mutableStateOf("") })
+    val activeText = if (streaming && liveText.isNotEmpty()) liveText else text
+    var shown by remember { mutableIntStateOf(if (streaming) 0 else activeText.length) }
+    val target by rememberUpdatedState(activeText)
+    // 用整条气泡生命周期的协程追字，避免 shown 追平瞬间与新块到达撞帧导致 LaunchedEffect(active) 键不变而停死。
+    LaunchedEffect(Unit) {
         var last = 0L
-        while (shown < text.length) {
-            val now = withFrameNanos { it }
-            if (now - last < StreamTickNanos) continue
-            last = now
-            shown = nextShown(shown, text.length)
+        while (true) {
+            if (shown < target.length) {
+                val now = withFrameNanos { it }
+                if (now - last < StreamTickNanos) continue
+                last = now
+                shown = nextShown(shown, target.length)
+            } else {
+                snapshotFlow { target.length }.first { it > shown }
+                last = 0L
+            }
         }
     }
-    if (shown >= text.length) {
-        Text(text, style = style, modifier = modifier)
+    if (activeText.isEmpty()) {
+        Box(modifier = modifier)
+    } else if (shown >= activeText.length) {
+        Text(activeText, style = style, modifier = modifier)
     } else {
-        Text(fadingTail(text, shown), style = style, modifier = modifier)
+        val textMeasurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        BoxWithConstraints(modifier = modifier) {
+            val maxWidthPx = constraints.maxWidth
+            val layout = remember(activeText, style, maxWidthPx) {
+                textMeasurer.measure(
+                    text = AnnotatedString(activeText),
+                    style = style,
+                    constraints = Constraints(maxWidth = maxWidthPx),
+                )
+            }
+            val widthDp = with(density) { layout.size.width.toDp() }
+            // 气泡只占已经放出来的那几行：还没出到屏幕上的字不参与测量，
+            // 否则一段长回复刚开口就把整块高度撑满，后面的字只是往空位里填。
+            val shownBottomPx = if (shown <= 0) {
+                0f
+            } else {
+                val lastIdx = (shown - 1).coerceIn(0, layout.layoutInput.text.length - 1)
+                layout.getLineBottom(layout.getLineForOffset(lastIdx))
+            }
+            val heightDp = with(density) { shownBottomPx.toDp() }
+            Box(
+                modifier = Modifier
+                    .size(widthDp, heightDp)
+                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                    .drawWithContent {
+                        val count = shown.coerceIn(0, layout.layoutInput.text.length)
+                        if (count <= 0) return@drawWithContent
+                        val lastIdx = count - 1
+                        val line = layout.getLineForOffset(lastIdx)
+                        val lineTop = layout.getLineTop(line)
+                        val lineBottom = layout.getLineBottom(line)
+                        val cursorX = if (layout.layoutInput.text[lastIdx] == '\n') {
+                            layout.getLineRight(line)
+                        } else {
+                            maxOf(
+                                layout.getBoundingBox(lastIdx).right,
+                                layout.getHorizontalPosition(count, usePrimaryDirection = true),
+                            )
+                        }.coerceIn(0f, size.width)
+                        if (line > 0) {
+                            clipRect(left = 0f, top = 0f, right = size.width, bottom = lineTop) {
+                                drawText(layout)
+                            }
+                        }
+                        if (cursorX > 0f) {
+                            clipRect(left = 0f, top = lineTop, right = cursorX, bottom = lineBottom) {
+                                drawText(layout)
+                            }
+                            val fadeStartIdx = (count - StreamFadeChars).coerceAtLeast(layout.getLineStart(line))
+                            val fadeLeft = layout.getBoundingBox(fadeStartIdx).left.coerceIn(0f, cursorX)
+                            if (cursorX > fadeLeft) {
+                                drawRect(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(Color.Black, Color.Black.copy(alpha = 0.4f)),
+                                        startX = fadeLeft,
+                                        endX = cursorX,
+                                    ),
+                                    topLeft = Offset(fadeLeft, lineTop),
+                                    size = Size(cursorX - fadeLeft, lineBottom - lineTop),
+                                    blendMode = BlendMode.DstIn,
+                                )
+                            }
+                        }
+                    },
+            )
+        }
     }
 }
 
-/** 下一拍画到第几个字：按还差多少的三分之一往前赶，至少往前走 1 个，不会越过全量。 */
+/** 下一拍画到第几个字：按欠账的十二分之一往前赶，单拍最多走三个字，至少走 1 个。 */
 internal fun nextShown(shown: Int, total: Int): Int {
     if (shown >= total) return total
     val backlog = total - shown
-    return (shown + (backlog / 3).coerceAtLeast(1)).coerceAtMost(total)
+    val step = (backlog / 12).coerceIn(1, MaxStepPerTick)
+    return (shown + step).coerceAtMost(total)
 }
 
 /** 已经放出来的那截加一道尾巴：末几个字从四成淡上来，最后一个字就是实色。 */
@@ -250,6 +354,8 @@ fun EchoTurn(
     turn: Turn,
     translation: String?,
     expanded: Boolean,
+    streaming: Boolean = false,
+    streamingText: StateFlow<String>? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Surface(
@@ -267,6 +373,8 @@ fun EchoTurn(
                 text = turn.text,
                 style = Type.prose,
                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 13.dp, bottom = 12.dp),
+                streaming = streaming,
+                streamingText = streamingText,
             )
         }
         if (expanded && translation != null) {
