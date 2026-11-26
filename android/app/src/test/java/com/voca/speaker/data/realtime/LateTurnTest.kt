@@ -88,4 +88,21 @@ class LateTurnTest {
 
         assertEquals("user-2", late.tag(null))
     }
+
+    @Test
+    fun `封口之后未知响应或无响应号的内容算新回复，不再当成上一轮尾巴丢掉`() {
+        late.cancel("barge")
+        late.seal()
+
+        assertNull(late.tag(null))
+        assertNull(late.tag("resp_new"))
+
+        late.cancel("barge")
+        late.bind("resp_old")
+        late.seal()
+
+        assertEquals("barge", late.tag("resp_old"))
+        assertNull(late.tag(null))
+        assertNull(late.tag("resp_new"))
+    }
 }

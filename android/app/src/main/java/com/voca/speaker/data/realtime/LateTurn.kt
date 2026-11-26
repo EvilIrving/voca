@@ -15,11 +15,13 @@ internal class LateTurn(
 ) {
     private var owner: String? = null
     private var until = 0L
+    private var sealed = false
     private val responses = LinkedHashSet<String>()
 
     fun cancel(turnId: String) {
         owner = turnId
         until = now() + windowMs
+        sealed = false
         responses.clear()
     }
 
@@ -32,6 +34,18 @@ internal class LateTurn(
         if (responses.isEmpty()) clear()
     }
 
+    /**
+     * 本轮松手提交，准备收新回复：不再把未知或无响应号的内容挂进旧窗口，
+     * 避免新回复的开头被当成上一轮的迟到尾巴丢掉。
+     */
+    fun seal() {
+        if (responses.isEmpty()) {
+            clear()
+        } else {
+            sealed = true
+        }
+    }
+
     /** 服务端已经给出响应号时把它挂到窗口上，之后只有这个号的内容算那一轮。 */
     fun bind(responseId: String) {
         if (active()) responses.add(responseId)
@@ -39,7 +53,7 @@ internal class LateTurn(
 
     /**
      * 当前到达的内容属于哪一轮，窗口之外一律为 null。
-     * responseId 为 null 表示这个协议没有响应号，窗口期内都算被取消那轮。
+     * responseId 为 null 表示这个协议没有响应号，未封口前窗口期内都算被取消那轮。
      */
     fun tag(responseId: String?): String? {
         val current = owner ?: return null
@@ -47,8 +61,12 @@ internal class LateTurn(
             clear()
             return null
         }
-        if (responseId == null) return current
+        if (responseId == null) return if (sealed) null else current
         if (responses.isEmpty()) {
+            if (sealed) {
+                clear()
+                return null
+            }
             responses.add(responseId)
             return current
         }
@@ -69,6 +87,7 @@ internal class LateTurn(
     private fun clear() {
         owner = null
         until = 0L
+        sealed = false
         responses.clear()
     }
 }

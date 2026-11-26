@@ -236,6 +236,7 @@ class QwenRealtimeSession(
     private fun commitAndCreate() {
         // 上一轮的迟到内容交给响应号那本账，barge 只负责按住那一段。
         bargeHeld = false
+        late.seal()
         send(QwenWire.commit())
         send(QwenWire.createResponse())
         responding = true

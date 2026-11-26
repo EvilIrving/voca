@@ -252,6 +252,7 @@ class DoubaoRealtimeSession(
     override fun endTurn() {
         turnOpen = false
         muted = true
+        late.seal()
         if (!ready) {
             pendingEnd = true
             Log.i(TAG, "endTurn parked until session.created")
@@ -307,6 +308,7 @@ class DoubaoRealtimeSession(
         buffered.forEach { send(DoubaoWire.audioAppend(it)) }
         if (pendingEnd) {
             pendingEnd = false
+            late.seal()
             send(DoubaoWire.commit())
             send(DoubaoWire.audioMute())
         } else if (!turnOpen) {

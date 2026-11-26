@@ -178,6 +178,7 @@ class OpenAiRealtimeSession(
 
     override fun endTurn() {
         turnOpen = false
+        late.seal()
         if (!ready) {
             pendingEnd = true
             Log.i(TAG, "endTurn parked until session.updated")
@@ -235,6 +236,7 @@ class OpenAiRealtimeSession(
         buffered.forEach { send(OpenAiWire.appendAudio(Pcm.encodeBase64(it))) }
         if (pendingEnd) {
             pendingEnd = false
+            late.seal()
             send(OpenAiWire.commit())
             send(OpenAiWire.createResponse())
         }
