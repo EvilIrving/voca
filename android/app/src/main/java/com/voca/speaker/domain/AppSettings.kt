@@ -1,10 +1,43 @@
 package com.voca.speaker.domain
 
+/** 评测凭据表单的一项字段描述：把字段名、密文标志与读写边界收进领域模型，界面不再按供应商写分支。 */
+data class CredentialField(
+    val key: String,
+    val label: String,
+    val secret: Boolean = false,
+    val read: (AssessorSettings) -> String,
+)
+
 enum class AssessorProvider(val label: String) {
     None("未选择"),
     Azure("微软 Azure 语音评测"),
     Tencent("腾讯智聆口语评测"),
-    Xfyun("讯飞评测流式版"),
+    Xfyun("讯飞评测流式版");
+
+    val fields: List<CredentialField>
+        get() = when (this) {
+            None -> emptyList()
+            Azure -> listOf(
+                CredentialField("key", "密钥", secret = true) { it.azureKey },
+                CredentialField("region", "区域") { it.azureRegion },
+            )
+            Tencent -> listOf(
+                CredentialField("appId", "AppID") { it.tencentAppId },
+                CredentialField("secretId", "SecretID", secret = true) { it.tencentSecretId },
+                CredentialField("secretKey", "SecretKey", secret = true) { it.tencentSecretKey },
+            )
+            Xfyun -> listOf(
+                CredentialField("appId", "AppID") { it.xfyunAppId },
+                CredentialField("apiKey", "APIKey", secret = true) { it.xfyunApiKey },
+                CredentialField("apiSecret", "APISecret", secret = true) { it.xfyunApiSecret },
+            )
+        }
+
+    fun detail(assessor: AssessorSettings): String = when (this) {
+        None -> ""
+        Azure -> assessor.azureRegion.ifBlank { "密钥与区域" }
+        Tencent, Xfyun -> fields.joinToString("、") { it.label }
+    }
 }
 
 /** 文本分析请求把密钥放在哪里，三档对应 Bearer 头、自定义头与查询参数。 */
@@ -226,6 +259,21 @@ data class AssessorSettings(
             xfyunApiKey = apiKey.trim(),
             xfyunApiSecret = apiSecret.trim(),
         ).select(AssessorProvider.Xfyun)
+
+    fun apply(vendor: AssessorProvider, values: Map<String, String>): AssessorSettings = when (vendor) {
+        AssessorProvider.Azure -> withAzure(values["key"].orEmpty(), values["region"].orEmpty())
+        AssessorProvider.Tencent -> withTencent(
+            appId = values["appId"].orEmpty(),
+            secretId = values["secretId"].orEmpty(),
+            secretKey = values["secretKey"].orEmpty(),
+        )
+        AssessorProvider.Xfyun -> withXfyun(
+            appId = values["appId"].orEmpty(),
+            apiKey = values["apiKey"].orEmpty(),
+            apiSecret = values["apiSecret"].orEmpty(),
+        )
+        AssessorProvider.None -> this
+    }
 
     /** 清掉一家的凭据。清的是生效那家就落到另一家还配着的，一家不剩就空着。 */
     fun cleared(vendor: AssessorProvider): AssessorSettings {

@@ -1552,7 +1552,7 @@ internal fun providerLines(settings: AppSettings): List<ProviderLine> {
             group = ProviderGroup.Assessor,
             key = vendor.key,
             name = vendor.label,
-            detail = assessorDetail(assessor, vendor),
+            detail = vendor.detail(assessor),
             configured = assessor.ready(vendor),
             active = assessor.resolvedProvider == vendor,
         )
@@ -1622,14 +1622,6 @@ internal fun pickedAnalysis(
     val picked = ModelCatalog.pick(ModelCatalog.ordered(models), current)
     if (picked.isBlank() || picked == current) return null
     return analysis.amend(providerId) { it.copy(model = picked) }
-}
-
-/** 行内第二行写这一家自己的东西：Azure 写区域，腾讯与讯飞写各自认的三件套。 */
-private fun assessorDetail(assessor: AssessorSettings, vendor: AssessorProvider): String = when (vendor) {
-    AssessorProvider.Azure -> assessor.azureRegion.ifBlank { "密钥与区域" }
-    AssessorProvider.Tencent -> "AppID、SecretID、SecretKey"
-    AssessorProvider.Xfyun -> "AppID、APIKey、APISecret"
-    AssessorProvider.None -> ""
 }
 
 private fun hostOf(provider: TextProvider): String =

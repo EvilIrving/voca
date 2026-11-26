@@ -463,80 +463,20 @@ private fun AssessorDetail(
     assessor: AssessorSettings,
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
 ) {
-    if (assessor.ready(vendor)) return
-    when (vendor) {
-        AssessorProvider.Azure -> {
-            val drafts = rememberDrafts(
-                remember(assessor) { mapOf("key" to assessor.azureKey, "region" to assessor.azureRegion) },
-            )
-            FormBody {
-                EditField("密钥", drafts.getValue("key"), secret = true) { drafts["key"] = it }
-                EditField("区域", drafts.getValue("region")) { drafts["region"] = it }
-                SaveButton {
-                    onUpdate {
-                        it.copy(assessor = it.assessor.withAzure(drafts.getValue("key"), drafts.getValue("region")))
-                    }
-                }
+    val fields = vendor.fields
+    if (assessor.ready(vendor) || fields.isEmpty()) return
+    val drafts = rememberDrafts(
+        remember(vendor, assessor) { fields.associate { it.key to it.read(assessor) } },
+    )
+    FormBody {
+        fields.forEach { field ->
+            EditField(field.label, drafts.getValue(field.key), secret = field.secret) {
+                drafts[field.key] = it
             }
         }
-
-        AssessorProvider.Tencent -> {
-            val drafts = rememberDrafts(
-                remember(assessor) {
-                    mapOf(
-                        "appId" to assessor.tencentAppId,
-                        "secretId" to assessor.tencentSecretId,
-                        "secretKey" to assessor.tencentSecretKey,
-                    )
-                },
-            )
-            FormBody {
-                EditField("AppID", drafts.getValue("appId")) { drafts["appId"] = it }
-                EditField("SecretID", drafts.getValue("secretId"), secret = true) { drafts["secretId"] = it }
-                EditField("SecretKey", drafts.getValue("secretKey"), secret = true) { drafts["secretKey"] = it }
-                SaveButton {
-                    onUpdate {
-                        it.copy(
-                            assessor = it.assessor.withTencent(
-                                appId = drafts.getValue("appId"),
-                                secretId = drafts.getValue("secretId"),
-                                secretKey = drafts.getValue("secretKey"),
-                            ),
-                        )
-                    }
-                }
-            }
+        SaveButton {
+            onUpdate { it.copy(assessor = it.assessor.apply(vendor, drafts)) }
         }
-
-        AssessorProvider.Xfyun -> {
-            val drafts = rememberDrafts(
-                remember(assessor) {
-                    mapOf(
-                        "appId" to assessor.xfyunAppId,
-                        "apiKey" to assessor.xfyunApiKey,
-                        "apiSecret" to assessor.xfyunApiSecret,
-                    )
-                },
-            )
-            FormBody {
-                EditField("AppID", drafts.getValue("appId")) { drafts["appId"] = it }
-                EditField("APIKey", drafts.getValue("apiKey"), secret = true) { drafts["apiKey"] = it }
-                EditField("APISecret", drafts.getValue("apiSecret"), secret = true) { drafts["apiSecret"] = it }
-                SaveButton {
-                    onUpdate {
-                        it.copy(
-                            assessor = it.assessor.withXfyun(
-                                appId = drafts.getValue("appId"),
-                                apiKey = drafts.getValue("apiKey"),
-                                apiSecret = drafts.getValue("apiSecret"),
-                            ),
-                        )
-                    }
-                }
-            }
-        }
-
-        AssessorProvider.None -> Unit
     }
 }
 
