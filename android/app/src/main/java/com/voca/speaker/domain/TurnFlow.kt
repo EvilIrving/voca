@@ -11,8 +11,12 @@ sealed interface TurnPhase {
     /** 会话就绪，可以按下说话。 */
     data object Idle : TurnPhase
 
-    /** 正在收音。userTurnId 是本轮的草稿轮，文字到齐才进列表。 */
-    data class Recording(val userTurnId: String) : TurnPhase
+    /** 正在收音。userTurnId 是本轮的草稿轮，文字到齐才进列表；offline 为真表示采集期间连接曾断开，待重连恢复或松手结算。 */
+    data class Recording(
+        val userTurnId: String,
+        val pendingText: String = "",
+        val offline: Boolean = false,
+    ) : TurnPhase
 
     /** 已松手，等待服务端收尾。这一阶段再按下就是打断模型输出。 */
     data class Awaiting(
@@ -104,7 +108,14 @@ object TurnFlow {
         if (event.isLateForCancelled(state)) return Reduction(state, emptyList())
         val effects = mutableListOf<TurnEffect>()
         val next = when (event) {
-            TurnEvent.SessionReady -> state.copy(phase = TurnPhase.Idle)
+            TurnEvent.SessionReady -> when (val phase = state.phase) {
+                TurnPhase.Offline -> state.copy(phase = TurnPhase.Idle)
+                is TurnPhase.Recording -> {
+                    if (phase.offline) effects += TurnEffect.SendTurnStart
+                    state.copy(phase = phase.copy(offline = false))
+                }
+                else -> state
+            }
 
             TurnEvent.SessionLost -> loseSession(state, effects)
 
@@ -129,11 +140,29 @@ object TurnFlow {
             TurnEvent.Commit -> when (val phase = state.phase) {
                 is TurnPhase.Recording -> {
                     effects += TurnEffect.StopCapture
-                    effects += TurnEffect.SendTurnEnd
-                    state.copy(
-                        phase = TurnPhase.Awaiting(phase.userTurnId, null),
-                        cancelArmed = false,
-                    )
+                    if (phase.offline) {
+                        effects += TurnEffect.Delete(phase.userTurnId)
+                        effects += TurnEffect.Notify("网络异常，正在重连")
+                        state.copy(
+                            phase = TurnPhase.Offline,
+                            turns = state.turns.filterNot { it.id == phase.userTurnId },
+                            cancelArmed = false,
+                        )
+                    } else {
+                        effects += TurnEffect.SendTurnEnd
+                        val turns = if (phase.pendingText.isNotEmpty()) {
+                            val updated = state.turns.upsertText(phase.userTurnId, Speaker.User, phase.pendingText)
+                            effects += TurnEffect.Persist(updated.first { it.id == phase.userTurnId })
+                            updated
+                        } else {
+                            state.turns
+                        }
+                        state.copy(
+                            phase = TurnPhase.Awaiting(phase.userTurnId, null),
+                            turns = turns,
+                            cancelArmed = false,
+                        )
+                    }
                 }
 
                 else -> state
@@ -299,13 +328,8 @@ object TurnFlow {
     private fun loseSession(state: TurnFlowState, effects: MutableList<TurnEffect>): TurnFlowState {
         return when (val phase = state.phase) {
             is TurnPhase.Recording -> {
-                effects += TurnEffect.StopCapture
-                effects += TurnEffect.Delete(phase.userTurnId)
-                state.copy(
-                    phase = TurnPhase.Offline,
-                    turns = state.turns.filterNot { it.id == phase.userTurnId },
-                    cancelArmed = false,
-                )
+                // 收音期间网络闪断不断开本地录音与长按手势，标记 offline 等重连恢复或松手再结算。
+                state.copy(phase = phase.copy(offline = true))
             }
 
             is TurnPhase.Awaiting -> {
@@ -327,16 +351,21 @@ object TurnFlow {
         text: String,
         effects: MutableList<TurnEffect>,
     ): TurnFlowState {
-        val phase = state.phase
-        val turnId = when (phase) {
-            is TurnPhase.Recording -> phase.userTurnId
-            is TurnPhase.Awaiting -> phase.userTurnId
-            else -> null
-        } ?: return state
+        return when (val phase = state.phase) {
+            is TurnPhase.Recording -> {
+                // 收音期间服务端自动断句提前推来的转写先攒在状态里，松手 Commit 再落气泡与落库。
+                state.copy(phase = phase.copy(pendingText = phase.pendingText + text))
+            }
 
-        val updated = state.turns.upsertText(turnId, Speaker.User, text)
-        effects += TurnEffect.Persist(updated.first { it.id == turnId })
-        return state.copy(turns = updated)
+            is TurnPhase.Awaiting -> {
+                val turnId = phase.userTurnId ?: return state
+                val updated = state.turns.upsertText(turnId, Speaker.User, text)
+                effects += TurnEffect.Persist(updated.first { it.id == turnId })
+                state.copy(turns = updated)
+            }
+
+            else -> state
+        }
     }
 
     private fun appendAssistantText(

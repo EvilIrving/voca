@@ -72,7 +72,7 @@ class CancelledTurnLateEventTest {
             drive.state.turns.map { it.text },
         )
 
-        drive.send(TurnEvent.UserText("这一轮真说的话"))
+        drive.send(TurnEvent.UserText("这一轮真说的话"), TurnEvent.Commit)
         assertEquals(listOf("这一轮真说的话"), drive.state.turns.map { it.text })
     }
 
