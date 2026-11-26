@@ -46,10 +46,7 @@ import com.voca.speaker.data.db.VocaDatabase
 import com.voca.speaker.data.realtime.Capabilities
 import com.voca.speaker.data.realtime.RealtimeEvent
 import com.voca.speaker.data.realtime.RealtimeSession
-import com.voca.speaker.data.realtime.doubao.DoubaoRealtimeSession
-import com.voca.speaker.data.realtime.gemini.GeminiLiveSession
-import com.voca.speaker.data.realtime.openai.OpenAiRealtimeSession
-import com.voca.speaker.data.realtime.qwen.QwenRealtimeSession
+import com.voca.speaker.data.realtime.RealtimeSessionFactory
 import com.voca.speaker.data.settings.SettingsStore
 import com.voca.speaker.domain.CaptureFailure
 import com.voca.speaker.domain.AnalysisSettings
@@ -542,62 +539,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 按供应商分发到各自的适配器。未配置判定按当前供应商的凭据，构造参数与各家真实签名对齐：
-     * Gemini 吃密钥、模型、音色与系统提示，OpenAI 与千问叫 instructions，豆包吃一把密钥且模型号写在协议里。
-     * [history] 是接着一条历史会话聊时要先交代的那段流水，新开的一段为 null。
-     * 豆包与千问不吃这段整串文字，它们从当前轮次抽出成对上下文分别走 dialog_context 与 conversation.item.create。
+     * 通过实时会话工厂按当前设置创建连接，业务层不直接分支具体供应商。
      */
     private fun connect(history: String? = historyOf) {
         val current = settingsStore.settings.value
-        val live = current.live
-        val vendor = live.provider
-        if (vendor == null || !live.ready(vendor)) {
+        val seq = connectSeq + 1
+        // 记忆每一轮都在变，连接却只在开场、换连接与重连时建，系统提示与全局记忆在这里一起进 setup。
+        // 正在进行的那条连接上下文里本来就有这段对话，中途再灌一份只会把上下文撑大。
+        val instructions = systemPromptOf(plan.prompt, memory.text.value)
+        val created = RealtimeSessionFactory.create(
+            live = current.live,
+            instructions = instructions,
+            history = history,
+            context = dialogContextOf(flow.turns),
+            onEvent = { event -> onEvent(seq, event) },
+        )
+        if (created == null) {
             connection = Connection.Unconfigured
             cancelReconnect()
             project()
             return
         }
-        connectSeq += 1
-        val seq = connectSeq
-        // 记忆每一轮都在变，连接却只在开场、换连接与重连时建，系统提示与全局记忆在这里一起进 setup。
-        // 正在进行的那条连接上下文里本来就有这段对话，中途再灌一份只会把上下文撑大。
-        val instructions = systemPromptOf(plan.prompt, memory.text.value)
-        val created = when (vendor) {
-            LiveVendor.Gemini -> GeminiLiveSession(
-                apiKey = live.geminiKey,
-                model = live.tuningOf(vendor).model,
-                voice = live.tuningOf(vendor).voice,
-                systemPrompt = instructions,
-                onEvent = { event -> onEvent(seq, event) },
-                history = history,
-            )
-
-            LiveVendor.OpenAi -> OpenAiRealtimeSession(
-                apiKey = live.openAiKey,
-                model = live.tuningOf(vendor).model,
-                voice = live.tuningOf(vendor).voice,
-                instructions = instructions,
-                onEvent = { event -> onEvent(seq, event) },
-                history = history,
-            )
-
-            LiveVendor.Doubao -> DoubaoRealtimeSession(
-                apiKey = live.doubaoApiKey,
-                voice = live.tuningOf(vendor).voice,
-                systemPrompt = instructions,
-                onEvent = { event -> onEvent(seq, event) },
-                context = dialogContextOf(flow.turns),
-            )
-
-            LiveVendor.Qwen -> QwenRealtimeSession(
-                apiKey = live.qwenApiKey,
-                model = live.tuningOf(vendor).model,
-                voice = live.tuningOf(vendor).voice,
-                instructions = instructions,
-                onEvent = { event -> onEvent(seq, event) },
-                context = dialogContextOf(flow.turns),
-            )
-        }
+        connectSeq = seq
         session = created
         capabilities = created.capabilities
         connection = Connection.Connecting
