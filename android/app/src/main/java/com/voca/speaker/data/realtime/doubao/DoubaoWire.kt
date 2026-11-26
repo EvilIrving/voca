@@ -176,13 +176,14 @@ internal object DoubaoWire {
             "input_audio_buffer.committed" -> DoubaoInbound.Committed
             "response.canceled" -> DoubaoInbound.Canceled
             "session.closed" -> DoubaoInbound.Closed
-            "error" -> DoubaoInbound.Failed(faultOf(root))
+            "error" -> faultOf(root)?.let { DoubaoInbound.Failed(it) } ?: DoubaoInbound.Ignored
             else -> DoubaoInbound.Ignored
         }
     }
 
     private fun responseIdOf(root: JsonObject): String? =
         textOf(root, "response_id")
+            ?: root["response"]?.let { runCatching { it.jsonObject["id"]?.jsonPrimitive?.contentOrNull }.getOrNull()?.takeIf { id -> id.isNotEmpty() } }
 
     private fun textOf(root: JsonObject, key: String): String? =
         root[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }
@@ -191,11 +192,16 @@ internal object DoubaoWire {
         runCatching { Base64.getDecoder().decode(base64) }.getOrNull()?.takeIf { it.isNotEmpty() }
 
     /** 服务端的错误原文只进日志，界面拿到的是归类之后那一句，认不出类别就是空串。 */
-    private fun faultOf(root: JsonObject): String {
+    private fun faultOf(root: JsonObject): String? {
         val error = root["error"]
         val code = error?.let { runCatching { it.jsonObject["code"]?.jsonPrimitive?.contentOrNull }.getOrNull() }
+        val param = error?.let { runCatching { it.jsonObject["param"]?.jsonPrimitive?.contentOrNull }.getOrNull() }
         val said = error?.let { runCatching { it.jsonObject["message"]?.jsonPrimitive?.contentOrNull }.getOrNull() }
-        Log.w("DoubaoWire", "服务端报错 code=$code ${said?.take(200)}")
+        Log.w("DoubaoWire", "服务端报错 code=$code param=$param ${said?.take(200)}")
+        // 抑制抢话发 response.cancel 时响应可能刚收完，这是竞态不是故障，认成故障会把正在录的一轮掐断。
+        if (param == "response.cancel" || said?.contains("no active response", ignoreCase = true) == true) {
+            return null
+        }
         return ProviderFault.notice(code, said)
     }
 }
