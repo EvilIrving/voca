@@ -32,9 +32,20 @@ android {
         buildConfigField("String", "DEV_GEMINI_LIVE_MODEL", "\"${secret("GEMINI_LIVE_MODEL").ifBlank { "gemini-3.8-live" }}\"")
         buildConfigField("String", "DEV_GEMINI_TEXT_MODEL", "\"${secret("GEMINI_TEXT_MODEL").ifBlank { "gemini-flash-latest" }}\"")
         buildConfigField("String", "DEV_GEMINI_VOICE", "\"${secret("GEMINI_VOICE").ifBlank { "Aoede" }}\"")
+        buildConfigField("String", "DEV_OPENAI_API_KEY", "\"\"")
+        buildConfigField("String", "DEV_OPENAI_REALTIME_MODEL", "\"${secret("OPENAI_REALTIME_MODEL").ifBlank { "gpt-realtime-2.1" }}\"")
+        buildConfigField("String", "DEV_DOUBAO_API_KEY", "\"\"")
+        buildConfigField("String", "DEV_QWEN_API_KEY", "\"\"")
+        buildConfigField("String", "DEV_DEEPSEEK_API_KEY", "\"\"")
+        buildConfigField("String", "DEV_DEEPSEEK_TEXT_MODEL", "\"${secret("DEEPSEEK_TEXT_MODEL").ifBlank { "deepseek-chat" }}\"")
         buildConfigField("String", "DEV_XFYUN_APP_ID", "\"\"")
         buildConfigField("String", "DEV_XFYUN_API_KEY", "\"\"")
         buildConfigField("String", "DEV_XFYUN_API_SECRET", "\"\"")
+        buildConfigField("String", "DEV_TENCENT_APP_ID", "\"\"")
+        buildConfigField("String", "DEV_TENCENT_SECRET_ID", "\"\"")
+        buildConfigField("String", "DEV_TENCENT_SECRET_KEY", "\"\"")
+        buildConfigField("String", "DEV_AZURE_SPEECH_KEY", "\"\"")
+        buildConfigField("String", "DEV_AZURE_SPEECH_REGION", "\"${secret("AZURE_SPEECH_REGION")}\"")
 
         // 只留真机在用的 arm64：onnxruntime 一套原生库就三十多兆，四套指令集全打进去
         // 光这一项就占一百四十多兆，安装包凭空大一倍。
@@ -46,9 +57,17 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "DEV_GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
+            buildConfigField("String", "DEV_OPENAI_API_KEY", "\"${secret("OPENAI_API_KEY")}\"")
+            buildConfigField("String", "DEV_DOUBAO_API_KEY", "\"${secret("DOUBAO_API_KEY")}\"")
+            buildConfigField("String", "DEV_QWEN_API_KEY", "\"${secret("DASHSCOPE_API_KEY")}\"")
+            buildConfigField("String", "DEV_DEEPSEEK_API_KEY", "\"${secret("DEEPSEEK_API_KEY")}\"")
             buildConfigField("String", "DEV_XFYUN_APP_ID", "\"${secret("XFYUN_APP_ID")}\"")
             buildConfigField("String", "DEV_XFYUN_API_KEY", "\"${secret("XFYUN_API_KEY")}\"")
             buildConfigField("String", "DEV_XFYUN_API_SECRET", "\"${secret("XFYUN_API_SECRET")}\"")
+            buildConfigField("String", "DEV_TENCENT_APP_ID", "\"${secret("TENCENT_APP_ID").ifBlank { secret("TECENT_APPID") }}\"")
+            buildConfigField("String", "DEV_TENCENT_SECRET_ID", "\"${secret("TENCENT_SECRET_ID").ifBlank { secret("TECENT_SECRETID") }}\"")
+            buildConfigField("String", "DEV_TENCENT_SECRET_KEY", "\"${secret("TENCENT_SECRET_KEY").ifBlank { secret("TECENT_SECRETKEY") }}\"")
+            buildConfigField("String", "DEV_AZURE_SPEECH_KEY", "\"${secret("AZURE_SPEECH_KEY")}\"")
         }
         release {
             isMinifyEnabled = false

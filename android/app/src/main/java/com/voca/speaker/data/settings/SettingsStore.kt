@@ -16,6 +16,7 @@ import com.voca.speaker.domain.AuthKind
 import com.voca.speaker.domain.LiveSettings
 import com.voca.speaker.domain.LiveTuning
 import com.voca.speaker.domain.LiveVendor
+import com.voca.speaker.domain.VoiceCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,25 +45,60 @@ class SettingsStore(context: Context) {
     private fun defaults(): AppSettings {
         val live = LiveSettings(
             geminiKey = BuildConfig.DEV_GEMINI_API_KEY,
+            openAiKey = BuildConfig.DEV_OPENAI_API_KEY,
+            doubaoApiKey = BuildConfig.DEV_DOUBAO_API_KEY,
+            qwenApiKey = BuildConfig.DEV_QWEN_API_KEY,
             tuning = mapOf(
                 LiveVendor.Gemini to LiveTuning(
                     BuildConfig.DEV_GEMINI_LIVE_MODEL,
                     BuildConfig.DEV_GEMINI_VOICE,
                 ),
-            ),
-        )
-        val analysis = AnalysisSettings(
-            saved = mapOf(
-                TextProviderCatalog.GeminiId to AnalysisCredentials(
-                    apiKey = BuildConfig.DEV_GEMINI_API_KEY,
-                    model = BuildConfig.DEV_GEMINI_TEXT_MODEL,
+                LiveVendor.OpenAi to LiveTuning(
+                    BuildConfig.DEV_OPENAI_REALTIME_MODEL,
+                    VoiceCatalog.defaultId(LiveVendor.OpenAi),
                 ),
             ),
         )
+        val liveProvider = listOf(LiveVendor.Gemini, LiveVendor.Doubao, LiveVendor.Qwen, LiveVendor.OpenAi)
+            .firstOrNull { live.ready(it) }
+
+        val analysisSaved = buildMap {
+            if (BuildConfig.DEV_GEMINI_API_KEY.isNotBlank()) {
+                put(
+                    TextProviderCatalog.GeminiId,
+                    AnalysisCredentials(
+                        apiKey = BuildConfig.DEV_GEMINI_API_KEY,
+                        model = BuildConfig.DEV_GEMINI_TEXT_MODEL,
+                    ),
+                )
+            }
+            if (BuildConfig.DEV_DEEPSEEK_API_KEY.isNotBlank()) {
+                put(
+                    TextProviderCatalog.deepseek.id,
+                    AnalysisCredentials(
+                        apiKey = BuildConfig.DEV_DEEPSEEK_API_KEY,
+                        model = BuildConfig.DEV_DEEPSEEK_TEXT_MODEL,
+                    ),
+                )
+            }
+        }
+        val analysis = AnalysisSettings(saved = analysisSaved)
+        val analysisProvider = if (analysis.of(TextProviderCatalog.GeminiId).ready) {
+            TextProviderCatalog.GeminiId
+        } else {
+            analysisSaved.keys.firstOrNull().orEmpty()
+        }
+
         return AppSettings(
-            live = live.selectIfReady(LiveVendor.Gemini),
-            analysis = analysis.selectIfReady(TextProviderCatalog.GeminiId),
+            live = liveProvider?.let { live.select(it) } ?: live,
+            analysis = analysis.select(analysisProvider),
             assessor = AssessorSettings()
+                .withAzure(BuildConfig.DEV_AZURE_SPEECH_KEY, BuildConfig.DEV_AZURE_SPEECH_REGION)
+                .withTencent(
+                    BuildConfig.DEV_TENCENT_APP_ID,
+                    BuildConfig.DEV_TENCENT_SECRET_ID,
+                    BuildConfig.DEV_TENCENT_SECRET_KEY,
+                )
                 .withXfyun(
                     BuildConfig.DEV_XFYUN_APP_ID,
                     BuildConfig.DEV_XFYUN_API_KEY,
@@ -79,12 +115,93 @@ class SettingsStore(context: Context) {
             prefs.edit().putBoolean(KEY_SEEDED, true).apply()
             return initial
         }
-        return AppSettings(
+        val loaded = AppSettings(
             live = readLive(prefs),
             analysis = readAnalysis(prefs),
             assessor = readAssessor(prefs),
             prompt = readPrompt(prefs, defaultPrompt),
         )
+        if (!BuildConfig.DEBUG) return loaded
+        val merged = mergeDevDefaults(loaded)
+        if (merged != loaded) write(merged)
+        return merged
+    }
+
+    /** 开发构建下把 .env 里新添的空位凭据补进本地存储，不覆盖已有密钥与当前选中的供应商。 */
+    private fun mergeDevDefaults(current: AppSettings): AppSettings {
+        var live = current.live
+        if (live.geminiKey.isBlank() && BuildConfig.DEV_GEMINI_API_KEY.isNotBlank()) {
+            live = live.withKey(LiveVendor.Gemini, BuildConfig.DEV_GEMINI_API_KEY)
+        }
+        if (live.openAiKey.isBlank() && BuildConfig.DEV_OPENAI_API_KEY.isNotBlank()) {
+            live = live.withKey(LiveVendor.OpenAi, BuildConfig.DEV_OPENAI_API_KEY)
+        }
+        if (live.doubaoApiKey.isBlank() && BuildConfig.DEV_DOUBAO_API_KEY.isNotBlank()) {
+            live = live.withKey(LiveVendor.Doubao, BuildConfig.DEV_DOUBAO_API_KEY)
+        }
+        if (live.qwenApiKey.isBlank() && BuildConfig.DEV_QWEN_API_KEY.isNotBlank()) {
+            live = live.withKey(LiveVendor.Qwen, BuildConfig.DEV_QWEN_API_KEY)
+        }
+        if (!live.ready) {
+            LiveVendor.entries.firstOrNull { live.ready(it) }?.let { live = live.select(it) }
+        }
+
+        var analysis = current.analysis
+        if (!analysis.of(TextProviderCatalog.GeminiId).ready && BuildConfig.DEV_GEMINI_API_KEY.isNotBlank()) {
+            analysis = analysis.amend(TextProviderCatalog.GeminiId) {
+                it.copy(
+                    apiKey = BuildConfig.DEV_GEMINI_API_KEY,
+                    model = it.model.ifBlank { BuildConfig.DEV_GEMINI_TEXT_MODEL },
+                )
+            }
+        }
+        if (!analysis.of(TextProviderCatalog.deepseek.id).ready && BuildConfig.DEV_DEEPSEEK_API_KEY.isNotBlank()) {
+            analysis = analysis.amend(TextProviderCatalog.deepseek.id) {
+                it.copy(
+                    apiKey = BuildConfig.DEV_DEEPSEEK_API_KEY,
+                    model = it.model.ifBlank { BuildConfig.DEV_DEEPSEEK_TEXT_MODEL },
+                )
+            }
+        }
+        if (!analysis.active.ready) {
+            analysis.saved.entries.firstOrNull { it.value.ready }?.key?.let { analysis = analysis.select(it) }
+        }
+
+        var assessor = current.assessor
+        val selectedAssessor = assessor.resolvedProvider
+        if (!assessor.ready(AssessorProvider.Azure) &&
+            BuildConfig.DEV_AZURE_SPEECH_KEY.isNotBlank() &&
+            BuildConfig.DEV_AZURE_SPEECH_REGION.isNotBlank()
+        ) {
+            assessor = assessor.withAzure(BuildConfig.DEV_AZURE_SPEECH_KEY, BuildConfig.DEV_AZURE_SPEECH_REGION)
+        }
+        if (!assessor.ready(AssessorProvider.Tencent) &&
+            BuildConfig.DEV_TENCENT_APP_ID.isNotBlank() &&
+            BuildConfig.DEV_TENCENT_SECRET_ID.isNotBlank() &&
+            BuildConfig.DEV_TENCENT_SECRET_KEY.isNotBlank()
+        ) {
+            assessor = assessor.withTencent(
+                BuildConfig.DEV_TENCENT_APP_ID,
+                BuildConfig.DEV_TENCENT_SECRET_ID,
+                BuildConfig.DEV_TENCENT_SECRET_KEY,
+            )
+        }
+        if (!assessor.ready(AssessorProvider.Xfyun) &&
+            BuildConfig.DEV_XFYUN_APP_ID.isNotBlank() &&
+            BuildConfig.DEV_XFYUN_API_KEY.isNotBlank() &&
+            BuildConfig.DEV_XFYUN_API_SECRET.isNotBlank()
+        ) {
+            assessor = assessor.withXfyun(
+                BuildConfig.DEV_XFYUN_APP_ID,
+                BuildConfig.DEV_XFYUN_API_KEY,
+                BuildConfig.DEV_XFYUN_API_SECRET,
+            )
+        }
+        if (selectedAssessor != AssessorProvider.None) {
+            assessor = assessor.select(selectedAssessor)
+        }
+
+        return current.copy(live = live, analysis = analysis, assessor = assessor)
     }
 
     private fun write(settings: AppSettings) {
