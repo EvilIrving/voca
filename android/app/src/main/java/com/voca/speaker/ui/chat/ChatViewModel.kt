@@ -11,8 +11,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import com.voca.speaker.audio.ClipPlayer
 import com.voca.speaker.audio.AudioPlayer
-import com.voca.speaker.audio.AzureCredential
 import com.voca.speaker.audio.Tts
+import com.voca.speaker.audio.TtsOutcome
 import com.voca.speaker.audio.TurnAudioStore
 import com.voca.speaker.audio.SileroVad
 import com.voca.speaker.audio.VoiceClip
@@ -143,12 +143,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** 朗读凭据与发音评测共用同一份 Azure 语音资源，缺凭据或未成功时保持静默。 */
+    /** 朗读入口只认统一的 TtsSpeaker，内部按设置里的供应商能力调度，外部无感知。 */
     private val tts by lazy {
-        Tts(player) {
-            val assessor = settingsStore.settings.value.assessor
-            AzureCredential(assessor.azureKey, assessor.azureRegion)
-        }
+        Tts(player) { settingsStore.settings.value }
     }
 
     val settings: StateFlow<AppSettings> = settingsStore.settings
@@ -1003,15 +1000,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun speakText(text: String) {
         if (text.isBlank()) return
-        // 没填评测密钥就别去撞一次失败：先在界面上说清楚要去哪里填。
-        val assessor = settingsStore.settings.value.assessor
-        if (assessor.azureKey.isBlank() || assessor.azureRegion.isBlank()) {
-            showNotice(FillAssessorKey)
-            return
-        }
         viewModelScope.launch {
-            val ok = tts.speak(text)
-            if (!ok) showNotice(TtsFailed)
+            when (tts.speak(text)) {
+                TtsOutcome.Played -> Unit
+                TtsOutcome.Unconfigured -> showNotice(TtsUnconfigured)
+                TtsOutcome.Failed -> showNotice(TtsFailed)
+            }
         }
     }
 
@@ -1526,10 +1520,8 @@ internal const val FillLiveKey = "请填写语音模型 apikey"
 /** 线路不收文字时的提示语。开场问候与打字输入共用同一句。 */
 internal const val TextUnsupported = "当前语音模型不支持打字"
 
-/** 发音朗读缺凭证时的提示语。指向设置页发音评测那一栏。 */
-internal const val FillAssessorKey = "请填写发音评测密钥"
-
 /** 发音网络请求失败时的提示语。 */
+internal const val TtsUnconfigured = "当前所选模型不支持朗读"
 internal const val TtsFailed = "发音服务连接失败"
 
 /** 松手后本地判定没收到人声时的提示语。不说这一句，界面回空态就与“没录上”无从分辨。 */

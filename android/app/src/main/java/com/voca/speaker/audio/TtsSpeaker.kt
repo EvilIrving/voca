@@ -1,8 +1,18 @@
 package com.voca.speaker.audio
 
 import android.util.Log
+import com.voca.speaker.domain.AppSettings
+import com.voca.speaker.domain.AssessorProvider
+import com.voca.speaker.domain.LiveVendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -14,25 +24,119 @@ data class AzureCredential(val key: String = "", val region: String = "") {
     val configured: Boolean get() = key.isNotBlank() && region.isNotBlank()
 }
 
+enum class TtsOutcome { Played, Unconfigured, Failed }
+
 interface TtsSpeaker {
-    /** 读完或起播成功返回真，调用方据此决定是否换个实现接住。 */
-    suspend fun speak(text: String): Boolean
+    /** 严格按当前选中供应商朗读：成功返回 [TtsOutcome.Played]，未配置或合成失败分别返回对应结果。 */
+    suspend fun speak(text: String): TtsOutcome
 }
 
 /**
- * 朗读入口：只走神经网络语音模型，缺凭据或合成失败直接返回假，绝不调用机械系统音兜底。
- * 每次朗读前都清一次播放队列，正在播的会话音频会让位给朗读。
+ * 朗读入口：只走神经网络语音模型，严格跟随设置中当前激活的供应商（Azure 评测或千问实时），
+ * 不做跨供应商顺序兜底，绝不调用机械系统音。外部调用方只认 [TtsSpeaker] 与 [TtsOutcome]。
  */
 class Tts(
     private val player: AudioPlayer,
-    private val credential: () -> AzureCredential,
+    private val settings: () -> AppSettings,
 ) : TtsSpeaker {
 
+    override suspend fun speak(text: String): TtsOutcome {
+        if (text.isBlank()) return TtsOutcome.Failed
+        val speaker = resolveSpeaker(settings()) ?: return TtsOutcome.Unconfigured
+        return if (speaker.speak(text)) TtsOutcome.Played else TtsOutcome.Failed
+    }
+
+    private fun resolveSpeaker(current: AppSettings): ProviderSpeaker? {
+        if (current.assessor.resolvedProvider == AssessorProvider.Azure) {
+            val azure = AzureCredential(current.assessor.azureKey, current.assessor.azureRegion)
+            if (azure.configured) return AzureSpeaker(player, azure)
+        }
+        if (current.live.provider == LiveVendor.Qwen && current.live.ready(LiveVendor.Qwen)) {
+            return QwenSpeaker(player, current.live.qwenApiKey)
+        }
+        return null
+    }
+}
+
+private interface ProviderSpeaker {
+    suspend fun speak(text: String): Boolean
+}
+
+/** 千问 qwen3-tts-flash 朗读：返回 24kHz 单声道 16 位 WAV，剥掉四十四字节头直接送播放器。 */
+class QwenSpeaker(
+    private val player: AudioPlayer,
+    private val apiKey: String,
+) : ProviderSpeaker {
+
     override suspend fun speak(text: String): Boolean {
-        if (text.isBlank()) return false
-        val current = credential()
-        if (current.configured && AzureSpeaker(player, current).speak(text)) return true
-        return false
+        if (text.isBlank() || apiKey.isBlank()) return false
+        player.flush()
+        val pcm = withContext(Dispatchers.IO) { synthesize(text) } ?: return false
+        player.enqueue(pcm)
+        return true
+    }
+
+    private fun synthesize(text: String): ByteArray? {
+        val body = buildJsonObject {
+            put("model", MODEL)
+            putJsonObject("input") {
+                put("text", text)
+                put("voice", VOICE)
+            }
+        }.toString()
+        val request = Request.Builder()
+            .url(ENDPOINT)
+            .header("Authorization", "Bearer ${apiKey.trim()}")
+            .header("Content-Type", "application/json")
+            .post(body.toRequestBody(JsonMedia))
+            .build()
+        val audioUrl = try {
+            client.newCall(request).execute().use { response ->
+                val raw = response.body.string()
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "qwen tts ${response.code}: ${raw.take(200)}")
+                    return null
+                }
+                Json.parseToJsonElement(raw).jsonObject["output"]
+                    ?.jsonObject?.get("audio")
+                    ?.jsonObject?.get("url")
+                    ?.jsonPrimitive?.contentOrNull
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "qwen tts failed: ${e.message}")
+            return null
+        } ?: return null
+
+        val wav = try {
+            client.newCall(Request.Builder().url(audioUrl).build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "qwen wav ${response.code}")
+                    return null
+                }
+                response.body.bytes()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "qwen wav failed: ${e.message}")
+            return null
+        }
+        if (wav.size <= WAV_HEADER) return null
+        return wav.copyOfRange(WAV_HEADER, wav.size)
+    }
+
+    private companion object {
+        const val TAG = "QwenSpeaker"
+        const val ENDPOINT = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+        const val MODEL = "qwen3-tts-flash"
+        const val VOICE = "Cherry"
+        const val WAV_HEADER = 44
+        val JsonMedia = "application/json".toMediaType()
+        val client: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(8, TimeUnit.SECONDS)
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .build()
+        }
     }
 }
 
@@ -40,7 +144,7 @@ class Tts(
 class AzureSpeaker(
     private val player: AudioPlayer,
     private val credential: AzureCredential,
-) : TtsSpeaker {
+) : ProviderSpeaker {
 
     override suspend fun speak(text: String): Boolean {
         if (text.isBlank() || !credential.configured) return false
