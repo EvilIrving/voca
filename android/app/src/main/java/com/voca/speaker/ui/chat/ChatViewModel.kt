@@ -504,13 +504,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun tryStartCapture(): Boolean {
-        val current = session ?: return false
+        if (session == null) return false
         uplink.reset()
         val started = recorder.start(
             getApplication<Application>().cacheDir,
             onFrame = { frame ->
                 appendUplink(frame)
-                current.sendAudio(frame)
+                session?.sendAudio(frame)
             },
             onLevel = ::pushLevel,
             // 采样线程自己断了（读写异常、句柄被收走）时按失败收尾，输入条不停在录音态。
