@@ -37,11 +37,11 @@ sealed interface AssessOutcome {
  */
 enum class AssessFailure(val notice: String) {
 
-    Key(ProviderFault.Key),
+    Key("发音评测：${ProviderFault.Key}"),
 
-    Quota(ProviderFault.Quota),
+    Quota("发音评测：${ProviderFault.Quota}"),
 
-    Busy(ProviderFault.Busy),
+    Busy("发音评测：${ProviderFault.Busy}"),
 
     /** 握手没成、连接中断、读取超时，这一轮没送到或没送完。 */
     Offline("评测服务未连通，请检查网络"),

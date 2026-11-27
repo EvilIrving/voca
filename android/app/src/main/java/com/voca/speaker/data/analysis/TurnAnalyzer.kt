@@ -12,6 +12,12 @@ data class TurnAnalysis(
     val vocab: List<VocabCard>,
 )
 
+/** 单次文本分析的结果：成功带着报告与生词，失败带着归类后的原因。 */
+sealed interface AnalysisOutcome {
+    data class Done(val analysis: TurnAnalysis) : AnalysisOutcome
+    data class Failed(val notice: String) : AnalysisOutcome
+}
+
 /**
  * 异步文本分析：语法分、母语者改写、语境生词。与主音频链路隔离，不阻塞回合。
  * 气泡译文与会话名是同一套端点、鉴权与思考参数的另外两个追问，放在同一个接口上，
@@ -19,6 +25,9 @@ data class TurnAnalysis(
  */
 interface TurnAnalyzer {
     suspend fun analyze(text: String, turnId: String): TurnAnalysis?
+
+    suspend fun analyzeOutcome(text: String, turnId: String): AnalysisOutcome =
+        analyze(text, turnId)?.let(AnalysisOutcome::Done) ?: AnalysisOutcome.Failed("")
 
     /** 气泡译文：中文释义随轮落库。 */
     suspend fun translate(text: String): String?

@@ -1,10 +1,12 @@
 package com.voca.speaker.data.analysis
 
 import android.util.Log
+import com.voca.speaker.data.realtime.ProviderFault
 import com.voca.speaker.domain.AnalysisCredentials
 import com.voca.speaker.domain.AnalysisSettings
 import com.voca.speaker.domain.AuthKind
 import com.voca.speaker.domain.MemoryMaxChars
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.add
@@ -185,11 +187,22 @@ class OpenAiCompatibleEngine(
     private val client: OkHttpClient = defaultEngineClient,
 ) : TurnAnalyzer {
 
-    override suspend fun analyze(text: String, turnId: String): TurnAnalysis? = withContext(Dispatchers.IO) {
-        if (!config.ready || text.isBlank()) return@withContext null
-        val request = config.request(analysisPrompt(text), structured = true) ?: return@withContext null
-        val content = post(request)?.let { replyText(it) } ?: return@withContext null
-        parseAnalysisReport(content, text, turnId)
+    override suspend fun analyze(text: String, turnId: String): TurnAnalysis? =
+        (analyzeOutcome(text, turnId) as? AnalysisOutcome.Done)?.analysis
+
+    override suspend fun analyzeOutcome(text: String, turnId: String): AnalysisOutcome = withContext(Dispatchers.IO) {
+        if (!config.ready || text.isBlank()) return@withContext AnalysisOutcome.Failed("")
+        val request = config.request(analysisPrompt(text), structured = true)
+            ?: return@withContext AnalysisOutcome.Failed(ProviderFault.Config)
+        val body = when (val res = postResult(request)) {
+            is PostResult.Ok -> res.body
+            is PostResult.Err -> return@withContext AnalysisOutcome.Failed(res.notice)
+        }
+        val content = replyText(body)
+            ?: return@withContext AnalysisOutcome.Failed("返回格式异常，请稍后重试")
+        val parsed = parseAnalysisReport(content, text, turnId)
+            ?: return@withContext AnalysisOutcome.Failed("返回格式异常，请稍后重试")
+        AnalysisOutcome.Done(parsed)
     }
 
     override suspend fun translate(text: String): String? = withContext(Dispatchers.IO) {
@@ -220,20 +233,39 @@ class OpenAiCompatibleEngine(
             ?.takeIf { it.isNotEmpty() }
     }
 
-    private fun post(request: Request): String? = try {
+    private fun post(request: Request): String? = (postResult(request) as? PostResult.Ok)?.body
+
+    private fun postResult(request: Request): PostResult = try {
         client.newCall(request).execute().use { response ->
             val body = response.body.string()
             if (response.isSuccessful) {
-                body
+                PostResult.Ok(body)
             } else {
                 Log.w(TAG, "${config.provider.id} ${response.code}: ${body.take(200)}")
-                null
+                PostResult.Err(textFault(response.code, body))
             }
         }
+    } catch (e: IOException) {
+        Log.w(TAG, "${config.provider.id} request failed: ${e.message}")
+        PostResult.Err("未连通，请检查网络")
     } catch (e: Exception) {
         Log.w(TAG, "${config.provider.id} request failed: ${e.message}")
-        null
+        PostResult.Err("服务异常，请稍后重试")
     }
+
+    private sealed interface PostResult {
+        data class Ok(val body: String) : PostResult
+        data class Err(val notice: String) : PostResult
+    }
+
+    private fun textFault(code: Int, body: String): String =
+        ProviderFault.message("$code", body) ?: when {
+            code == 401 || code == 403 -> ProviderFault.Key
+            code == 402 -> ProviderFault.Quota
+            code == 429 -> ProviderFault.Busy
+            code == 400 || code == 404 -> ProviderFault.Config
+            else -> "服务异常，请稍后重试"
+        }
 
     private companion object {
         const val TAG = "TurnAnalyzer"

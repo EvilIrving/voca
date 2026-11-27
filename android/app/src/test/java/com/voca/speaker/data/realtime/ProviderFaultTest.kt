@@ -1,5 +1,7 @@
 package com.voca.speaker.data.realtime
 
+import com.voca.speaker.data.assessor.AssessFailure
+import com.voca.speaker.ui.chat.liveFaultNotice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -53,5 +55,12 @@ class ProviderFaultTest {
         assertNull(ProviderFault.message("something odd happened upstream"))
         assertNull(ProviderFault.message())
         assertNull(ProviderFault.message(null, " "))
+    }
+
+    @Test
+    fun `语音模型与发音评测各自带出环节名`() {
+        assertEquals("语音模型：${ProviderFault.Key}", liveFaultNotice(ProviderFault.Key))
+        assertEquals("发音评测：${ProviderFault.Key}", AssessFailure.Key.notice)
+        assertEquals("没有听清，请重说", liveFaultNotice("没有听清，请重说"))
     }
 }

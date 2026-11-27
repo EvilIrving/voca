@@ -1,6 +1,7 @@
 package com.voca.speaker.data.analysis
 
 import kotlinx.coroutines.runBlocking
+import com.voca.speaker.data.realtime.ProviderFault
 import com.voca.speaker.domain.analysisOf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -115,6 +116,29 @@ class TextEngineAssemblyTest {
         val body = bodyOf(recorder.requests.single())
         assertFalse("清单没到位就不猜上限", body.containsKey("max_tokens"))
         assertFalse(body.containsKey("reasoning_effort"))
+    }
+
+    @Test
+    fun `请求失败时返回归类后的原因而不是吞掉`() = runBlocking {
+        val unauthorizedClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(401)
+                    .message("Unauthorized")
+                    .body("""{"error":{"message":"Incorrect API key"}}""".toResponseBody("application/json".toMediaType()))
+                    .build()
+            }
+            .build()
+        val settings = analysisOf(
+            apiKey = "sk-bad",
+            model = reasoner.id,
+            provider = TextProviderCatalog.deepseek.id,
+        )
+        val engine = OpenAiCompatibleEngine(TextEngineConfig.of(settings, listOf(reasoner)), unauthorizedClient)
+
+        assertEquals(AnalysisOutcome.Failed(ProviderFault.Key), engine.analyzeOutcome("hello", "user-1"))
     }
 
     private fun engineFor(thinking: Boolean, meta: TextModel = reasoner): OpenAiCompatibleEngine {

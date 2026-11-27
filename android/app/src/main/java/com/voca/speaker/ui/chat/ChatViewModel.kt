@@ -26,6 +26,7 @@ import com.voca.speaker.data.analysis.ModelCatalogStore
 import com.voca.speaker.data.analysis.TextModel
 import com.voca.speaker.data.analysis.TextProvider
 import com.voca.speaker.data.analysis.TextProviderCatalog
+import com.voca.speaker.data.analysis.AnalysisOutcome
 import com.voca.speaker.data.analysis.TurnAnalyzer
 import com.voca.speaker.data.analysis.TurnAnalyzerFactory
 import com.voca.speaker.data.analysis.authSpec
@@ -44,6 +45,7 @@ import com.voca.speaker.data.db.MIGRATION_7_8
 import com.voca.speaker.data.db.MIGRATION_8_9
 import com.voca.speaker.data.db.VocaDatabase
 import com.voca.speaker.data.realtime.Capabilities
+import com.voca.speaker.data.realtime.ProviderFault
 import com.voca.speaker.data.realtime.RealtimeEvent
 import com.voca.speaker.data.realtime.RealtimeSession
 import com.voca.speaker.data.realtime.RealtimeSessionFactory
@@ -603,8 +605,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             RealtimeEvent.Interrupted -> dispatch(TurnEvent.Interrupted)
             RealtimeEvent.TurnComplete -> dispatch(TurnEvent.TurnComplete)
             is RealtimeEvent.Failed -> {
-                // 认得出类别的（额度、鉴权、模型）才给一句能动手的话，网络与协议杂音只进日志。
-                if (event.message.isNotBlank()) showNotice(event.message) else Log.i(Tag, "连接失败，按退避重连")
+                // 认得出类别的（额度、鉴权、模型）带出「语音模型：」前缀，网络与协议杂音只进日志。
+                if (event.message.isNotBlank()) showNotice(liveFaultNotice(event.message)) else Log.i(Tag, "连接失败，按退避重连")
                 dispatch(TurnEvent.SessionLost)
                 // 适配器自己那两次带 handle 的短退避已经用尽，或者初次握手就不成立，长退避从这里接手。
                 viewModelScope.launch { scheduleReconnect(seq) }
@@ -654,12 +656,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val pcm = takeUplink()
         val assessor = assessorOf(settingsStore.settings.value.assessor)
         viewModelScope.launch {
-            val analysis = analyzer().analyze(text, turnId)
-            if (analysis == null) {
-                if (analysisRoute(flow.turns, turnId) == AnalysisRoute.Flow) {
-                    dispatch(TurnEvent.AnalysisFailed(turnId))
+            val analysis = when (val outcome = analyzer().analyzeOutcome(text, turnId)) {
+                is AnalysisOutcome.Done -> outcome.analysis
+                is AnalysisOutcome.Failed -> {
+                    if (outcome.notice.isNotBlank()) showNotice("文本分析：${outcome.notice}")
+                    if (analysisRoute(flow.turns, turnId) == AnalysisRoute.Flow) {
+                        dispatch(TurnEvent.AnalysisFailed(turnId))
+                    }
+                    return@launch
                 }
-                return@launch
             }
             val review = withPronunciation(text, analysis.review, assessor, pcm)
             when (analysisRoute(flow.turns, turnId)) {
@@ -1540,6 +1545,17 @@ internal fun textGate(connection: Connection, capabilities: Capabilities?): Text
     Connection.Unconfigured -> TextGate.Unconfigured
     Connection.Connecting, Connection.Failed -> TextGate.Waiting
     Connection.Ready -> if (capabilities?.acceptsText == false) TextGate.Unsupported else TextGate.Allowed
+}
+
+/** 实时语音链路的供应商故障统一带出「语音模型：」前缀，免得和发音评测、文本分析混成一团。 */
+internal fun liveFaultNotice(message: String): String = when (message) {
+    ProviderFault.Key,
+    ProviderFault.Quota,
+    ProviderFault.Busy,
+    ProviderFault.Region,
+    ProviderFault.Config,
+    -> "语音模型：$message"
+    else -> message
 }
 
 /**
