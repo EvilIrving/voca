@@ -172,7 +172,7 @@ OpenAI Realtime 的英文母语感最稳，代价是输入输出都是 24 千赫
 
 ### 本地构建
 
-需要 JDK 17 与 Android SDK（Platform 37）。首次构建要联网拉依赖：
+需要 JDK 17 与 Android SDK（Platform 37），`JAVA_HOME` 指向 JDK 17，SDK 位置写在 `android/local.properties` 的 `sdk.dir` 或环境变量 `ANDROID_HOME` 里，这两项都不进版本库。首次构建要联网拉依赖：
 
 ```bash
 cd android && ./gradlew :app:assembleDebug
