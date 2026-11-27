@@ -107,6 +107,62 @@ flowchart TD
 
 ---
 
+## 供应商接入
+
+三条链路各配各的，凭据在设置页填写，经 Android Keystore 加密后只留在本机；清除某一家只清那一家，同组里另一个配好的家自动接手。同一份 Azure 语音资源的密钥与区域同时供发音评测与朗读使用。
+
+### 推荐组合
+
+天天练英语口语，一套够用的配法是：实时对话用千问实时语音，发音评测用 Azure 语音，文本分析用 DeepSeek。
+
+千问实时是四家里唯 1 把手动控制当正式交互模式的，`turn_detection` 置空就是按住说话，上行 16 千赫兹、下行 24 千赫兹与项目归一口径逐项相同，适配层不用重采样；flash 档一小时双向对练约 0.81 元，北京区另带 100 万 token 与 90 天有效期的免费额度，链路先跑通不用先充钱，语音自然度不够时换 plus 档。
+
+Gemini Live 适合中英混说多、想听更自然语气的场景，实时多模态理解与百毫秒级延迟都够用，代价在计费方式：历史音频一直留在上下文里参与输入计费，消耗随轮次近似平方增长，一条连接 10 分钟左右就要断 1 次，不压缩时 15 分钟左右会截断；半小时 20 轮约 2 美元，开上下文压缩、关扩展思考、10 分钟主动断连能压到每分钟 0.01 美元。
+
+OpenAI Realtime 的英文母语感最稳，代价是输入输出都是 24 千赫兹，重采样落在适配器内部，音频按 32 与 64 美元每百万令牌计。豆包适合手上有火山资源包的人，模型只有 1.2.6.1 这 1 个，自动断句在按住期间关不掉，适配器看到模型开口就抢话取消，手动回合制里这一家要额外花功夫。
+
+评测这层 Azure 放默认位：不给参考文本也能评，返回音素级国际音标与韵律分，单次 30 秒的上限正好对上手动回合制的常见长度；F0 每月 5 小时转写与 50 万字符合成，每天半小时用不满。手上有原文的跟读复述走讯飞，四项分更细，音素偏误按音节归集，免费额度每天 500 次，付费合千次 27 到 42 元。要评普通话或者要自由说，选腾讯，引擎切 `16k_zh` 就能评中文，自由说同样不需要原文，音素与国际音标只在句子模式里出，录音模式一段 60 秒、单次 0.005 元。
+
+文本分析用 DeepSeek 最省心：模型清单接口直接返回上下文窗口、输出上限与思考档位，中文语法点拨与地道改写都够准，价格在几家里最低。要更快的首字响应换 Gemini Flash，与实时对话同一家账号，额度能复用。Anthropic 的改写质量最好，但它没有 JSON 模式，结构化输出靠提示词与解析保证。
+
+### 微软 Azure 语音
+
+在 https://portal.azure.com 开通账号并绑一张国际银行卡完成身份校验，创建 Foundry Tools 下的语音资源，定价层选 F0 就有每月 5 小时实时转写与 50 万字符神经语音合成。资源的「密钥和终结点」页给两把密钥与 Location，设置页两格就填这两样：密钥任取一把，区域写 API 用的英文短名，`eastasia`、`eastus`、`japaneast` 这一类，门户概览里的 Location 显示的是 `East Asia` 这种全称。
+
+短音频评测一次 POST 送完整段：地址拼成 `https://<区域>.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US`，密钥放 `Ocp-Apim-Subscription-Key` 头，评分参数是 Base64 包的 JSON，放 `Pronunciation-Assessment` 头，里面写参考文本、百分制、音素粒度、综合维度与韵律开关。音频装上 44 字节 RIFF 头后整段上传，单次上限 30 秒，超出的尾巴客户端直接丢掉，整条请求超限会被服务端拒掉。微软现行的短音频文档把地址写成资源自己的域名 `<资源名>.cognitiveservices.azure.com/stt/...`，本客户端只认区域式主机名，资源只发了自定义域名时这一家先空着。
+
+### 科大讯飞 语音评测流式版
+
+在 https://www.xfyun.cn 注册并完成实名，创建应用后在应用里添加「语音评测（流式版）」服务，到服务页 https://console.xfyun.cn/services/ise 取 AppID、APIKey、APISecret 三件，填进设置页那三格。新应用默认每天 500 次调用，要更多在服务页领试用包或买套餐。
+
+地址是 `wss://ise-api.xfyun.cn/v2/open-ise`。鉴权把 `host: ise-api.xfyun.cn`、`date: <RFC1123 时间>`、`GET /v2/open-ise HTTP/1.1` 三行拼成原文，用 APISecret 做 HMAC-SHA256 再 Base64，连同 APIKey 一起包成 `authorization` 塞进 query，日期与服务器时间差过大在握手就被拒。
+
+朗读型评测必须先有参考文本，客户端拿不到文本就不发请求，自由交流交给 Azure 的无文本模式。音频 16 千赫兹、16 位、单声道，1280 字节一帧、40 毫秒一帧按实时节奏推进，一次会话不超过 5 分钟。业务参数固定 `ent=en_vip` 与 `category=read_sentence`，参考文本裹进 `[content]` 节点并在前面补 BOM，音素级偏误要 `ise_unite=1` 配 `extra_ability` 那两项才会返回。
+
+### 腾讯云 智聆口语评测
+
+用 QQ 或微信登录 cloud.tencent.com 完成实名，进 https://console.cloud.tencent.com/soenew 的「新建密钥」，AppID、SecretID、SecretKey 三件一次给齐，开通服务与取密钥在同一处，中英文共用一份额度。计费按调用次数，后付费 0.005 元每次，套餐从 9.9 元 1 万次起，大额档合到 3 元每千次。
+
+这套是新版，文档号 1774；同一产品另有基础版，文档号 884。两者差别落在返回码形态：基础版回英文字符串，`AuthFailure.AccountUnavailable` 这种；新版回数字码，`4002` 鉴权失败这一形。看一条错误的形态就知道请求落到了哪一版。客户端只接新版，密钥不属于新版服务时得到的是数字码里的 4002 或 4003。
+
+一条 WebSocket 就是一次评测，地址 `wss://soe.cloud.tencent.com/soe/api/<AppID>`。签名不用云 API 那套 TC3：除 `signature` 外的参数按字典序拼成「主机加路径加查询」的原串并去掉 `wss://`，用 SecretKey 做 HMAC-SHA1 再 Base64，最后对签名值本身 urlencode 一次回填。参数值在签名阶段保持原样、在请求阶段全部编码，两处时机不同是这条链路最容易写错的一格。`timestamp` 单位是秒，`expired` 要大于它且相差不到 90 天，`nonce` 取十位以内的随机正整数，`voice_id` 每条连接一个 UUID。
+
+客户端走录音模式：`rec_mode=1`，有参考文本就按词数在句子与段落之间选 `eval_mode`，没有原文走自由说，严苛度 `score_coeff` 取 2.5，引擎固定 `16k_en`。音频 1280 字节一帧连续送完，收尾发一条 `{"type":"end"}` 文本帧，等到 `final=1` 才断开。录音模式一次连接只评一段，单段上限 60 秒，超了服务端回 4014。国际音标只在句子模式的参考文本里拼 `{::cmd{F_IPA=true}}` 才出，段落与自由说没有这一档。
+
+### 阿里的两个产品
+
+口语评测在智能科教内容生成平台（SSECP）里，控制台是 https://aicontent.console.aliyun.com ，左侧「智能批改」下的「口语评测」，项目配置页点 AppKey 与 AppSecret 会自动复制，页面上的「获取临时 Token」给的凭证 24 小时过期。鉴权分两段：先由服务端用 `appid` 与 `app_secret` 按 MD5 换 `warrant_id`，地址在 `https://api.cloud.ssapi.cn/auth/authorize` 与 `gate-01`、`gate-02`、`gate-03` 三条同域名备选之间轮询；端侧拿 `warrant_id` 与 AppKey 走评测通道。评测通道的签名、start 与 feed 与 stop 三包结构和音频帧封装都没有公开，官方只给端侧 SDK，纯协议直连做不出来，所以客户端没有接这一家，发音评测那组只有 Azure、腾讯与讯飞三行。
+
+百炼是另一套东西：API Key 走 `Authorization: Bearer`，端点在 `dashscope.aliyuncs.com`，没有接受音频返回发音分的接口，评测侧的凭据形状是 warrant 与 sig，与百炼的密钥体系不通。百炼的 key 在本客户端用在千问实时对话与 `qwen3-tts-flash` 朗读上，在 https://bailian.console.aliyun.com 取，拿它评发音走不通。
+
+### 实时对话与文本分析的密钥
+
+实时对话四家：Gemini Live 的 key 在 https://aistudio.google.com/apikey；OpenAI 的在 https://platform.openai.com/api-keys，Realtime 走 `wss://api.openai.com/v1/realtime`；豆包语音在 https://console.volcengine.com/ark 完成实名、到「开通管理」开通豆包实时语音、再到 API Key 管理建一把，鉴权只认 `X-Api-Key` 头，地址是 `wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue`；千问实时与朗读共用百炼那一把 key，地址是 `wss://dashscope.aliyuncs.com/api-ws/v1/realtime`。
+
+文本分析的端点已经预置，填 key 就能用：DeepSeek 在 `api.deepseek.com`、OpenAI 在 `api.openai.com`、Gemini 的 OpenAI 兼容口在 `generativelanguage.googleapis.com/v1beta/openai`、Claude 在 `api.anthropic.com`（走 `x-api-key` 头加 `anthropic-version`）、Kimi 在 `api.moonshot.cn`、GLM 在 `open.bigmodel.cn`。另有自定义端点一行，地址、鉴权方式与附加头自己填。密钥保存后会拉一次模型清单，列出来的才是这家能选的模型。
+
+---
+
 ## 技术栈与开发指南
 
 - **平台与开发语言**：Android 原生开发，Kotlin 配合 Jetpack Compose 声明式 UI。
