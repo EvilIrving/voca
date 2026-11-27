@@ -12,39 +12,39 @@ class StreamingProseTest {
 
     @Test
     fun `每一拍都往前走，且不会越过全量`() {
+        val clock = RevealClock()
         var shown = 0
         var ticks = 0
         while (shown < 120) {
-            val next = nextShown(shown, 120)
-            assertTrue("第 $ticks 拍没往前走", next > shown)
+            val next = clock.advance(shown, 120, 16_000_000L)
+            assertTrue("第 $ticks 拍没往前走", next > shown || shown == 120)
             assertTrue("越过全量", next <= 120)
             shown = next
             ticks += 1
             if (ticks > 200) break
         }
         assertEquals(120, shown)
-        assertEquals(120, nextShown(120, 120))
+        assertEquals(120, clock.advance(120, 120, 16_000_000L))
     }
 
     @Test
-    fun `欠得多步子大，欠得少步子小`() {
-        assertTrue(nextShown(0, 300) - 0 > nextShown(0, 30) - 0)
-        assertEquals(120, nextShown(120, 120))
-    }
-
-    @Test
-    fun `单拍步长有封顶，一次推来两百个字也不会整块砸出来`() {
+    fun `两百字两秒上下放完，不会一下倒出来`() {
+        val clock = RevealClock()
         var shown = 0
         var ticks = 0
-        while (shown < 200) {
-            val next = nextShown(shown, 200)
-            assertTrue("单拍最多走 3 个字，实际走了 ${next - shown}", next - shown <= 3)
-            shown = next
+        while (shown < 200 && ticks < 300) {
+            shown = clock.advance(shown, 200, 16_000_000L)
             ticks += 1
-            if (ticks > 200) break
         }
         assertEquals(200, shown)
-        assertTrue("用了 $ticks 拍", ticks in 60..100)
+        assertTrue("用了 $ticks 拍", ticks in 110..140)
+    }
+
+    @Test
+    fun `卡顿之后最多补三十二毫秒的字`() {
+        val clock = RevealClock()
+        val step = clock.advance(0, 200, 500_000_000L)
+        assertTrue("一次补了 $step 个字", step <= 4)
     }
 
     @Test

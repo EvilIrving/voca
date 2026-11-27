@@ -203,17 +203,24 @@ fun VocaIconButton(
     }
 }
 
-/** 转写按帧柔和放出，每拍最多三个字，让正文顺着气泡平滑长出来，不整块砸出。 */
+/** 转写按帧柔和放出，让正文顺着气泡平滑长出来，不整块砸出。 */
 private const val StreamTickNanos = 16_000_000L
 
-/** 单拍最多放出三个字，配合气泡容器的平滑高度插值，消除一行一跳的顿挫感。 */
-private const val MaxStepPerTick = 3
+/** 放字的速度：整段两百字上下两秒，长段不超过三秒；和声音的播放头各走各的。 */
+private const val RevealCharsPerSecond = 100f
+
+/** 卡顿时最多补这一段时间的字，不把停下来的那一截一次倒出来。 */
+private const val RevealMaxStepNanos = 32_000_000L
 
 /** 放出来的尾巴这一段做淡入，字看着是长出来的，不是一块贴上去的。 */
 private const val StreamFadeChars = 10
 
+/** GestureGuide 的 DEFAULT 弹簧：k=290、b=24，换成 Compose 的刚度与阻尼比。 */
+private const val BubbleSpringStiffness = 290f
+private const val BubbleSpringRatio = 0.705f
+
 /**
- * 气泡正文。只画已经放出来的那一截，剩下的按封顶步长往前赶，永远追得上又不会一下跳出一大块；
+ * 气泡正文。字按每秒一百的速度放出来，只占已经出来的那几行，没出来的字不占位置；
  * 尾巴那几个字从四成淡到实色。放完就换成整段纯文本，不留任何附加样式。
  * 历史消息进组合时文本早就齐了，第一次就按全量画，不倒回去重放；正在流式输出的那一轮从零起播。
  */
@@ -228,6 +235,7 @@ fun StreamingProse(
     val liveText by (streamingText?.collectAsState() ?: remember { androidx.compose.runtime.mutableStateOf("") })
     val activeText = if (streaming && liveText.isNotEmpty()) liveText else text
     var shown by remember { mutableIntStateOf(if (streaming) 0 else activeText.length) }
+    val clock = remember { RevealClock() }
     val target by rememberUpdatedState(activeText)
     // 用整条气泡生命周期的协程追字，避免 shown 追平瞬间与新块到达撞帧导致 LaunchedEffect(active) 键不变而停死。
     LaunchedEffect(Unit) {
@@ -235,9 +243,14 @@ fun StreamingProse(
         while (true) {
             if (shown < target.length) {
                 val now = withFrameNanos { it }
-                if (now - last < StreamTickNanos) continue
+                if (last == 0L) {
+                    last = now
+                    continue
+                }
+                val elapsed = now - last
+                if (elapsed < StreamTickNanos) continue
                 last = now
-                shown = nextShown(shown, target.length)
+                shown = clock.advance(shown, target.length, elapsed)
             } else {
                 snapshotFlow { target.length }.first { it > shown }
                 last = 0L
@@ -270,6 +283,7 @@ fun StreamingProse(
                 layout.getLineBottom(layout.getLineForOffset(lastIdx))
             }
             val heightDp = with(density) { shownBottomPx.toDp() }
+            val stillRevealing = shown < activeText.length
             Box(
                 modifier = Modifier
                     .size(widthDp, heightDp)
@@ -300,7 +314,7 @@ fun StreamingProse(
                             }
                             val fadeStartIdx = (count - StreamFadeChars).coerceAtLeast(layout.getLineStart(line))
                             val fadeLeft = layout.getBoundingBox(fadeStartIdx).left.coerceIn(0f, cursorX)
-                            if (cursorX > fadeLeft) {
+                            if (stillRevealing && cursorX > fadeLeft) {
                                 drawRect(
                                     brush = Brush.horizontalGradient(
                                         colors = listOf(Color.Black, Color.Black.copy(alpha = 0.4f)),
@@ -319,12 +333,26 @@ fun StreamingProse(
     }
 }
 
-/** 下一拍画到第几个字：按欠账的十二分之一往前赶，单拍最多走三个字，至少走 1 个。 */
-internal fun nextShown(shown: Int, total: Int): Int {
-    if (shown >= total) return total
-    val backlog = total - shown
-    val step = (backlog / 12).coerceIn(1, MaxStepPerTick)
-    return (shown + step).coerceAtMost(total)
+/**
+ * 放字的时间账：每秒固定一百字，按这一帧过去的时间攒出整字；攒不够就等下一帧。
+ * 网络一次推来一大段也只按这个速度放，卡顿后最多补三十二毫秒的账。
+ */
+internal class RevealClock(private val charsPerSecond: Float = RevealCharsPerSecond) {
+    private var carry = 0f
+
+    fun advance(shown: Int, total: Int, elapsedNanos: Long): Int {
+        if (shown >= total) {
+            carry = 0f
+            return total
+        }
+        val seconds = elapsedNanos.coerceIn(0L, RevealMaxStepNanos) / 1_000_000_000f
+        carry += seconds * charsPerSecond
+        val step = carry.toInt()
+        if (step <= 0) return shown
+        val applied = step.coerceAtMost(total - shown)
+        carry -= applied
+        return shown + applied
+    }
 }
 
 /** 已经放出来的那截加一道尾巴：末几个字从四成淡上来，最后一个字就是实色。 */
@@ -357,22 +385,31 @@ fun EchoTurn(
     streaming: Boolean = false,
     streamingText: StateFlow<String>? = null,
 ) {
+    val bubbleShape = RoundedCornerShape(
+        topStart = Radius.bubbleTail,
+        topEnd = Radius.bubble,
+        bottomEnd = Radius.bubble,
+        bottomStart = Radius.bubble,
+    )
     Column(modifier = Modifier.fillMaxWidth()) {
         Surface(
             modifier = Modifier.width(BubbleWidth),
-            shape = RoundedCornerShape(
-                topStart = Radius.bubbleTail,
-                topEnd = Radius.bubble,
-                bottomEnd = Radius.bubble,
-                bottomStart = Radius.bubble,
-            ),
+            shape = bubbleShape,
             color = Palette.card,
             border = BorderStroke(1.dp, Palette.hair),
         ) {
             StreamingProse(
                 text = turn.text,
                 style = Type.prose,
-                modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 13.dp, bottom = 12.dp),
+                // 高度按弹簧追：换行那 23 的高度差不再硬跳，底边钉在动作条上方，上沿连续抬。
+                modifier = Modifier
+                    .padding(start = 14.dp, end = 14.dp, top = 13.dp, bottom = 12.dp)
+                    .animateContentSize(
+                        animationSpec = spring(
+                            dampingRatio = BubbleSpringRatio,
+                            stiffness = BubbleSpringStiffness,
+                        ),
+                    ),
                 streaming = streaming,
                 streamingText = streamingText,
             )
