@@ -312,13 +312,20 @@ fun DrawerScaffold(
                 },
         ) {
             // 抽屉垫在最底下，收起时整个藏在卡片身后；推开时与卡片同一个位移，
-            // 露出来的那一条永远正好是卡片右侧让出的宽度。
+            // 并从卡片收到的同一档倍数放大回 1，露出来的那一条永远正好是卡片右侧让出的宽度。
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .width(width)
                     .fillMaxHeight()
-                    .offset { IntOffset((widthPx * (state.fraction.floatValue - 1f)).roundToInt(), 0) },
+                    .graphicsLayer {
+                        val p = state.fraction.floatValue
+                        translationX = widthPx * (p - 1f)
+                        val drawerScale = SessionDrawerSpec.ContentScale + (1f - SessionDrawerSpec.ContentScale) * p
+                        scaleX = drawerScale
+                        scaleY = drawerScale
+                        transformOrigin = TransformOrigin(0.5f, 0.5f)
+                    },
             ) {
                 drawer()
             }
