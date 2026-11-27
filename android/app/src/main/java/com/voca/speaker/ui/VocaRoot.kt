@@ -71,6 +71,7 @@ private enum class Panel { None, Vocab, Settings }
 fun VocaRoot(vm: ChatViewModel = viewModel()) {
     val context = LocalContext.current
     val state by vm.state.collectAsStateWithLifecycle()
+    val playingTurnId by vm.playingTurnId.collectAsStateWithLifecycle()
     val levels = vm.levels
     val levelFrame by vm.levelFrame.collectAsStateWithLifecycle()
     val elapsedMs by vm.elapsedMs.collectAsStateWithLifecycle()
@@ -158,6 +159,8 @@ fun VocaRoot(vm: ChatViewModel = viewModel()) {
                 state = state,
                 turns = state.turns,
                 streamingText = vm.streamingText,
+                playbackProgress = vm::playbackProgress,
+                playingTurnId = playingTurnId,
                 sessionName = state.sessionName.orEmpty(),
                 elapsedMs = elapsedMs,
                 levels = levels,

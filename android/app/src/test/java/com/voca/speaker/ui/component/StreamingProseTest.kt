@@ -1,6 +1,8 @@
 package com.voca.speaker.ui.component
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import com.voca.speaker.ui.theme.Palette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -9,6 +11,9 @@ import org.junit.Test
  * 流式正文的放字节奏与尾巴淡入：永远追得上、永远不越过全量、放出来的那一截与原文一字不差。
  */
 class StreamingProseTest {
+
+    private fun colorAt(styled: AnnotatedString, index: Int): Color =
+        styled.spanStyles.lastOrNull { index >= it.start && index < it.end }?.item?.color ?: Color.Unspecified
 
     @Test
     fun `每一拍都往前走，且不会越过全量`() {
@@ -45,6 +50,27 @@ class StreamingProseTest {
         val clock = RevealClock()
         val step = clock.advance(0, 200, 500_000_000L)
         assertTrue("一次补了 $step 个字", step <= 4)
+    }
+
+    @Test
+    fun `流光不丢字，也不改字序`() {
+        val text = "Can you hear me now? The feedback you gave me was wrong."
+        assertEquals(text, litProse(text, 31f).text)
+    }
+
+    @Test
+    fun `读过的字取墨色，没读到的取四级灰`() {
+        val text = "abcdefghijklmnopqrstuvwxyz0123456789"
+        val styled = litProse(text, 20f)
+        assertEquals(Palette.ink, colorAt(styled, 0))
+        assertEquals(Palette.ink4, colorAt(styled, 35))
+    }
+
+    @Test
+    fun `游标那一个字掺进陶土色`() {
+        val styled = litProse("abcdefghijklmnopqrst", 10f)
+        val center = colorAt(styled, 10)
+        assertTrue("游标还是本色", center != Palette.ink && center != Palette.ink4)
     }
 
     @Test

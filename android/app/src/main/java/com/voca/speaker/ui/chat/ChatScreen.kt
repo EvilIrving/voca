@@ -103,6 +103,8 @@ fun ChatScreen(
     onRecordArmed: (Boolean) -> Unit,
     onRecordPressEnd: (cancelled: Boolean) -> Unit,
     streamingText: StateFlow<String> = remember { MutableStateFlow("") },
+    playbackProgress: () -> Float = { 0f },
+    playingTurnId: String? = null,
     sessionName: String = "",
     continuing: Boolean = false,
     onExitSession: () -> Unit = {},
@@ -225,11 +227,13 @@ fun ChatScreen(
                         when (turn.speaker) {
                             Speaker.Echo -> {
                                 val isStreaming = turn.id == state.streamingTurnId
+                                val isPlaying = turn.id == playingTurnId
                                 val retryTarget = retryTargets[turn.id]
                                 EchoRow(
                                     turn = turn,
                                     streaming = isStreaming,
                                     streamingText = if (isStreaming) streamingText else null,
+                                    playbackProgress = if (isStreaming || isPlaying) playbackProgress else null,
                                     translation = translations[turn.id] ?: turn.translation,
                                     expanded = expanded[turn.id] == true,
                                     translating = turn.id in asking,
@@ -351,6 +355,7 @@ private fun EchoRow(
     turn: Turn,
     streaming: Boolean,
     streamingText: StateFlow<String>?,
+    playbackProgress: (() -> Float)?,
     translation: String?,
     expanded: Boolean,
     translating: Boolean,
@@ -369,6 +374,7 @@ private fun EchoRow(
             expanded = expanded,
             streaming = streaming,
             streamingText = streamingText,
+            playbackProgress = playbackProgress,
         )
         Spacer(Modifier.height(MessageActionsSpec.BubbleGap))
         MessageActionBar(

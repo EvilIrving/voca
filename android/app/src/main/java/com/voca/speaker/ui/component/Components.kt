@@ -35,7 +35,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -55,6 +57,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -79,6 +82,8 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.StateFlow
+import kotlin.math.abs
+import kotlin.math.floor
 import kotlinx.coroutines.flow.first
 import com.voca.speaker.domain.AnalysisStatus
 import com.voca.speaker.domain.Speaker
@@ -215,14 +220,18 @@ private const val RevealMaxStepNanos = 32_000_000L
 /** 放出来的尾巴这一段做淡入，字看着是长出来的，不是一块贴上去的。 */
 private const val StreamFadeChars = 10
 
+/** 流光半宽十个字，中心最亮，向两侧平方衰减。 */
+private const val LightHalfChars = 10f
+private const val LightPeak = 0.95f
+
 /** GestureGuide 的 DEFAULT 弹簧：k=290、b=24，换成 Compose 的刚度与阻尼比。 */
 private const val BubbleSpringStiffness = 290f
 private const val BubbleSpringRatio = 0.705f
 
 /**
  * 气泡正文。字按每秒一百的速度放出来，只占已经出来的那几行，没出来的字不占位置；
- * 尾巴那几个字从四成淡到实色。放完就换成整段纯文本，不留任何附加样式。
- * 历史消息进组合时文本早就齐了，第一次就按全量画，不倒回去重放；正在流式输出的那一轮从零起播。
+ * 声音读到哪由 playbackProgress 给出，读过的字停在墨色，没读到的字是淡的，游标前后十个字掺陶土色。
+ * 文字放完以后只要声音还在放，流光就留在这一条气泡上；历史消息第一次就按全量画。
  */
 @Composable
 fun StreamingProse(
@@ -231,6 +240,7 @@ fun StreamingProse(
     modifier: Modifier = Modifier,
     streaming: Boolean = false,
     streamingText: StateFlow<String>? = null,
+    playbackProgress: (() -> Float)? = null,
 ) {
     val liveText by (streamingText?.collectAsState() ?: remember { androidx.compose.runtime.mutableStateOf("") })
     val activeText = if (streaming && liveText.isNotEmpty()) liveText else text
@@ -257,9 +267,36 @@ fun StreamingProse(
             }
         }
     }
+    // 声音读到哪。进度的真源在播放器，这里只在放字期间每帧问一次；
+    // 音频放完就把流光收掉，整段回到实色。
+    val progressSource by rememberUpdatedState(playbackProgress)
+    val textLength by rememberUpdatedState(activeText.length)
+    var lit by remember { mutableStateOf(playbackProgress != null) }
+    var light by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(playbackProgress != null, streaming) {
+        val source = progressSource
+        if (source == null) {
+            lit = false
+            return@LaunchedEffect
+        }
+        while (true) {
+            val progress = source().coerceIn(0f, 1f)
+            if (progress >= 1f) {
+                lit = false
+                // 文字已经流完的那一轮，播放头到底就是收尾，不必再每帧问。
+                if (!streaming) break
+            } else {
+                // 半字一格，一秒钟最多几十次重排；光带本身有二十一个字，看不出台阶。
+                val bucket = floor(progress * textLength * 2f) / 2f
+                if (bucket > light) light = bucket
+                if (!lit) lit = true
+            }
+            withFrameNanos { }
+        }
+    }
     if (activeText.isEmpty()) {
         Box(modifier = modifier)
-    } else if (shown >= activeText.length) {
+    } else if (!streaming && shown >= activeText.length && playbackProgress == null) {
         Text(activeText, style = style, modifier = modifier)
     } else {
         val textMeasurer = rememberTextMeasurer()
@@ -284,6 +321,17 @@ fun StreamingProse(
             }
             val heightDp = with(density) { shownBottomPx.toDp() }
             val stillRevealing = shown < activeText.length
+            val paintLayout = if (lit) {
+                remember(activeText, light, style, maxWidthPx) {
+                    textMeasurer.measure(
+                        text = litProse(activeText, light),
+                        style = style,
+                        constraints = Constraints(maxWidth = maxWidthPx),
+                    )
+                }
+            } else {
+                layout
+            }
             Box(
                 modifier = Modifier
                     .size(widthDp, heightDp)
@@ -305,12 +353,12 @@ fun StreamingProse(
                         }.coerceIn(0f, size.width)
                         if (line > 0) {
                             clipRect(left = 0f, top = 0f, right = size.width, bottom = lineTop) {
-                                drawText(layout)
+                                drawText(paintLayout)
                             }
                         }
                         if (cursorX > 0f) {
                             clipRect(left = 0f, top = lineTop, right = cursorX, bottom = lineBottom) {
-                                drawText(layout)
+                                drawText(paintLayout)
                             }
                             val fadeStartIdx = (count - StreamFadeChars).coerceAtLeast(layout.getLineStart(line))
                             val fadeLeft = layout.getBoundingBox(fadeStartIdx).left.coerceIn(0f, cursorX)
@@ -331,6 +379,35 @@ fun StreamingProse(
             )
         }
     }
+}
+
+/**
+ * 已经出来的整段字按声音位置上色：读过的取墨色，没读到的取四级灰，
+ * 游标前后各十个字按距离平方掺陶土色，掺到头就是那束流光。
+ */
+internal fun litProse(text: String, head: Float): AnnotatedString {
+    if (text.isEmpty()) return AnnotatedString("")
+    val center = head.coerceIn(0f, text.length - 1f)
+    return buildAnnotatedString {
+        var start = 0
+        var color = lightColor(0, center)
+        for (index in 1 until text.length) {
+            val next = lightColor(index, center)
+            if (next != color) {
+                withStyle(SpanStyle(color = color)) { append(text.substring(start, index)) }
+                start = index
+                color = next
+            }
+        }
+        withStyle(SpanStyle(color = color)) { append(text.substring(start)) }
+    }
+}
+
+private fun lightColor(index: Int, center: Float): Color {
+    val base = if (index < center) Palette.ink else Palette.ink4
+    val distance = abs(index - center) / LightHalfChars
+    val lift = (1f - distance * distance).coerceAtLeast(0f) * LightPeak
+    return if (lift <= 0f) base else lerp(base, Palette.clay, lift)
 }
 
 /**
@@ -384,6 +461,7 @@ fun EchoTurn(
     expanded: Boolean,
     streaming: Boolean = false,
     streamingText: StateFlow<String>? = null,
+    playbackProgress: (() -> Float)? = null,
 ) {
     val bubbleShape = RoundedCornerShape(
         topStart = Radius.bubbleTail,
@@ -412,6 +490,7 @@ fun EchoTurn(
                     ),
                 streaming = streaming,
                 streamingText = streamingText,
+                playbackProgress = playbackProgress,
             )
         }
         if (expanded && translation != null) {

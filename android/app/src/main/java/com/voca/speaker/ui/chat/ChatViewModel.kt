@@ -176,6 +176,33 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _streamingText = MutableStateFlow("")
     val streamingText: StateFlow<String> = _streamingText.asStateFlow()
 
+    /** 播放器正在放哪一轮的声音。文字流完了，声音还在放的那十几秒靠它把流光留在这一轮上。 */
+    private val _playingTurnId = MutableStateFlow<String?>(null)
+
+    /** 播放器当前计着哪一轮的帧；换轮时把播放头基准挪到当下。 */
+    private var audioTurnId: String? = null
+    val playingTurnId: StateFlow<String?> = _playingTurnId.asStateFlow()
+
+    /**
+     * 这一轮的播放进度，0 到 1。声音还没到时是 0，字已经出来但还没读到；
+     * 音频放完、播放器收口以后是 1，整段回到实色。
+     */
+    fun playbackProgress(): Float {
+        val streaming = _state.value.streamingTurnId
+        val playing = _playingTurnId.value
+        if (playing != null) {
+            // 上一轮的声音还没被新的一轮替换掉时，新气泡从零起，不接旧进度。
+            if (streaming != null && playing != streaming) return 0f
+            player.progress()?.let { raw ->
+                // 这一轮还在说话时，播放头追平已经收到的音频不算读完；字还没说完就熄灯会很怪。
+                return if (streaming != null) raw.coerceAtMost(0.999f) else raw
+            }
+            return 1f
+        }
+        // 这一轮在等自己的声音，或者文字已经流完：前者从零起，后者没有可放的音频。
+        return 0f
+    }
+
     /** 最近收掉的那条会话记录：自动命名写好之后会被替换一次。 */
     private val _lastSession = MutableStateFlow<SessionRecord?>(null)
     val lastSession: StateFlow<SessionRecord?> = _lastSession.asStateFlow()
@@ -440,14 +467,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     val turnId = effect.turnId
                     // 已经删掉的那一轮：声音与录音都不该再多活一秒。
                     if (turnId != null && !audio.accepts(turnId)) return@forEach
+                    if (turnId != null && turnId != audioTurnId) {
+                        audioTurnId = turnId
+                        player.beginSource()
+                    }
                     player.enqueue(effect.pcm)
                     turnId?.let { id ->
+                        _playingTurnId.value = id
                         recordedTurns += id
                         audioWrites.trySend(AudioChunk(id, effect.pcm))
                     }
                 }
 
-                TurnEffect.StopPlayback -> player.flush()
+                TurnEffect.StopPlayback -> {
+                    _playingTurnId.value = null
+                    player.flush()
+                }
 
                 is TurnEffect.Persist -> {
                     // 落库的这份从状态里取：状态里那一份带着本轮落地的先后，效果里这份只是当时的快照。

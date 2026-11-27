@@ -23,6 +23,15 @@ class AudioPlayer(context: Context) {
     /** 当前播放会话，null 表示没有在播。 */
     private var output: Output? = null
 
+    /** 这一段会话投进来的总字节数，播放头除以它得到进度。 */
+    private var enqueuedBytes = 0L
+
+    /** 新音频进来会让比例回退，对外只报上界。 */
+    private var progressCeiling = 0f
+
+    /** 这一段会话开始时的播放头；音轨跨轮复用，分子要减掉上一轮已经走过的帧。 */
+    private var headBase = 0L
+
     private var focusRequest: AudioFocusRequest? = null
 
     private inner class Output(val track: AudioTrack) {
@@ -52,8 +61,38 @@ class AudioPlayer(context: Context) {
 
     fun enqueue(pcm: ByteArray) {
         if (pcm.isEmpty()) return
-        val current = synchronized(lock) { output ?: startLocked() } ?: return
+        val current = synchronized(lock) {
+            val fresh = output ?: startLocked()
+            if (fresh != null) enqueuedBytes += pcm.size
+            fresh
+        } ?: return
         current.session.offer(pcm)
+    }
+
+    /** 新一轮的音频开始：总长与播放头基准一起归零，上一轮的帧不算进来。 */
+    fun beginSource() {
+        synchronized(lock) {
+            enqueuedBytes = 0L
+            progressCeiling = 0f
+            headBase = output?.track?.playbackHeadPosition?.toLong()?.and(0xFFFFFFFFL) ?: 0L
+        }
+    }
+
+    /**
+     * 播放头走了多少，0 到 1。总长按已经投进来的音频算，音频还在路上时比例会往下掉，
+     * 这里只放上界，界面上那束光就不会倒退。没有在播的会话返回 null。
+     */
+    fun progress(): Float? {
+        synchronized(lock) {
+            val current = output ?: return null
+            val totalFrames = enqueuedBytes / 2
+            if (totalFrames <= 0L) return null
+            val head = current.track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+            val played = (head - headBase).coerceAtLeast(0L)
+            val raw = (played.toFloat() / totalFrames).coerceIn(0f, 1f)
+            if (raw > progressCeiling) progressCeiling = raw
+            return progressCeiling
+        }
     }
 
     fun flush() {
@@ -99,6 +138,9 @@ class AudioPlayer(context: Context) {
             Log.w(TAG, "无法创建播放器: ${e.message}")
             return null
         }
+        enqueuedBytes = 0L
+        progressCeiling = 0f
+        headBase = 0L
         requestFocusLocked()
         val fresh = Output(created)
         output = fresh
