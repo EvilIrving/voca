@@ -781,31 +781,35 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 按下去的这一下有没有被收下。输入条按住够久才调它，被拒时只弹一条提示并返回假，
-     * 界面据此退回 Idle，不装作在收音。
+     * 按下去的这一下有没有被收下。未就绪时统一通过 notice 给出明确状态反馈，
+     * 失败态下用户主动点击会立即触发重连，不把点击静默吞掉。
      */
     fun onRecordPressStart(): Boolean {
         // 上一段已经收尾（静默到点或刚从一条历史会话退出来），这一下就是新的一段的第一手。
         ledger.touch()
-        when (connection) {
-            Connection.Unconfigured -> {
-                showNotice(FillLiveKey)
-                return false
-            }
-
-            // 连接还在路上就当这一下没按过，不弹任何提示，状态只在日志里。
-            Connection.Connecting, Connection.Failed -> {
-                Log.i(Tag, "连接未就绪，这一下不收")
-                return false
-            }
-
-            Connection.Ready -> Unit
-        }
+        if (!requireReadyConnection()) return false
         // 上一轮的判定还在跑就掐掉：它的结论属于上一段，落到这一轮会把这一段判错。
         vadJob?.cancel()
         vadJob = null
         dispatch(TurnEvent.PressStart)
         return true
+    }
+
+    private fun requireReadyConnection(): Boolean = when (connection) {
+        Connection.Ready -> true
+        Connection.Unconfigured -> {
+            showNotice(FillLiveKey)
+            false
+        }
+        Connection.Connecting -> {
+            showNotice(ConnectingNotice)
+            false
+        }
+        Connection.Failed -> {
+            showNotice(ReconnectingNotice)
+            reconnect()
+            false
+        }
     }
 
     fun onRecordArmed(armed: Boolean) = dispatch(TurnEvent.ArmCancel(armed))
@@ -918,8 +922,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             TextGate.Allowed -> dispatch(TurnEvent.TextTurn(text))
             TextGate.Unconfigured -> showNotice(FillLiveKey)
             TextGate.Unsupported -> Log.i(Tag, TextUnsupported)
-            // 连接没就绪时这一句根本发不出去，界面不出声，日志里留一行。
-            TextGate.Waiting -> Log.i(Tag, "连接未就绪，文字没有发出")
+            TextGate.Waiting -> requireReadyConnection()
         }
     }
 
@@ -1523,6 +1526,8 @@ internal fun injectModels(
 
 /** 实时语音还缺凭证时的提示语。按录音与打字输入共用同一句，指向设置里那一栏。 */
 internal const val FillLiveKey = "请填写语音模型 apikey"
+private const val ConnectingNotice = "正在连接语音服务"
+private const val ReconnectingNotice = "连接失败，正在重连"
 
 /** 线路不收文字时的提示语。开场问候与打字输入共用同一句。 */
 internal const val TextUnsupported = "当前语音模型不支持打字"
