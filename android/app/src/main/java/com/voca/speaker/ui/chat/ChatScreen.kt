@@ -260,6 +260,7 @@ fun ChatScreen(
                 levels = levels,
                 levelFrame = levelFrame,
                 recording = state.recording,
+                acceptsText = state.acceptsText,
                 onPressStart = onRecordPressStart,
                 onArmed = onRecordArmed,
                 onPressEnd = onRecordPressEnd,

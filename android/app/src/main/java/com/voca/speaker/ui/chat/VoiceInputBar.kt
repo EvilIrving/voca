@@ -21,6 +21,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -226,6 +227,7 @@ private val ClockStyle = TextStyle(
 )
 /** 空胶囊上那一句就是画板上的占位：点一下进草稿，按住开录，两件事都写在这行字里。 */
 private const val Placeholder = "点击输入或长按说点什么"
+private const val VoiceOnlyPlaceholder = "按住说点什么"
 
 private val PlaceholderStyle = TextStyle(
     fontFamily = InterFamily,
@@ -269,6 +271,7 @@ fun VoiceInputBar(
     levels: FloatArray,
     levelFrame: Long,
     recording: Boolean,
+    acceptsText: Boolean = true,
     preview: VoicePreview? = null,
     onPressStart: () -> Boolean,
     onArmed: (Boolean) -> Unit,
@@ -347,8 +350,16 @@ fun VoiceInputBar(
                     ended.value(false)
                 }
 
-                VoiceEffect.OpenDraft -> requestDraft()
+                VoiceEffect.OpenDraft -> if (acceptsText) requestDraft()
             }
+        }
+    }
+
+    // 切到不支持打字的语音线路时收掉草稿编辑态，避免键盘悬在不支持文字的条上。
+    LaunchedEffect(acceptsText) {
+        if (!acceptsText && editing) {
+            editing = false
+            focusManager.clearFocus()
         }
     }
 
@@ -408,8 +419,8 @@ fun VoiceInputBar(
     // 作废动效播放期间界面读冻结的那一帧，手势机器本身已经回到 Idle。
     val frozen = discard
     val phase = frozen?.phase ?: gesture.phase
-    // 草稿空着时仍要能按住录：空输入框没有可编辑的东西，挡住手势只会让人以为麦克风坏了。
-    val gestureLive = gesture.phase != VoicePhase.Idle || !editing || draft.isEmpty()
+    // 草稿空着或纯语音线路时仍要能按住录：空输入框没有可编辑的东西，挡住手势只会让人以为麦克风坏了。
+    val gestureLive = gesture.phase != VoicePhase.Idle || !acceptsText || !editing || draft.isEmpty()
     val dragging = phase == VoicePhase.Holding || phase == VoicePhase.Cancelling
 
     // 圆钮左移每帧吃进目标的 0.3：图形始终落后手指一截，松手自己追上来。
@@ -431,7 +442,7 @@ fun VoiceInputBar(
     )
 
     val inFlight = phase == VoicePhase.Locked || phase == VoicePhase.Paused
-    val draftReady = draft.isNotBlank()
+    val draftReady = acceptsText && draft.isNotBlank()
     val plane = inFlight || draftReady
 
     Box(
@@ -462,23 +473,32 @@ fun VoiceInputBar(
                     ),
             ) {
                 // 中：胶囊基座。宽度只由可用宽度算出，五档状态共用同一条，永不被圆钮挤动。
+                val pillFill = when {
+                    phase == VoicePhase.Idle && !acceptsText && gesture.pressed -> Palette.hairSoft
+                    phase == VoicePhase.Idle && !acceptsText -> Palette.tint
+                    else -> Palette.card
+                }
                 Box(
                     modifier = Modifier
                         .offset(x = InputBarSpec.SideInset, y = 0.dp)
                         .size(pillWidth, InputBarSpec.PillHeight)
                         .clip(PillShape)
-                        .background(Palette.card)
+                        .background(pillFill)
                         .border(1.dp, Palette.hairSoft, PillShape),
                 ) {
                     when (phase) {
-                        VoicePhase.Idle -> DraftRow(
-                            draft = draft,
-                            editing = editing,
-                            onChange = { draft = it },
-                            onSend = sendDraft,
-                            onTap = requestDraft,
-                            focus = focus,
-                        )
+                        VoicePhase.Idle -> if (acceptsText) {
+                            DraftRow(
+                                draft = draft,
+                                editing = editing,
+                                onChange = { draft = it },
+                                onSend = sendDraft,
+                                onTap = requestDraft,
+                                focus = focus,
+                            )
+                        } else {
+                            VoiceOnlyRow()
+                        }
 
                         VoicePhase.Holding, VoicePhase.Cancelling -> RecordingRow(
                             progress = if (frozen != null) 0f else progress,
@@ -806,6 +826,31 @@ private fun DraftRow(
                 onClick = onTap,
             ) { text() }
         }
+    }
+}
+
+/** 不支持文字输入的语音线路：整条胶囊收成按住说话的触控条，不再露出假装可点的输入框。 */
+@Composable
+private fun VoiceOnlyRow() {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = FluentIcons.Mic,
+            contentDescription = null,
+            tint = Palette.ink2,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = VoiceOnlyPlaceholder,
+            style = PlaceholderStyle.copy(color = Palette.ink2, fontWeight = FontWeight.Medium),
+            maxLines = 1,
+        )
     }
 }
 

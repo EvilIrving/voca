@@ -119,6 +119,8 @@ data class ChatState(
     val sessionId: String? = null,
     /** 正在流式吐字的那一轮助手消息，界面只对它从头起播文字动画。 */
     val streamingTurnId: String? = null,
+    /** 当前语音线路是否允许打字输入，不支持时输入条收成纯粹的按住说话状态。 */
+    val acceptsText: Boolean = true,
 ) {
     val round: Int get() = turns.count { it.speaker == Speaker.User && it.text.isNotBlank() }
 }
@@ -381,12 +383,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 clearNotice()
                 if (!greeted) {
                     greeted = true
-                    // 开场问候本身就是一条文字消息，线路不收文字就一条都不发，改弹一条说明。
+                    // 开场问候本身就是一条文字消息，线路不收文字就跳过，输入条本身会切到纯语音态。
                     when (textGate(Connection.Ready, capabilities)) {
                         TextGate.Allowed ->
                             session?.sendText(openingOf(SeedContent.SessionOpening, GreetingPrompt))
-                        TextGate.Unsupported -> showNotice(TextUnsupported)
-                        TextGate.Waiting, TextGate.Unconfigured -> Unit
+                        TextGate.Unsupported, TextGate.Waiting, TextGate.Unconfigured -> Unit
                     }
                 }
             }
@@ -553,6 +554,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 sessionName = continuing?.name?.ifBlank { null },
                 sessionId = continuing?.id,
                 streamingTurnId = streamingId,
+                acceptsText = capabilities?.acceptsText != false,
             )
         }
     }
@@ -915,7 +917,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         when (textGate(connection, capabilities)) {
             TextGate.Allowed -> dispatch(TurnEvent.TextTurn(text))
             TextGate.Unconfigured -> showNotice(FillLiveKey)
-            TextGate.Unsupported -> showNotice(TextUnsupported)
+            TextGate.Unsupported -> Log.i(Tag, TextUnsupported)
             // 连接没就绪时这一句根本发不出去，界面不出声，日志里留一行。
             TextGate.Waiting -> Log.i(Tag, "连接未就绪，文字没有发出")
         }
