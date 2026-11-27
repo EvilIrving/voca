@@ -23,6 +23,9 @@ venv/
 /hiecho-reverse/
 /PROJECT_MEMORY.md
 
+# 从竞品 APK 里导出的图标，取证用，不进版本库
+/docs/design/competitor-icons/
+
 # Kotlin 与 Android 构建产物
 .gradle/
 build/

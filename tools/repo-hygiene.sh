@@ -9,7 +9,7 @@ failed=0
 fail() { printf 'FAIL  %s\n' "$*"; failed=1; }
 pass() { printf 'ok    %s\n' "$*"; }
 
-for path in hiecho-reverse PROJECT_MEMORY.md; do
+for path in hiecho-reverse PROJECT_MEMORY.md docs/design/competitor-icons; do
   count=$(git ls-files -- "$path" | wc -l | tr -d ' ')
   if [ "$count" -gt 0 ]; then
     fail "$path 有 $count 个文件在索引里：git rm -r --cached $path"

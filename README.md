@@ -113,3 +113,21 @@ flowchart TD
 - **音频流处理**：AudioRecord 原生音频采集（48 kHz 采样封为 Ogg/Opus，下采样至 16 kHz 20ms 流式帧传输）。
 - **状态驱动**：确定性单向数据流状态机管理，网络会话标识与主线程原子互斥隔离。
 - **构建与测试**：执行 `tools/gate.sh` 编译并运行单元测试。
+
+### 本地构建
+
+需要 JDK 17 与 Android SDK（Platform 37）。首次构建要联网拉依赖：
+
+```bash
+cd android && ./gradlew :app:assembleDebug
+```
+
+日常验收走 `tools/gate.sh`，它调用 `--offline`，靠本机已有的 Gradle 缓存编译 debug 变体并跑单元测试，带参数就只跑指定任务，例如 `tools/gate.sh :app:testDebugUnitTest`。装到手机上走 `.agents/skills/android-device-testing/scripts/android-drive.sh install`，它自己处理厂商的安装拦截框。
+
+供应商凭据在设置页填写，经 Android Keystore 加密后只留在本机。仓库根目录的 `.env` 只用来覆盖开发时的默认模型名与音色，不进版本库，也不参与 release 包。
+
+---
+
+## 许可
+
+Apache License 2.0，全文见 [LICENSE](LICENSE)。
