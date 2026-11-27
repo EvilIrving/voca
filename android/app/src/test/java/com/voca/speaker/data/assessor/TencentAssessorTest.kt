@@ -73,7 +73,8 @@ class TencentAssessorTest {
 
         assertTrue(url.startsWith("wss://soe.cloud.tencent.com/soe/api/125922?"))
         assertTrue("空格写成 %20 而不是加号", url.contains("ref_text=%7B%3A%3Acmd%7BF_IPA%3Dtrue%7D%7Dhello%20there"))
-        assertTrue("签名最后一段必须转义等号", url.contains("&signature=") && !url.contains("signature=x"))
+        val signature = url.substringAfter("signature=").substringBefore("&")
+        assertTrue("签名最后一段必须转义等号", signature.endsWith("%3D"))
         assertTrue(url.contains("timestamp=1699999940"))
         assertTrue("有效期落在九十天上限之内", url.contains("expired=1700003540"))
     }
