@@ -47,6 +47,7 @@ import com.voca.speaker.data.realtime.Capabilities
 import com.voca.speaker.data.realtime.RealtimeEvent
 import com.voca.speaker.data.realtime.RealtimeSession
 import com.voca.speaker.data.realtime.RealtimeSessionFactory
+import com.voca.speaker.data.settings.SettingsProjection
 import com.voca.speaker.data.settings.SettingsStore
 import com.voca.speaker.domain.CaptureFailure
 import com.voca.speaker.domain.AnalysisSettings
@@ -1194,7 +1195,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun refreshProviders() {
-        _providers.value = providerLines(settingsStore.settings.value)
+        _providers.value = SettingsProjection.providerLines(settingsStore.settings.value)
     }
 
     /**
@@ -1511,48 +1512,6 @@ internal enum class AnalysisRoute { Flow, Store }
  */
 internal fun analysisRoute(turns: List<Turn>, turnId: String): AnalysisRoute =
     if (turns.any { it.id == turnId }) AnalysisRoute.Flow else AnalysisRoute.Store
-
-/**
- * 设置页每行的读数。已配置只看这一家自己的凭据，同组几家互不影响；
- * 生效那家由设置里的 provider 说了算，界面把单选点填在 active 那一行。
- */
-internal fun providerLines(settings: AppSettings): List<ProviderLine> {
-    val live = settings.live
-    val realtime = LiveVendor.entries.map { vendor ->
-        ProviderLine(
-            group = ProviderGroup.Realtime,
-            key = vendor.key,
-            name = vendor.label,
-            detail = live.tuningOf(vendor).model,
-            configured = live.ready(vendor),
-            active = live.provider == vendor,
-        )
-    }
-    val assessor = settings.assessor
-    val assessors = AssessorProvider.entries.filter { it != AssessorProvider.None }.map { vendor ->
-        ProviderLine(
-            group = ProviderGroup.Assessor,
-            key = vendor.key,
-            name = vendor.label,
-            detail = vendor.detail(assessor),
-            configured = assessor.ready(vendor),
-            active = assessor.resolvedProvider == vendor,
-        )
-    }
-    val analysis = settings.analysis
-    val text = TextProviderCatalog.all.map { provider ->
-        val own = analysis.of(provider.id)
-        ProviderLine(
-            group = ProviderGroup.Analysis,
-            key = provider.id,
-            name = provider.label,
-            detail = own.model.ifBlank { hostOf(provider) },
-            configured = own.ready,
-            active = analysis.provider == provider.id,
-        )
-    }
-    return realtime + assessors + text
-}
 
 /** 把一家的可见清单注入目录副本，界面只读 provider.models，不写供应商分支。 */
 internal fun injectModels(

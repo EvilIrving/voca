@@ -2,6 +2,7 @@ package com.voca.speaker.ui.chat
 
 import com.voca.speaker.data.analysis.TextModel
 import com.voca.speaker.data.analysis.TextProviderCatalog
+import com.voca.speaker.data.settings.SettingsProjection
 import com.voca.speaker.domain.AnalysisCredentials
 import com.voca.speaker.domain.AnalysisSettings
 import com.voca.speaker.domain.AppSettings
@@ -185,5 +186,5 @@ class ProviderLinesTest {
     }
 
     private fun group(settings: AppSettings, group: ProviderGroup): List<ProviderLine> =
-        providerLines(settings).filter { it.group == group }
+        SettingsProjection.providerLines(settings).filter { it.group == group }
 }
